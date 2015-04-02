@@ -1,6 +1,14 @@
-# python standard library imports
+#!/usr/bin/python
 import os 
 import sys
+from datetime import datetime
+#import timeit
+
+#print datetime.now()
+#print timeit.timeit("datetime.now()", setup="from __main__ import datetime", number=1000)/1000
+#print datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
+#print timeit.timeit("datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')", setup="from __main__ import datetime", number=1000)/1000
+#exit()
 
 
 def is_number(number):
@@ -24,7 +32,8 @@ def is_number(number):
     
 class logger(object):
     def __init__(self, logToTerminal=True, logToFile=True, 
-                       logFileBasename="log", logFileExtension="log", maxlogFileSize=10):
+                       logFileBasename="log", logFileExtension="log", maxlogFileSize=10,
+                       formater=None):
         # set log to terminal
         self.set_log_to_terminal(logToTerminal)
         # set log to file
@@ -35,6 +44,8 @@ class logger(object):
         self.set_log_file_extension(logFileExtension)
         # set logFile name
         self.set_log_file_basename(logFileBasename)
+        # set formater
+        self.set_formater(formater)
         
     
     @property
@@ -60,7 +71,10 @@ class logger(object):
     @property
     def maxlogFileSize(self):
         return self.__maxlogFileSize
-        
+    
+    def _get_time_string(self, format='%Y-%m-%d %H:%M:%S'):
+        return datetime.strftime(datetime.now(), format)
+            
     def set_log_to_terminal(self, logToTerminal):
         self.__logToTerminal = logToTerminal
     
@@ -104,11 +118,7 @@ class logger(object):
 import timeit
 def create_fake_log(fname):
     fd = open(fname, 'a')
-    lines = 1000
-    while lines:
-        lines -= 1
-        fd.write(str(lines)*100+"\n")
-    
+    fd.write("a"*100+"\n")
     fd.close()
     
 
@@ -119,6 +129,7 @@ fname = 'log.txt'
 #print os.stat('log.txt').st_size/1e6
 
 #  first try
+print timeit.timeit("create_fake_log(fname)",setup="from __main__ import fname, create_fake_log",  number=1000)/1000.
 #create_fake_log(fname)    
 #print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
 
