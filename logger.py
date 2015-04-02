@@ -11,7 +11,12 @@ from datetime import datetime
 #print timeit.timeit("datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')", setup="from __main__ import datetime", number=1000)/1000
 #exit()
 
+# http://code.activestate.com/recipes/475116/
+# https://github.com/dgentry/Todo-o-matic/blob/master/gcolors.py
+# http://blog.mathieu-leplatre.info/colored-output-in-console-with-python.html
+# https://github.com/ilovecode1/pyfancy/blob/master/pyfancy.py
 
+	        
 def is_number(number):
     """
     check if number is convertible to float.
@@ -32,13 +37,17 @@ def is_number(number):
         return True
     
 class Logger(object):
+    BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = ["\x1b[1;%dm"%(30+c) for c in range(8)]
+    END = "\x1b[0m"
+    
+    
     def __init__(self, name="logger",
-                       logToTerminal=True, logToFile=True, 
+                       logToStdout=True, logToFile=True, 
                        logFileBasename="log", logFileExtension="log", maxlogFileSize=10):
-        # set formater
+        # set name
         self.set_name(name)
-        # set log to terminal
-        self.set_log_to_terminal(logToTerminal)
+        # set log to stdout
+        self.set_log_to_stdout(logToStdout)
         # set log to file
         self.set_log_to_file(logToFile)
         # set maximum logFile size
@@ -48,15 +57,35 @@ class Logger(object):
         # set logFile name
         self.set_log_file_basename(logFileBasename)
         # create levels
-        self.__levelsFileFlags = {}
-        self.__levelsTerminalFlags = {}
-        self.__levelsName  = {}
-        self.add_level("info", name=None, terminalFlag=True, fileFlag=True)
-        self.add_level("warn", name=None, terminalFlag=True, fileFlag=True)
-        self.add_level("error", name=None, terminalFlag=True, fileFlag=True)
-        self.add_level("critical", name=None, terminalFlag=True, fileFlag=True)
+        self.__levelsFileFlags   = {}
+        self.__levelsStdoutFlags = {}
+        self.__levelsName        = {}
+        self.__levelsColors      = {}
+        self.add_level("info", name=None, color=None, stdoutFlag=True, fileFlag=True)
+        self.add_level("warn", name=None, color=None, stdoutFlag=True, fileFlag=True)
+        self.add_level("error", name=None, color=None, stdoutFlag=True, fileFlag=True)
+        self.add_level("critical", name=None, color=None, stdoutFlag=True, fileFlag=True)
+        # set stdout color allowed flag
+        self.__stdoutColorAllowed = self.__has_colours(sys.stdout)
 
     
+    def __stream_allow_colours(self, stream):
+        """
+        following from Python cookbook, #475186
+        check whether a stream allows coloring
+        """
+        if not hasattr(stream, "isatty"):
+            return False
+        if not stream.isatty():
+            return False # auto color only on TTYs
+        try:
+            import curses
+            curses.setupterm()
+            return curses.tigetnum("colors") > 2
+        except:
+            # guess false in case of error
+            return False
+            
     @property
     def levels(self):
         """list of all defined levels"""
@@ -68,9 +97,9 @@ class Logger(object):
         return copy.deepcopy(self.__levelsFileFlags)
     
     @property
-    def levelsTerminalFlags(self):
-        """dictionary of all defined levels logging terminal flags"""
-        return copy.deepcopy(self.__levelsTerminalFlags)
+    def levelsStdoutFlags(self):
+        """dictionary of all defined levels logging stdout flags"""
+        return copy.deepcopy(self.__levelsStdoutFlags)
     
     @property
     def levelsName(self):
@@ -83,9 +112,9 @@ class Logger(object):
         return self.__name
         
     @property
-    def logToTerminal(self):
-        """log to terminal flag."""
-        return self.__logToTerminal
+    def logToStdout(self):
+        """log to stdout flag."""
+        return self.__logToStdout
     
     @property
     def logToFile(self):
@@ -111,14 +140,14 @@ class Logger(object):
     def maxlogFileSize(self):
         """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
-    
+        
     def set_name(self, name):
         assert isinstance(name, basestring), "name must be a string"
         self.__name = name
                
-    def set_log_to_terminal(self, logToTerminal):
-        assert isinstance(logToTerminal, bool), "logToTerminal must be boolean"
-        self.__logToTerminal = logToTerminal
+    def set_log_to_stdout(self, logToStdout):
+        assert isinstance(logToStdout, bool), "logToStdout must be boolean"
+        self.__logToStdout = logToStdout
     
     def set_log_to_file(self, logToFile):
         assert isinstance(logToFile, bool), "logToFile must be boolean"
@@ -155,35 +184,35 @@ class Logger(object):
         assert maxlogFileSize>=1, "maxlogFileSize minimum size is 1 megabytes"
         self.__maxlogFileSize = maxlogFileSize
         
-    def add_level(self, level, name=None, terminalFlag=True, fileFlag=True):
-        assert level not in self.__levelsTerminalFlags.keys(), "level '%s' already defined" %level
+    def add_level(self, level, name=None, stdoutFlag=True, fileFlag=True):
+        assert level not in self.__levelsStdoutFlags.keys(), "level '%s' already defined" %level
         assert isinstance(level, basestring), "level must be a string"
         level=str(level)
         if name is None:
             name = level
         assert isinstance(name, basestring), "name must be a string"
         name = str(name)
-        assert isinstance(terminalFlag, bool), "terminalFlag must be boolean"
+        assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         # add level
-        self.__levelsTerminalFlags[level] = terminalFlag
+        self.__levelsStdoutFlags[level] = stdoutFlag
         self.__levelsFileFlags[level] = fileFlag
         self.__levelsName[level]  = name
                 
-    def formatter(self, level, message, terminalFormat=True):
+    def formatter(self, level, message, stdoutFormat=True):
         dateTime = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
         return "%s - %s <%s> %s" %(dateTime, self.__name, self.__levelsName[level], message)
         
     def log(self, level, message):
-        # log to terminal
-        if self.__logToTerminal:
-            if self.__levelsTerminalFlags[level]:
-                log = self.formatter(level, message, terminalFormat=True)
+        # log to stdout
+        if self.__logToStdout:
+            if self.__levelsStdoutFlags[level]:
+                log = self.formatter(level, message, stdoutFormat=True)
                 print log
         # log to file
         if self.__logToFile:
             if self.__levelsFileFlags[level]:
-                log = self.formatter(level, message, terminalFormat=False)
+                log = self.formatter(level, message, stdoutFormat=False)
                 print log
         
 
