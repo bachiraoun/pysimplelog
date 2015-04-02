@@ -172,6 +172,7 @@ class Logger(object):
         
     def set_name(self, name):
         assert isinstance(name, basestring), "name must be a string"
+        print name
         self.__name = name
     
     def set_stdout(self, stream=None):
@@ -227,6 +228,8 @@ class Logger(object):
                 break
             number += 1
             self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
+        # create log file stram
+        self.__logFileStream = open(self.__logFileName, 'a')
         
     def set_maximum_log_file_size(self, maxlogFileSize):
         assert is_number(maxlogFileSize), "maxlogFileSize must be a number"
@@ -265,7 +268,8 @@ class Logger(object):
                 self.__logTypeStdoutFlags[logType] = l<level
             if fileFlag:
                 self.__logTypeFileFlags[logType] = l<level
-    
+        
+        
     def set_log_type_stdout_flag(self, logType, flag):
          assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
          assert isinstance(flag, bool), "flag must be boolean"
@@ -323,12 +327,9 @@ class Logger(object):
         return ""
         
     def __log_to_file(self, message):
-        if os.path.isfile(self.__logFileName):
-            if os.stat(self.__logFileName).st_size/1e6 < self.__maxlogFileSize:
-                self.set_log_file_name()
-        fd = open(self.__logFileName, 'a')
-        fd.write(message)
-        fd.close()
+        if self.__logFileStream.tell()/1e6 < self.__maxlogFileSize:
+            self.set_log_file_name()
+        self.__logFileStream.write(message)
         
     def __log_to_stdout(self, message):
         self.__stdout.write(message)
@@ -342,22 +343,36 @@ class Logger(object):
         if self.__logToFile and self.__logTypeFileFlags[level]:
             log = self.format_message(level, message)
             self.__log_to_file(log)
+            
+    def info(self, message):
+        """alias to message at information level"""
+        self.log("info", message)
         
-
+    def warn(self, message):
+        """alias to message at warning level"""
+        self.log("warn", message)
+        
+    def error(self, message):
+        """alias to message at error level"""
+        self.log("error", message)
+        
+    def critical(self, message):
+        """alias to message at critical level"""
+        self.log("critical", message)
+        
+    def debug(self, message):
+        """alias to message at debug level"""
+        self.log("debug", message)
+    
+        
 if __name__ == "__main__":
+    #import time
     l=Logger("fullrmc")
     l.set_log_to_file(True)
     l.add_level("step accepted", name="info")
     l.add_level("step rejected", name="info")
     for logType in l.logTypes:
+        #tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
+        #print "%s seconds"%str(time.clock()-tic)
     
-    
-    #from ctypes import *
-    #STD_OUTPUT_HANDLE_ID = c_ulong(0xfffffff5)
-    #windll.Kernel32.GetStdHandle.restype = c_ulong
-    #std_output_hdl = windll.Kernel32.GetStdHandle(STD_OUTPUT_HANDLE_ID)
-    #for color in xrange(16):
-    #    windll.Kernel32.SetConsoleTextAttribute(std_output_hdl, color)
-    #    print "hello"
-    #    
