@@ -1,4 +1,4 @@
-#!/usr/bin/python
+# python standard library imports
 import os 
 import sys
 
