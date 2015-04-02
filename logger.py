@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import os 
 import sys
+import copy
 from datetime import datetime
 #import timeit
 
@@ -30,10 +31,12 @@ def is_number(number):
     else:
         return True
     
-class logger(object):
-    def __init__(self, logToTerminal=True, logToFile=True, 
-                       logFileBasename="log", logFileExtension="log", maxlogFileSize=10,
-                       formater=None):
+class Logger(object):
+    def __init__(self, name="logger",
+                       logToTerminal=True, logToFile=True, 
+                       logFileBasename="log", logFileExtension="log", maxlogFileSize=10):
+        # set formater
+        self.set_name(name)
         # set log to terminal
         self.set_log_to_terminal(logToTerminal)
         # set log to file
@@ -44,60 +47,100 @@ class logger(object):
         self.set_log_file_extension(logFileExtension)
         # set logFile name
         self.set_log_file_basename(logFileBasename)
-        # set formater
-        self.set_formater(formater)
-        
+        # create levels
+        self.__levelsFileFlags = {}
+        self.__levelsTerminalFlags = {}
+        self.__levelsName  = {}
+        self.add_level("info", name=None, terminalFlag=True, fileFlag=True)
+        self.add_level("warn", name=None, terminalFlag=True, fileFlag=True)
+        self.add_level("error", name=None, terminalFlag=True, fileFlag=True)
+        self.add_level("critical", name=None, terminalFlag=True, fileFlag=True)
+
     
     @property
+    def levels(self):
+        """list of all defined levels"""
+        return self.__levelsName.keys()
+    
+    @property
+    def levelsFileFlags(self):
+        """dictionary of all defined levels logging file flags"""
+        return copy.deepcopy(self.__levelsFileFlags)
+    
+    @property
+    def levelsTerminalFlags(self):
+        """dictionary of all defined levels logging terminal flags"""
+        return copy.deepcopy(self.__levelsTerminalFlags)
+    
+    @property
+    def levelsName(self):
+        """dictionary of all defined levels name showing when logging"""
+        return copy.deepcopy(self.__levelsName)
+            
+    @property
+    def name(self):
+        """logger name."""
+        return self.__name
+        
+    @property
     def logToTerminal(self):
+        """log to terminal flag."""
         return self.__logToTerminal
     
     @property
     def logToFile(self):
+        """log to file flag."""
         return self.__logToFile
     
     @property
     def logFileName(self):
-        return self.__logFileBasename
+        """currently used log file name."""
+        return self.__logFileName
             
     @property
     def logFileBasename(self):
+        """log file basename."""
         return self.__logFileBasename
         
     @property
     def logFileExtension(self):
+        """log file extension."""
         return self.__logFileExtension
         
     @property
     def maxlogFileSize(self):
+        """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
     
-    def _get_time_string(self, format='%Y-%m-%d %H:%M:%S'):
-        return datetime.strftime(datetime.now(), format)
-            
+    def set_name(self, name):
+        assert isinstance(name, basestring), "name must be a string"
+        self.__name = name
+               
     def set_log_to_terminal(self, logToTerminal):
+        assert isinstance(logToTerminal, bool), "logToTerminal must be boolean"
         self.__logToTerminal = logToTerminal
     
     def set_log_to_file(self, logToFile):
-        assert isinstance(logToFile, basestring), "logToFile must be a basestring"
-        logToFile = str(logToFile)
-        assert len(logToFile), "logToFile can't be empty"
-        assert logToFile[-1] != ".", "logToFile last character can't be a dot"
+        assert isinstance(logToFile, bool), "logToFile must be boolean"
         self.__logToFile = logToFile
     
     def set_log_file_extension(self, logFileExtension):
         assert isinstance(logFileExtension, basestring), "logFileExtension must be a basestring"
         logFileExtension = str(logFileExtension)
         assert len(logFileExtension), "logFileExtension can't be empty"
-        assert logToFile[0] != ".", "logFileExtension first character can't be a dot"
-        assert logToFile[-1] != ".", "logFileExtension last character can't be a dot"
+        assert logFileExtension[0] != ".", "logFileExtension first character can't be a dot"
+        assert logFileExtension[-1] != ".", "logFileExtension last character can't be a dot"
         self.__logFileExtension = logFileExtension
     
     def set_log_file_basename(self, logFileBasename):
         assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
         logFileBasename = str(logFileBasename)
         self.__logFileBasename = logFileBasename
-        # create log file name
+        # set log file name
+        self.set_log_file_name()
+    
+    def set_log_file_name(self):
+        """Automatically set logFileName attribute"""
         self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
         number = 0
         while os.path.isfile(self.__logFileName):
@@ -105,43 +148,54 @@ class logger(object):
                 break
             number += 1
             self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
-    
+        
     def set_maximum_log_file_size(self, maxlogFileSize):
         assert is_number(maxlogFileSize), "maxlogFileSize must be a number"
         maxlogFileSize = float(maxlogFileSize)
         assert maxlogFileSize>=1, "maxlogFileSize minimum size is 1 megabytes"
         self.__maxlogFileSize = maxlogFileSize
         
+    def add_level(self, level, name=None, terminalFlag=True, fileFlag=True):
+        assert level not in self.__levelsTerminalFlags.keys(), "level '%s' already defined" %level
+        assert isinstance(level, basestring), "level must be a string"
+        level=str(level)
+        if name is None:
+            name = level
+        assert isinstance(name, basestring), "name must be a string"
+        name = str(name)
+        assert isinstance(terminalFlag, bool), "terminalFlag must be boolean"
+        assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        # add level
+        self.__levelsTerminalFlags[level] = terminalFlag
+        self.__levelsFileFlags[level] = fileFlag
+        self.__levelsName[level]  = name
+                
+    def formatter(self, level, message, terminalFormat=True):
+        dateTime = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
+        return "%s - %s <%s> %s" %(dateTime, self.__name, self.__levelsName[level], message)
+        
+    def log(self, level, message):
+        # log to terminal
+        if self.__logToTerminal:
+            if self.__levelsTerminalFlags[level]:
+                log = self.formatter(level, message, terminalFormat=True)
+                print log
+        # log to file
+        if self.__logToFile:
+            if self.__levelsFileFlags[level]:
+                log = self.formatter(level, message, terminalFormat=False)
+                print log
+        
 
-
-
-import timeit
-def create_fake_log(fname):
-    fd = open(fname, 'a')
-    fd.write("a"*100+"\n")
-    fd.close()
+if __name__ == "__main__":
+    l=Logger("fullrmc")
+    l.set_log_to_file(False)
+    l.add_level("step accepted", name="info")
+    l.add_level("step rejected", name="info")
+    for level in l.levels:
+        l.log(level, "this is '%s' level log message."%level)
     
-
-fname = 'log.txt'
-
-# empty
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()",  number=10000)/10000.
-#print os.stat('log.txt').st_size/1e6
-
-#  first try
-print timeit.timeit("create_fake_log(fname)",setup="from __main__ import fname, create_fake_log",  number=1000)/1000.
-#create_fake_log(fname)    
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
-
-#create_fake_log(fname)    
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
-
-#create_fake_log(fname)    
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
-
-#create_fake_log(fname)    
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
-
-#create_fake_log(fname)    
-#print timeit.timeit("fd = open('log.txt', 'a')\nfd.close()", number=10000)/10000.
-#print os.stat('log.txt').st_size/1e6
+    
+    
+    
+    
