@@ -57,23 +57,28 @@ class Logger(object):
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
-    def __stream_format_not_allowed(self, stream):
+    def __stream_format_allowed(self, stream):
         """
-        following from Python cookbook, #475186
-        check whether a stream allows coloring
+        Check whether a stream allows formatting such as coloring.
+        Inspired from Python cookbook, #475186
         """
+        # curses isn't available on all platforms
+        try:
+            import curses as CURSES
+        except:
+            CURSES = None
+        if CURSES is not None:
+            CURSES.setupterm()
+            return CURSES.tigetnum("colors") >= 2
+        else:
+            # guess false in case of error
+            return False
+        # if stream is not TeleTYpewriter (tty)
         if not hasattr(stream, "isatty"):
             return False
         if not stream.isatty():
             return False # auto color only on TTYs
-        try:
-            import curses
-            curses.setupterm()
-            return curses.tigetnum("colors") > 2
-        except:
-            # guess false in case of error
-            return False
-    
+
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
            self.__logFileStream.close() 
@@ -171,7 +176,7 @@ class Logger(object):
         # set reset
         resetCode = "0"
         # if attributing is not allowed
-        if self.__stream_format_not_allowed(stream):
+        if not self.__stream_format_allowed(stream):
             fgCode    = ["" for idx in fgCode]
             bgCode    = ["" for idx in bgCode]
             attrCode  = ["" for idx in attrCode]
@@ -295,7 +300,6 @@ class Logger(object):
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         # set wrapFancy
         wrapFancy=["",""]
-        print self.__stdoutFontFormat
         if color is not None:
             assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
             code = self.__stdoutFontFormat["color"][color]
@@ -326,7 +330,6 @@ class Logger(object):
         self.__logTypeNames[logType]       = name
         self.__logTypeLevels[logType]      = level
         self.__logTypeFormat[logType]      = wrapFancy
-        print logType, self.__logTypeFormat[logType]
                 
     def format_message(self, level, message):
         header = self.get_header(level, message)
@@ -395,10 +398,11 @@ class Logger(object):
         
 if __name__ == "__main__":
     import time
-    l=Logger("fullrmc")
+    l=Logger("log test")
     l.set_log_to_file(True)
-    l.add_level("step accepted", name="info", color='pink', attributes=["blink"])
-    l.add_level("step rejected", name="info")
+    l.add_level("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
+    l.add_level("wrong", name="info", color='magenta', attributes=["strike through"])
+    l.add_level("important", name="info", color='black', highlight="orange", attributes=["bold"])
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
