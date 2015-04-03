@@ -3,46 +3,8 @@ import os
 import sys
 import copy
 from datetime import datetime
-#import timeit
+import atexit
 
-#print datetime.now()
-#print timeit.timeit("datetime.now()", setup="from __main__ import datetime", number=1000)/1000
-#print datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
-#print timeit.timeit("datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')", setup="from __main__ import datetime", number=1000)/1000
-#exit()
-
-# http://code.activestate.com/recipes/475116/
-# https://github.com/dgentry/Todo-o-matic/blob/master/gcolors.py
-# http://blog.mathieu-leplatre.info/colored-output-in-console-with-python.html
-# https://github.com/ilovecode1/pyfancy/blob/master/pyfancy.py
-
-# Text colors:
-# grey
-# red
-# green
-# yellow
-# blue
-# magenta
-# cyan
-# white
-# 
-# Text highlights:
-# on_grey
-# on_red
-# on_green
-# on_yellow
-# on_blue
-# on_magenta
-# on_cyan
-# on_white
-# 
-# Attributes:
-# bold
-# dark
-# underline
-# blink
-# reverse
-# concealed
 	        
 def is_number(number):
     """
@@ -86,12 +48,14 @@ class Logger(object):
         self.__logTypeStdoutFlags = {}
         self.__logTypeNames       = {}
         self.__logTypeLevels      = {}
-        self.__logTypeColors      = {}
-        self.add_level("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True)
-        self.add_level("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True)
-        self.add_level("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True)
-        self.add_level("error", name="ERROR", level=30, stdoutFlag=True, fileFlag=True)
-        self.add_level("critical", name="CRITICAL", level=100, stdoutFlag=True, fileFlag=True)
+        self.__logTypeFormat   = {}
+        self.add_level("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_level("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_level("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_level("error", name="ERROR", level=30, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_level("critical", name="CRITICAL", level=100, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        # flush at python exit
+        atexit.register(self._flush_atexit_logfile)  
         
     def __stream_allow_colours(self, stream):
         """
@@ -109,7 +73,11 @@ class Logger(object):
         except:
             # guess false in case of error
             return False
-            
+    
+    def _flush_atexit_logfile(self):   
+        if self.__logFileStream is not None:
+           self.__logFileStream.close() 
+          
     @property
     def logTypes(self):
         """list of all defined log types"""
@@ -134,7 +102,12 @@ class Logger(object):
     def logTypeLevels(self):
         """dictionary of all defined log types levels showing when logging"""
         return copy.deepcopy(self.__logTypeLevels)
-            
+    
+    @property
+    def logTypeFormats(self):
+        """dictionary of all defined log types format showing when logging"""
+        return copy.deepcopy(self.__logTypeFormats)
+        
     @property
     def name(self):
         """logger name."""
@@ -172,7 +145,6 @@ class Logger(object):
         
     def set_name(self, name):
         assert isinstance(name, basestring), "name must be a string"
-        print name
         self.__name = name
     
     def set_stdout(self, stream=None):
@@ -182,20 +154,34 @@ class Logger(object):
             assert hasattr(stream, 'read') and hasattr(stream, 'write'), "stdout stream is not valid"
             self.__stdout = stream
         # set stdout colors
-        if self.__stream_allow_colours(self.__stdout):
-            colors = ["black","red","green","yellow","blue","magenta","white"]
-            self.__textAttr              = dict( [(colors[idx],"") for idx in range(8)] )
-            self.__textAttr["end"]       = "" 
-            self.__textAttr["bold"]      = "" 
-            self.__textAttr["underline"] = "" 
-        else:
-            names  = ["black","red","green","yellow","blue","magenta","white"]
-            colors = ["\x1b[1;%dm"%(30+c) for c in range(8)]
-            self.__textAttr              = dict( [(names[idx],colors[idx]) for idx in range(len(names))] )
-            self.__textAttr["end"]       = "\x1b[0m" 
-            self.__textAttr["bold"]      = "\x1b[1m" 
-            self.__textAttr["underline"] = "\x1b[4m" 
-
+        self.__stdoutFontFormat = self.set_fonts_attributes(stream)
+    
+    def set_fonts_attributes(self, stream):
+        # foreground color
+        fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
+        fgCode  = [str(idx) for idx in range(30,38,1)]
+        fgNames.extend(["dark grey","light red","light green","yellow","light blue","pink","light cyan"])
+        fgCode.extend([str(idx) for idx in range(90,97,1)])
+        # background color
+        bgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
+        bgCode  = [str(idx) for idx in range(40,48,1)]
+        # attributes
+        attrNames = ["bold","underline","blink","invisible","strike through"]
+        attrCode  = ["1","4","5","8","9"]
+        # set reset
+        resetCode = "0"
+        # if attributing is not allowed
+        if not self.__stream_allow_colours(stream):
+            fgCode    = ["" for idx in fgCode]
+            bgCode    = ["" for idx in bgCode]
+            attrCode  = ["" for idx in attrCode]
+            resetCode = ""
+        # set font attributes dict
+        color = dict( [(fgNames[idx],fgCode[idx]) for idx in range(len(fgCode))] )
+        highlight = dict( [(bgNames[idx],bgCode[idx]) for idx in range(len(bgCode))] )
+        attributes = dict( [(attrNames[idx],attrCode[idx]) for idx in range(len(attrCode))] )
+        return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
+    
     def set_log_to_stdout(self, logToStdout):
         assert isinstance(logToStdout, bool), "logToStdout must be boolean"
         self.__logToStdout = logToStdout
@@ -229,7 +215,7 @@ class Logger(object):
             number += 1
             self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
         # create log file stram
-        self.__logFileStream = open(self.__logFileName, 'a')
+        self.__logFileStream = None
         
     def set_maximum_log_file_size(self, maxlogFileSize):
         assert is_number(maxlogFileSize), "maxlogFileSize must be a number"
@@ -269,7 +255,6 @@ class Logger(object):
             if fileFlag:
                 self.__logTypeFileFlags[logType] = l<level
         
-        
     def set_log_type_stdout_flag(self, logType, flag):
          assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
          assert isinstance(flag, bool), "flag must be boolean"
@@ -292,7 +277,7 @@ class Logger(object):
         name = str(name)
         self.__logTypeLevels[logType] = level
         
-    def add_level(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True):
+    def add_level(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
         # check logType
         assert logType not in self.__logTypeStdoutFlags.keys(), "logType '%s' already defined" %logType
         assert isinstance(logType, basestring), "logType must be a string"
@@ -308,11 +293,39 @@ class Logger(object):
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        # set wrapFancy
+        wrapFancy=["",""]
+        if color is not None:
+            assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
+            code = self.__stdoutFontFormat["color"][color]
+            if len(code):
+                code = ";"+code
+            wrapFancy[0] += code
+        if highlight is not None:
+            assert highlight in self.__stdoutFontFormat["highlight"], "highlight %s not known"%str(highlight)
+            code = self.__stdoutFontFormat["highlight"][highlight]
+            if len(code):
+                code = ";"+code
+            wrapFancy[0] += code
+        if attributes is None:
+            attributes = []
+        elif isinstance(attributes, basestring):
+            attributes = [str(attributes)]
+        for attr in attributes:
+            assert attr in self.__stdoutFontFormat["attributes"], "attribute %s not known"%str(attr)
+            code = self.__stdoutFontFormat["attributes"][attr]
+            if len(code):
+                code = ";"+code
+            wrapFancy[0] += code
+        if len(wrapFancy[0]):
+            wrapFancy = ["\033["+self.__stdoutFontFormat["reset"]+wrapFancy[0]+"m" , "\033["+self.__stdoutFontFormat["reset"]+"m" ]               
         # add logType
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         self.__logTypeFileFlags[logType]   = fileFlag
         self.__logTypeNames[logType]       = name
         self.__logTypeLevels[logType]      = level
+        self.__logTypeFormat[logType]      = wrapFancy
+        #print logType, self.__logTypeFormat[logType]
                 
     def format_message(self, level, message):
         header = self.get_header(level, message)
@@ -327,8 +340,13 @@ class Logger(object):
         return ""
         
     def __log_to_file(self, message):
-        if self.__logFileStream.tell()/1e6 < self.__maxlogFileSize:
+        # create log file stream
+        if self.__logFileStream is None:
+            self.__logFileStream = open(self.__logFileName, 'a')
+        elif self.__logFileStream.tell()/1e6 > self.__maxlogFileSize:
             self.set_log_file_name()
+            self.__logFileStream = open(self.__logFileName, 'a')
+        # log to file    
         self.__logFileStream.write(message)
         
     def __log_to_stdout(self, message):
@@ -338,6 +356,7 @@ class Logger(object):
         # log to stdout
         if self.__logToStdout and self.__logTypeStdoutFlags[level]:
             log = self.format_message(level, message)
+            log = self.__logTypeFormat[level][0] + log + self.__logTypeFormat[level][1] 
             self.__log_to_stdout(log)
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[level]:
@@ -347,8 +366,16 @@ class Logger(object):
     def info(self, message):
         """alias to message at information level"""
         self.log("info", message)
+    
+    def information(self, message):
+        """alias to message at information level"""
+        self.log("info", message)
         
     def warn(self, message):
+        """alias to message at warning level"""
+        self.log("warn", message)
+    
+    def warning(self, message):
         """alias to message at warning level"""
         self.log("warn", message)
         
@@ -366,13 +393,13 @@ class Logger(object):
     
         
 if __name__ == "__main__":
-    #import time
+    import time
     l=Logger("fullrmc")
     l.set_log_to_file(True)
     l.add_level("step accepted", name="info")
     l.add_level("step rejected", name="info")
     for logType in l.logTypes:
-        #tic = time.clock()
+        tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
-        #print "%s seconds"%str(time.clock()-tic)
+        print "%s seconds\n"%str(time.clock()-tic)
     
