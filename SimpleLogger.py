@@ -1,4 +1,4 @@
-#!/usr/bin/python
+# python standard distribution imports
 import os 
 import sys
 import copy
@@ -57,7 +57,7 @@ class Logger(object):
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
-    def __stream_allow_colours(self, stream):
+    def __stream_format_not_allowed(self, stream):
         """
         following from Python cookbook, #475186
         check whether a stream allows coloring
@@ -171,7 +171,7 @@ class Logger(object):
         # set reset
         resetCode = "0"
         # if attributing is not allowed
-        if not self.__stream_allow_colours(stream):
+        if self.__stream_format_not_allowed(stream):
             fgCode    = ["" for idx in fgCode]
             bgCode    = ["" for idx in bgCode]
             attrCode  = ["" for idx in attrCode]
@@ -295,6 +295,7 @@ class Logger(object):
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         # set wrapFancy
         wrapFancy=["",""]
+        print self.__stdoutFontFormat
         if color is not None:
             assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
             code = self.__stdoutFontFormat["color"][color]
@@ -325,7 +326,7 @@ class Logger(object):
         self.__logTypeNames[logType]       = name
         self.__logTypeLevels[logType]      = level
         self.__logTypeFormat[logType]      = wrapFancy
-        #print logType, self.__logTypeFormat[logType]
+        print logType, self.__logTypeFormat[logType]
                 
     def format_message(self, level, message):
         header = self.get_header(level, message)
@@ -396,7 +397,7 @@ if __name__ == "__main__":
     import time
     l=Logger("fullrmc")
     l.set_log_to_file(True)
-    l.add_level("step accepted", name="info")
+    l.add_level("step accepted", name="info", color='pink', attributes=["blink"])
     l.add_level("step rejected", name="info")
     for logType in l.logTypes:
         tic = time.clock()
