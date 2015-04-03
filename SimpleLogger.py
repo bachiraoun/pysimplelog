@@ -48,7 +48,7 @@ class Logger(object):
         self.__logTypeStdoutFlags = {}
         self.__logTypeNames       = {}
         self.__logTypeLevels      = {}
-        self.__logTypeFormat   = {}
+        self.__logTypeFormat      = {}
         self.add_level("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
         self.add_level("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
         self.add_level("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
@@ -78,7 +78,9 @@ class Logger(object):
             return False
         if not stream.isatty():
             return False # auto color only on TTYs
-
+        else:
+            return True
+            
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
            self.__logFileStream.close() 
