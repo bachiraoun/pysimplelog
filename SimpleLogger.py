@@ -43,17 +43,18 @@ class Logger(object):
         self.set_log_file_extension(logFileExtension)
         # set logFile name
         self.set_log_file_basename(logFileBasename)
-        # create levels
+        # initialize types parameters
         self.__logTypeFileFlags   = {}
         self.__logTypeStdoutFlags = {}
         self.__logTypeNames       = {}
         self.__logTypeLevels      = {}
         self.__logTypeFormat      = {}
-        self.add_level("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_level("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_level("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_level("error", name="ERROR", level=30, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_level("critical", name="CRITICAL", level=100, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        # create default types
+        self.add_type("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_type("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_type("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_type("error", name="ERROR", level=30, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_type("critical", name="CRITICAL", level=100, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
@@ -91,18 +92,23 @@ class Logger(object):
         return self.__logTypeNames.keys()
     
     @property
+    def logLevels(self):
+        """dictionary of all defined log types levels"""
+        return copy.deepcopy(self.__logTypeLevels)
+    
+    @property
     def logTypeFileFlags(self):
-        """dictionary of all defined log types logging file flags"""
+        """dictionary of all defined log types logging to a file flags"""
         return copy.deepcopy(self.__logTypeFileFlags)
     
     @property
     def logTypeStdoutFlags(self):
-        """dictionary of all defined log types logging stdout flags"""
+        """dictionary of all defined log types logging to stdout flags"""
         return copy.deepcopy(self.__logTypeStdoutFlags)
     
     @property
     def logTypeNames(self):
-        """dictionary of all defined log types name showing when logging"""
+        """dictionary of all defined log types logging names"""
         return copy.deepcopy(self.__logTypeNames)
         
     @property
@@ -284,7 +290,7 @@ class Logger(object):
         name = str(name)
         self.__logTypeLevels[logType] = level
         
-    def add_level(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
+    def add_type(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
         # check logType
         assert logType not in self.__logTypeStdoutFlags.keys(), "logType '%s' already defined" %logType
         assert isinstance(logType, basestring), "logType must be a string"
@@ -362,7 +368,7 @@ class Logger(object):
         # log to stdout
         if self.__logToStdout and self.__logTypeStdoutFlags[level]:
             log = self.format_message(level, message)
-            log = self.__logTypeFormat[level][0] + log + self.__logTypeFormat[level][1] 
+            log = self.__logTypeFormat[level][0] + log[:-2] + self.__logTypeFormat[level][1] + "\n"
             self.__log_to_stdout(log)
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[level]:
@@ -402,9 +408,9 @@ if __name__ == "__main__":
     import time
     l=Logger("log test")
     l.set_log_to_file(True)
-    l.add_level("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
-    l.add_level("wrong", name="info", color='magenta', attributes=["strike through"])
-    l.add_level("important", name="info", color='black', highlight="orange", attributes=["bold"])
+    l.add_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
+    l.add_type("wrong", name="info", color='magenta', attributes=["strike through"])
+    l.add_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
