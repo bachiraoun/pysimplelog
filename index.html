@@ -1,0 +1,708 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Welcome to simplelog’s documentation! &mdash; simplelog</title>
+    
+    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="simplelog" href="#" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="#">simplelog</a> &raquo;</li> 
+      </ul>
+    </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Welcome to simplelog&#8217;s documentation!</a><ul>
+<li><a class="reference internal" href="#usage">Usage</a></li>
+<li><a class="reference internal" href="#output">output</a></li>
+</ul>
+</li>
+</ul>
+
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/index.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-simplelog.SimpleLog">
+<span id="welcome-to-simplelog-s-documentation"></span><h1>Welcome to simplelog&#8217;s documentation!<a class="headerlink" href="#module-simplelog.SimpleLog" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
+<div class="highlight-python"><div class="highlight"><pre><span class="c"># import Logger</span>
+<span class="kn">from</span> <span class="nn">simplelog</span> <span class="kn">import</span> <span class="n">Logger</span>
+
+<span class="c"># initialize</span>
+<span class="n">l</span><span class="o">=</span><span class="n">Logger</span><span class="p">(</span><span class="s">&quot;log test&quot;</span><span class="p">)</span>
+
+<span class="c"># Add new log types.</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;super critical&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;SUPER CRITICAL&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;red&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;bold&quot;</span><span class="p">,</span><span class="s">&quot;underline&quot;</span><span class="p">])</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;wrong&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;magenta&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;strike through&quot;</span><span class="p">])</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;important&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;black&#39;</span><span class="p">,</span> <span class="n">highlight</span><span class="o">=</span><span class="s">&quot;orange&quot;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;bold&quot;</span><span class="p">,</span><span class="s">&quot;blink&quot;</span><span class="p">])</span>
+
+<span class="c"># test logging</span>
+<span class="n">l</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;I am an info, called using my shortcut method&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="s">&quot;I am an info, called using log method&quot;</span><span class="p">)</span>
+
+<span class="n">l</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;I am a warn, called using my shortcut method&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;warn&quot;</span><span class="p">,</span> <span class="s">&quot;I am a warn, called using log method&quot;</span><span class="p">)</span>
+
+<span class="n">l</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;I am an error, called using my shortcut method&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;error&quot;</span><span class="p">,</span> <span class="s">&quot;I am an error, called using log method&quot;</span><span class="p">)</span>
+
+<span class="n">l</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;I am a critical, called using my shortcut method&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;critical&quot;</span><span class="p">,</span> <span class="s">&quot;I a an critical, called using log method&quot;</span><span class="p">)</span>
+
+<span class="n">l</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;I am a debug, called using my shortcut method&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;debug&quot;</span><span class="p">,</span> <span class="s">&quot;I a an debug, called using log method&quot;</span><span class="p">)</span>
+
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;super critical&quot;</span><span class="p">,</span> <span class="s">&quot;I a super critical, called using log method and I have no shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;wrong&quot;</span><span class="p">,</span> <span class="s">&quot;I a wrong, called using log method and I have no shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;important&quot;</span><span class="p">,</span> <span class="s">&quot;I an important, called using log method and I have no shortcut method.&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="output">
+<h2>output<a class="headerlink" href="#output" title="Permalink to this headline">¶</a></h2>
+<div class="highlight-python"><div class="highlight"><pre><span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">INFO</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">an</span> <span class="n">info</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">my</span> <span class="n">shortcut</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">INFO</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">an</span> <span class="n">info</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">WARNING</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">a</span> <span class="n">warn</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">my</span> <span class="n">shortcut</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">WARNING</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">a</span> <span class="n">warn</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">ERROR</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">an</span> <span class="n">error</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">my</span> <span class="n">shortcut</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">ERROR</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">an</span> <span class="n">error</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">CRITICAL</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">a</span> <span class="n">critical</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">my</span> <span class="n">shortcut</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">CRITICAL</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">a</span> <span class="n">an</span> <span class="n">critical</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">DEBUG</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">am</span> <span class="n">a</span> <span class="n">debug</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">my</span> <span class="n">shortcut</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">DEBUG</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">a</span> <span class="n">an</span> <span class="n">debug</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">SUPER</span> <span class="n">CRITICAL</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">a</span> <span class="nb">super</span> <span class="n">critical</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span> <span class="ow">and</span> <span class="n">I</span> <span class="n">have</span> <span class="n">no</span> <span class="n">shortcut</span> <span class="n">method</span><span class="o">.</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">info</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">a</span> <span class="n">wrong</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span> <span class="ow">and</span> <span class="n">I</span> <span class="n">have</span> <span class="n">no</span> <span class="n">shortcut</span> <span class="n">method</span><span class="o">.</span>
+<span class="mi">2015</span><span class="o">-</span><span class="mi">11</span><span class="o">-</span><span class="mi">18</span> <span class="mo">07</span><span class="p">:</span><span class="mi">55</span><span class="p">:</span><span class="mi">47</span> <span class="o">-</span> <span class="n">log</span> <span class="n">test</span> <span class="o">&lt;</span><span class="n">info</span><span class="o">&gt;</span> <span class="n">I</span> <span class="n">an</span> <span class="n">important</span><span class="p">,</span> <span class="n">called</span> <span class="n">using</span> <span class="n">log</span> <span class="n">method</span> <span class="ow">and</span> <span class="n">I</span> <span class="n">have</span> <span class="n">no</span> <span class="n">shortcut</span> <span class="n">method</span><span class="o">.</span>
+</pre></div>
+</div>
+<dl class="class">
+<dt id="simplelog.SimpleLog.Logger">
+<em class="property">class </em><tt class="descclassname">simplelog.SimpleLog.</tt><tt class="descname">Logger</tt><big>(</big><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFileBasename='log'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger" title="Permalink to this definition">¶</a></dt>
+<dd><p>This is simplelog main Logger class definition.</p>
+<p>A logging is constituted of a header a message and a footer.
+In the current implementation the footer is empty and the header is as the following:</p>
+<p>date time - loggerName &lt;logTypeName&gt;</p>
+<p>In order to change any of the header or the footer, &#8216;_get_header&#8217; and &#8216;_get_footer&#8217;
+methods must be overloaded.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>name (str): The logger name.</li>
+<li>flush (boolean): Whether to always flush the logging streams.</li>
+<li>logToStdout (boolean): Whether to log to the standard output stream.</li>
+<li>stdout (None, stream): The standard output stream. If None, system standard
+output will be set automatically. Otherwise any stream with read and write 
+methods can be passed</li>
+<li>logToFile (boolean): Whether to log to to file.</li>
+<li>logFileBasename (str): Logging file basename. A logging file full name is 
+set as logFileBasename.logFileExtension</li>
+<li>logFileExtension (str): Logging file extension. A logging file full name is 
+set as logFileBasename.logFileExtension</li>
+<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
+Once exceeded, another logging file as logFileBasename_N.logFileExtension
+will be created. Where N is an automatically incremented number.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.add_log_type">
+<tt class="descname">add_log_type</tt><big>(</big><em>logType</em>, <em>name=None</em>, <em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.add_log_type" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a new logtype.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic">
+<li><p class="first">logType (str): The logtype.</p>
+</li>
+<li><p class="first">name (None, str): The logtype name. If None, name will be set to logtype.</p>
+</li>
+<li><p class="first">level (number): The level of logging.</p>
+</li>
+<li><p class="first">stdoutFlag (boolean): The standard output logging flag.</p>
+</li>
+<li><p class="first">fileFlag (boolean): The file logging flag.</p>
+</li>
+<li><p class="first">color (None, str): The logging text color. The defined colors are:</p>
+<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
+light red , light green , yellow , light blue , pink , light cyan</p>
+</li>
+<li><p class="first">highlight (None, str): The logging text highlight color. The defined highlights are:</p>
+<p>black , red , green , orange , blue , magenta , cyan , grey</p>
+</li>
+<li><p class="first">attributes (None, str): The logging text attribute. The defined attributes are:</p>
+<p>bold , underline , blink , invisible , strike through</p>
+</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+<p><strong>N.B</strong> <em>logging color, highlight and attributes are not allowed on all types of streams.</em></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.critical">
+<tt class="descname">critical</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.critical" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at critical level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.debug">
+<tt class="descname">debug</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.debug" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at debug level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.error">
+<tt class="descname">error</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.error" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at error level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.flush">
+<tt class="descname">flush</tt><big>(</big><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.flush" title="Permalink to this definition">¶</a></dt>
+<dd><p>Flush all streams.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.force_log">
+<tt class="descname">force_log</tt><big>(</big><em>logType</em>, <em>message</em>, <em>stdout=True</em>, <em>file=True</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.force_log" title="Permalink to this definition">¶</a></dt>
+<dd><p>Force logging a message of a certain logtype whether logtype level is allowed or not.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>message (str): Any message to log.</li>
+<li>stdout (boolean): Whether to force logging to standard output.</li>
+<li>file (boolean): Whether to force logging to file.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.info">
+<tt class="descname">info</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.info" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at information level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.information">
+<tt class="descname">information</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.information" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at information level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.log">
+<tt class="descname">log</tt><big>(</big><em>logType</em>, <em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.log" title="Permalink to this definition">¶</a></dt>
+<dd><p>log a message of a certain logtype.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>message (str): Any message to log.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logFileBasename">
+<tt class="descname">logFileBasename</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logFileBasename" title="Permalink to this definition">¶</a></dt>
+<dd><p>log file basename.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logFileExtension">
+<tt class="descname">logFileExtension</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logFileExtension" title="Permalink to this definition">¶</a></dt>
+<dd><p>log file extension.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logFileMaxSize">
+<tt class="descname">logFileMaxSize</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logFileMaxSize" title="Permalink to this definition">¶</a></dt>
+<dd><p>maximum allowed logfile size in megabytes.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logFileName">
+<tt class="descname">logFileName</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logFileName" title="Permalink to this definition">¶</a></dt>
+<dd><p>currently used log file name.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logLevels">
+<tt class="descname">logLevels</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logLevels" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types levels</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logToFile">
+<tt class="descname">logToFile</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logToFile" title="Permalink to this definition">¶</a></dt>
+<dd><p>log to file flag.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logToStdout">
+<tt class="descname">logToStdout</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logToStdout" title="Permalink to this definition">¶</a></dt>
+<dd><p>log to stdout flag.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypeFileFlags">
+<tt class="descname">logTypeFileFlags</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypeFileFlags" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types logging to a file flags</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypeFormats">
+<tt class="descname">logTypeFormats</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypeFormats" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types format showing when logging</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypeLevels">
+<tt class="descname">logTypeLevels</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypeLevels" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types levels showing when logging</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypeNames">
+<tt class="descname">logTypeNames</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypeNames" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types logging names</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypeStdoutFlags">
+<tt class="descname">logTypeStdoutFlags</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypeStdoutFlags" title="Permalink to this definition">¶</a></dt>
+<dd><p>dictionary copy of all defined log types logging to stdout flags</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.logTypes">
+<tt class="descname">logTypes</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.logTypes" title="Permalink to this definition">¶</a></dt>
+<dd><p>list of all defined log types</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="simplelog.SimpleLog.Logger.name">
+<tt class="descname">name</tt><a class="headerlink" href="#simplelog.SimpleLog.Logger.name" title="Permalink to this definition">¶</a></dt>
+<dd><p>logger name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_flush">
+<tt class="descname">set_flush</tt><big>(</big><em>flush</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_flush" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the logger flush flag</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>flush (boolean): Whether to always flush the logging streams.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_file_basename">
+<tt class="descname">set_log_file_basename</tt><big>(</big><em>logFileBasename</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_file_basename" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the log file basename.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logFileBasename (str): Logging file basename. A logging file full name is 
+set as logFileBasename.logFileExtension</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_file_extension">
+<tt class="descname">set_log_file_extension</tt><big>(</big><em>logFileExtension</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_file_extension" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the log file extension.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logFileExtension (str): Logging file extension. A logging file full name is 
+set as logFileBasename.logFileExtension</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_file_maximum_size">
+<tt class="descname">set_log_file_maximum_size</tt><big>(</big><em>logFileMaxSize</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_file_maximum_size" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the log file maximum size in megabytes</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
+Once exceeded, another logging file as logFileBasename_N.logFileExtension
+will be created. Where N is an automatically incremented number.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_to_file_flag">
+<tt class="descname">set_log_to_file_flag</tt><big>(</big><em>logToFile</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_to_file_flag" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the logging to a file flag.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logToFile (boolean): Whether to log to to file.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_to_stdout_flag">
+<tt class="descname">set_log_to_stdout_flag</tt><big>(</big><em>logToStdout</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_to_stdout_flag" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the logging to the defined standard output flag.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logToStdout (boolean): Whether to log to the standard output stream.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_type_file_flag">
+<tt class="descname">set_log_type_file_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_type_file_flag" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a logtype file logging flag.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>flag (boolean): The file logging flag.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_type_flags">
+<tt class="descname">set_log_type_flags</tt><big>(</big><em>logType</em>, <em>stdoutFlag</em>, <em>fileFlag</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_type_flags" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a defined log type flags.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>stdoutFlag (boolean): Whether to log to the standard output stream.</li>
+<li>fileFlag (boolean): Whether to log to to file.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_type_level">
+<tt class="descname">set_log_type_level</tt><big>(</big><em>logType</em>, <em>level</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_type_level" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a logtype logging level.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>level (number): The level of logging.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_type_name">
+<tt class="descname">set_log_type_name</tt><big>(</big><em>logType</em>, <em>name</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_type_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a logtype name.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>name (str): The logtype new name.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_log_type_stdout_flag">
+<tt class="descname">set_log_type_stdout_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_log_type_stdout_flag" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a logtype standard output logging flag.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logType (str): A defined logging type.</li>
+<li>flag (boolean): The standard output logging flag.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_maximum_level">
+<tt class="descname">set_maximum_level</tt><big>(</big><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_maximum_level" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the maximum logging level. All levels above the maximum will be ignored at logging.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>level (number): The maximum level of logging.</li>
+<li>stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.</li>
+<li>fileFlag (boolean): Whether to apply this maximum level to file logging.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_minimum_level">
+<tt class="descname">set_minimum_level</tt><big>(</big><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_minimum_level" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the minimum logging level. All levels below the minimum will be ignored at logging.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>level (number): The minimum level of logging.</li>
+<li>stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.</li>
+<li>fileFlag (boolean): Whether to apply this minimum level to file logging.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_name">
+<tt class="descname">set_name</tt><big>(</big><em>name</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the logger name.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>name (str): The logger name.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.set_stdout">
+<tt class="descname">set_stdout</tt><big>(</big><em>stream=None</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.set_stdout" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the logger standard output stream.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>stdout (None, stream): The standard output stream. If None, system standard
+output will be set automatically. Otherwise any stream with read and write 
+methods can be passed</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.update_log_type">
+<tt class="descname">update_log_type</tt><big>(</big><em>logType</em>, <em>name=None</em>, <em>level=None</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.update_log_type" title="Permalink to this definition">¶</a></dt>
+<dd><p>update a logtype.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic">
+<li><p class="first">logType (str): The logtype.</p>
+</li>
+<li><p class="first">name (None, str): The logtype name. If None, name will be set to logtype.</p>
+</li>
+<li><p class="first">level (number): The level of logging.</p>
+</li>
+<li><p class="first">stdoutFlag (boolean): The standard output logging flag.</p>
+</li>
+<li><p class="first">fileFlag (boolean): The file logging flag.</p>
+</li>
+<li><p class="first">color (None, str): The logging text color. The defined colors are:</p>
+<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
+light red , light green , yellow , light blue , pink , light cyan</p>
+</li>
+<li><p class="first">highlight (None, str): The logging text highlight color. The defined highlights are:</p>
+<p>black , red , green , orange , blue , magenta , cyan , grey</p>
+</li>
+<li><p class="first">attributes (None, str): The logging text attribute. The defined attributes are:</p>
+<p>bold , underline , blink , invisible , strike through</p>
+</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+<p><strong>N.B</strong> <em>logging color, highlight and attributes are not allowed on all types of streams.</em></p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.warn">
+<tt class="descname">warn</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.warn" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at warning level</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="simplelog.SimpleLog.Logger.warning">
+<tt class="descname">warning</tt><big>(</big><em>message</em><big>)</big><a class="headerlink" href="#simplelog.SimpleLog.Logger.warning" title="Permalink to this definition">¶</a></dt>
+<dd><p>alias to message at warning level</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="#">simplelog</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2015, Bachir Aoun.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
+    </div>
+  </body>
+</html>
