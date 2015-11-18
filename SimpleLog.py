@@ -15,44 +15,43 @@ Usage
         l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
         
         # test logging
-        l.info("I am an info, called using my shortcut method")
-        l.log("info", "I am an info, called using log method")
+        l.info("I am info, called using my shortcut method")
+        l.log("info", "I am  info, called using log method")
         
-        l.warn("I am a warn, called using my shortcut method")
-        l.log("warn", "I am a warn, called using log method")
+        l.warn("I am warn, called using my shortcut method")
+        l.log("warn", "I am warn, called using log method")
         
-        l.error("I am an error, called using my shortcut method")
-        l.log("error", "I am an error, called using log method")
+        l.error("I am error, called using my shortcut method")
+        l.log("error", "I am error, called using log method")
         
-        l.critical("I am a critical, called using my shortcut method")
-        l.log("critical", "I a an critical, called using log method")
+        l.critical("I am critical, called using my shortcut method")
+        l.log("critical", "I critical, called using log method")
         
-        l.debug("I am a debug, called using my shortcut method")
-        l.log("debug", "I a an debug, called using log method")
+        l.debug("I am debug, called using my shortcut method")
+        l.log("debug", "I am debug, called using log method")
         
-        l.log("super critical", "I a super critical, called using log method and I have no shortcut method.")
-        l.log("wrong", "I a wrong, called using log method and I have no shortcut method.")
-        l.log("important", "I an important, called using log method and I have no shortcut method.")
+        l.log("super critical", "I am super critical, called using log method because I have no shortcut method.")
+        l.log("wrong", "I am wrong, called using log method because I have no shortcut method.")
+        l.log("important", "I am important, called using log method because I have no shortcut method.")
         
         
 output
 ====== 
 .. code-block:: python
       
-        2015-11-18 07:55:47 - log test <INFO> I am an info, called using my shortcut method
-        2015-11-18 07:55:47 - log test <INFO> I am an info, called using log method
-        2015-11-18 07:55:47 - log test <WARNING> I am a warn, called using my shortcut method
-        2015-11-18 07:55:47 - log test <WARNING> I am a warn, called using log method
-        2015-11-18 07:55:47 - log test <ERROR> I am an error, called using my shortcut method
-        2015-11-18 07:55:47 - log test <ERROR> I am an error, called using log method
-        2015-11-18 07:55:47 - log test <CRITICAL> I am a critical, called using my shortcut method
-        2015-11-18 07:55:47 - log test <CRITICAL> I a an critical, called using log method
-        2015-11-18 07:55:47 - log test <DEBUG> I am a debug, called using my shortcut method
-        2015-11-18 07:55:47 - log test <DEBUG> I a an debug, called using log method
-        2015-11-18 07:55:47 - log test <SUPER CRITICAL> I a super critical, called using log method and I have no shortcut method.
-        2015-11-18 07:55:47 - log test <info> I a wrong, called using log method and I have no shortcut method.
-        2015-11-18 07:55:47 - log test <info> I an important, called using log method and I have no shortcut method.
-
+        2015-11-18 11:40:44 - log test <INFO> I am info, called using my shortcut method
+        2015-11-18 11:40:44 - log test <INFO> I am  info, called using log method
+        2015-11-18 11:40:44 - log test <WARNING> I am warn, called using my shortcut method
+        2015-11-18 11:40:44 - log test <WARNING> I am warn, called using log method
+        2015-11-18 11:40:44 - log test <ERROR> I am error, called using my shortcut method
+        2015-11-18 11:40:44 - log test <ERROR> I am error, called using log method
+        2015-11-18 11:40:44 - log test <CRITICAL> I am critical, called using my shortcut method
+        2015-11-18 11:40:44 - log test <CRITICAL> I critical, called using log method
+        2015-11-18 11:40:44 - log test <DEBUG> I am debug, called using my shortcut method
+        2015-11-18 11:40:44 - log test <DEBUG> I am debug, called using log method
+        2015-11-18 11:40:44 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.
+        2015-11-18 11:40:44 - log test <info> I am wrong, called using log method because I have no shortcut method.
+        2015-11-18 11:40:44 - log test <info> I am important, called using log method because I have no shortcut method.
 
 """
 # python standard distribution imports
