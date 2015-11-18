@@ -7,6 +7,9 @@ This package is a simple yet complete logging management system for python based
 ## Installation
 It requires no installation. All dependencies are provided in python 2.7 standard distribution. 
 
+## Online Documentation
+http://bachiraoun.github.io/pysimplelog/
+
 ## Author
 Bachir Aoun
 
