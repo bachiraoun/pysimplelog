@@ -44,11 +44,11 @@ metadata = dict(name = 'simplelog',
                 author_email="bachir.aoun@e-aoun.com",
                 description = "\n".join(DESCRIPTION),
                 long_description = "\n".join(LONG_DESCRIPTION),
-                url = "https://github.com/bachiraoun/simplelog",
+                url = "http://bachiraoun.github.io/simplelog/",
                 download_url = "",
                 license = 'GNU',
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
-                platforms = ["Windows", "Linux", "Solaris", "Mac OS-X", "Unix"], )
+                platforms = ["Windows", "Linux", "Mac OS-X", "Unix"], )
 
 # setup              
 setup(**metadata)
