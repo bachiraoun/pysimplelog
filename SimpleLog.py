@@ -6,16 +6,7 @@ from datetime import datetime
 import atexit
 
 	        
-def is_number(number):
-    """
-    check if number is convertible to float.
-    
-    :Parameters:
-        #. number (str, number): input number
-                   
-    :Returns:
-        #. result (bool): True if convertible, False otherwise
-    """
+def _is_number(number):
     if isinstance(number, (int, long, float, complex)):
         return True
     try:
@@ -26,6 +17,19 @@ def is_number(number):
         return True
     
 class Logger(object):
+    """ 
+    This is simplelog main Logger class definition.  
+    
+    :Parameters:
+       #. name (str): 
+       #. flush (boolean):
+       #. logToStdout (boolean):
+       #. stdout (stream):
+       #. logToFile (boolean):
+       #. logFileBasename (str): 
+       #. logFileExtension (str): 
+       #. logFileMaxSize (number): 
+    """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
                        logToFile=True, logFileBasename="log", logFileExtension="log", logFileMaxSize=10):
@@ -177,9 +181,9 @@ class Logger(object):
             assert hasattr(stream, 'read') and hasattr(stream, 'write'), "stdout stream is not valid"
             self.__stdout = stream
         # set stdout colors
-        self.__stdoutFontFormat = self.set_fonts_attributes(stream)
+        self.__stdoutFontFormat = self.__get_stream_fonts_attributes(stream)
     
-    def set_fonts_attributes(self, stream):
+    def __get_stream_fonts_attributes(self, stream):
         # foreground color
         fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
         fgCode  = [str(idx) for idx in range(30,38,1)]
@@ -249,7 +253,7 @@ class Logger(object):
         self.__logFileStream = None
         
     def set_log_file_maximum_size(self, logFileMaxSize):
-        assert is_number(logFileMaxSize), "logFileMaxSize must be a number"
+        assert _is_number(logFileMaxSize), "logFileMaxSize must be a number"
         logFileMaxSize = float(logFileMaxSize)
         assert logFileMaxSize>=1, "logFileMaxSize minimum size is 1 megabytes"
         self.__maxlogFileSize = logFileMaxSize
@@ -258,7 +262,7 @@ class Logger(object):
         # check level
         if level is None:
             level = 0
-        assert is_number(level), "level must be a number"
+        assert _is_number(level), "level must be a number"
         level = float(level)
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
@@ -274,7 +278,7 @@ class Logger(object):
         # check level
         if level is None:
             level = 0
-        assert is_number(level), "level must be a number"
+        assert _is_number(level), "level must be a number"
         level = float(level)
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
@@ -303,7 +307,7 @@ class Logger(object):
         self.__logTypeNames[logType] = name
     
     def set_log_type_level(self, logType, level):
-        assert is_number(level), "level must be a number"
+        assert _is_number(level), "level must be a number"
         level = float(level)
         name = str(name)
         self.__logTypeLevels[logType] = level
@@ -319,7 +323,7 @@ class Logger(object):
         assert isinstance(name, basestring), "name must be a string"
         name = str(name)
         # check level
-        assert is_number(level), "level must be a number"
+        assert _is_number(level), "level must be a number"
         level = float(level)
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
