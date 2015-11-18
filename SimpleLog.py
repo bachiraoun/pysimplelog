@@ -511,6 +511,13 @@ class Logger(object):
         assert logType not in self.__logTypeStdoutFlags.keys(), "logType '%s' already defined" %logType
         assert isinstance(logType, basestring), "logType must be a string"
         logType=str(logType)
+        # set log type
+        self.__set_log_type(logType=logType, name=name, level=level, 
+                            stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
+                            color=color, highlight=highlight, attributes=attributes)
+        
+                
+    def __set_log_type(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
         # check name
         if name is None:
             name = logType
@@ -554,7 +561,36 @@ class Logger(object):
         self.__logTypeNames[logType]       = name
         self.__logTypeLevels[logType]      = level
         self.__logTypeFormat[logType]      = wrapFancy
-                
+    
+    def update_log_type(self, logType, name=None, level=None, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
+        """ 
+        update a logtype.
+    
+        :Parameters:
+           #. logType (str): The logtype.
+           #. name (None, str): The logtype name. If None, name will be set to logtype.
+           #. level (number): The level of logging.
+           #. stdoutFlag (boolean): The standard output logging flag.
+           #. fileFlag (boolean): The file logging flag.
+           #. color (None, str): The logging text color. The defined colors are:\n
+              black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
+              light red , light green , yellow , light blue , pink , light cyan
+           #. highlight (None, str): The logging text highlight color. The defined highlights are:\n
+              black , red , green , orange , blue , magenta , cyan , grey
+           #. attributes (None, str): The logging text attribute. The defined attributes are:\n
+              bold , underline , blink , invisible , strike through
+        
+        **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
+        """
+        # check logType
+        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
+        # update log type
+        self.__set_log_type(logType=logType, name=name, level=level, 
+                            stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
+                            color=color, highlight=highlight, attributes=attributes)
+        
+        
+        
     def _format_message(self, level, message):
         header = self._get_header(level, message)
         footer = self._get_footer(level, message)
