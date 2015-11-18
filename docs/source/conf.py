@@ -46,7 +46,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'simplelog'
+project = u'pysimplelog'
 copyright = u'2015, Bachir Aoun'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -115,7 +115,7 @@ html_theme_options = {"nosidebar": "true",}
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
 #html_title = None
-html_title = "simplelog"
+html_title = "pysimplelog"
 
 
 # A shorter title for the navigation bar.  Default is the same as html_title.
@@ -183,7 +183,7 @@ html_show_sphinx = False
 #html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'simplelogdoc'
+htmlhelp_basename = 'pysimplelogdoc'
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -203,7 +203,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-  ('index', 'simplelog.tex', u'simplelog Documentation',
+  ('index', 'pysimplelog.tex', u'pysimplelog Documentation',
    u'Bachir Aoun', 'manual'),
 ]
 
@@ -233,7 +233,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('index', 'simplelog', u'simplelog Documentation',
+    ('index', 'pysimplelog', u'pysimplelog Documentation',
      [u'Bachir Aoun'], 1)
 ]
 
@@ -247,8 +247,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-  ('index', 'simplelog', u'simplelog Documentation',
-   u'Bachir Aoun', 'simplelog', 'One line description of project.',
+  ('index', 'pysimplelog', u'pysimplelog Documentation',
+   u'Bachir Aoun', 'pysimplelog', 'One line description of project.',
    'Miscellaneous'),
 ]
 
