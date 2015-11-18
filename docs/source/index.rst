@@ -7,13 +7,10 @@ Welcome to simplelog's documentation!
 =====================================
 
 
-SimpleLog
----------
 
 .. automodule:: simplelog.SimpleLog
     :members:
     :undoc-members:
-    :show-inheritance:
 
 
 
