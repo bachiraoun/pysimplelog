@@ -45,7 +45,7 @@ metadata = dict(name = 'pysimplelog',
                 description = "\n".join(DESCRIPTION),
                 long_description = "\n".join(LONG_DESCRIPTION),
                 url = "http://bachiraoun.github.io/pysimplelog/",
-                download_url = "",
+                download_url = "https://github.com/bachiraoun/simplelog",
                 license = 'GNU',
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
                 platforms = ["Windows", "Linux", "Mac OS-X", "Unix"], )
