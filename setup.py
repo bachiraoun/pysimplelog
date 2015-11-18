@@ -25,7 +25,7 @@ Operating System :: MacOS
                     
 LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
                     "It allows logging simultaneously to two streams, the first one is the system standard output by default and the second one is designated to be set to a file.",
-                    "In addition, simplelog allows text colouring and attributes when the stream allows it.",]
+                    "In addition, pysimplelog allows text colouring and attributes when the stream allows it.",]
 DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
 # get version
@@ -36,15 +36,15 @@ with open(ver_path) as ver_file:
 #main_ns['__version__'] = '0.1.0'  
 
 
-metadata = dict(name = 'simplelog',
-                packages=["simplelog"],
-                package_dir={'simplelog': '.'},
+metadata = dict(name = 'pysimplelog',
+                packages=["pysimplelog"],
+                package_dir={'pysimplelog': '.'},
                 version= main_ns['__version__'] ,
                 author="Bachir AOUN",
                 author_email="bachir.aoun@e-aoun.com",
                 description = "\n".join(DESCRIPTION),
                 long_description = "\n".join(LONG_DESCRIPTION),
-                url = "http://bachiraoun.github.io/simplelog/",
+                url = "http://bachiraoun.github.io/pysimplelog/",
                 download_url = "",
                 license = 'GNU',
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],

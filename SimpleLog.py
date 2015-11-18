@@ -4,10 +4,16 @@ Usage
 .. code-block:: python
         
         # import Logger
-        from simplelog import Logger
+        from pysimplelog import Logger
         
         # initialize
         l=Logger("log test")
+        
+        # change log file basename from log to mylog
+        l.set_log_file_basename("mylog")
+        
+        # change log file extension from .log to .pylog
+        l.set_log_file_extension("pylog")
         
         # Add new log types.
         l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
@@ -39,20 +45,19 @@ output
 ====== 
 .. code-block:: python
       
-        2015-11-18 11:40:44 - log test <INFO> I am info, called using my shortcut method
-        2015-11-18 11:40:44 - log test <INFO> I am  info, called using log method
-        2015-11-18 11:40:44 - log test <WARNING> I am warn, called using my shortcut method
-        2015-11-18 11:40:44 - log test <WARNING> I am warn, called using log method
-        2015-11-18 11:40:44 - log test <ERROR> I am error, called using my shortcut method
-        2015-11-18 11:40:44 - log test <ERROR> I am error, called using log method
-        2015-11-18 11:40:44 - log test <CRITICAL> I am critical, called using my shortcut method
-        2015-11-18 11:40:44 - log test <CRITICAL> I critical, called using log method
-        2015-11-18 11:40:44 - log test <DEBUG> I am debug, called using my shortcut method
-        2015-11-18 11:40:44 - log test <DEBUG> I am debug, called using log method
-        2015-11-18 11:40:44 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.
-        2015-11-18 11:40:44 - log test <info> I am wrong, called using log method because I have no shortcut method.
-        2015-11-18 11:40:44 - log test <info> I am important, called using log method because I have no shortcut method.
-
+        2015-11-18 14:25:08 - log test <INFO> I am info, called using my shortcut method
+        2015-11-18 14:25:08 - log test <INFO> I am  info, called using log method
+        2015-11-18 14:25:08 - log test <WARNING> I am warn, called using my shortcut method
+        2015-11-18 14:25:08 - log test <WARNING> I am warn, called using log method
+        2015-11-18 14:25:08 - log test <ERROR> I am error, called using my shortcut method
+        2015-11-18 14:25:08 - log test <ERROR> I am error, called using log method
+        2015-11-18 14:25:08 - log test <CRITICAL> I am critical, called using my shortcut method
+        2015-11-18 14:25:08 - log test <CRITICAL> I critical, called using log method
+        2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using my shortcut method
+        2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using log method
+        2015-11-18 14:25:08 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.
+        2015-11-18 14:25:08 - log test <info> I am wrong, called using log method because I have no shortcut method.
+        2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method.
 """
 # python standard distribution imports
 import os 
@@ -115,9 +120,9 @@ class Logger(object):
         # set maximum logFile size
         self.set_log_file_maximum_size(logFileMaxSize)
         # set logFile name
-        self.set_log_file_extension(logFileExtension)
+        self.__set_log_file_basename(logFileBasename)
         # set logFile name
-        self.set_log_file_basename(logFileBasename)
+        self.set_log_file_extension(logFileExtension)
         # initialize types parameters
         self.__logTypeFileFlags   = {}
         self.__logTypeStdoutFlags = {}
@@ -347,6 +352,8 @@ class Logger(object):
         assert logFileExtension[0] != ".", "logFileExtension first character can't be a dot"
         assert logFileExtension[-1] != ".", "logFileExtension last character can't be a dot"
         self.__logFileExtension = logFileExtension
+        # set log file name
+        self.__set_log_file_name()
     
     def set_log_file_basename(self, logFileBasename):
         """ 
@@ -356,12 +363,15 @@ class Logger(object):
            #. logFileBasename (str): Logging file basename. A logging file full name is 
               set as logFileBasename.logFileExtension
         """
-        assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
-        logFileBasename = str(logFileBasename)
-        self.__logFileBasename = logFileBasename
+        self.__set_log_file_basename(logFileBasename)
         # set log file name
         self.__set_log_file_name()
     
+    def __set_log_file_basename(self, logFileBasename):
+        assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
+        logFileBasename = str(logFileBasename)
+        self.__logFileBasename = logFileBasename
+        
     def __set_log_file_name(self):
         """Automatically set logFileName attribute"""
         self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
@@ -602,7 +612,7 @@ class Logger(object):
     def _get_footer(self, level, message):
         return ""
         
-    def __log_to_file(self, message):
+    def __log_to_file(self, message): 
         # create log file stream
         if self.__logFileStream is None:
             self.__logFileStream = open(self.__logFileName, 'a')
@@ -703,6 +713,7 @@ if __name__ == "__main__":
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
         print "%s seconds\n"%str(time.clock()-tic)
+        
         
         
 

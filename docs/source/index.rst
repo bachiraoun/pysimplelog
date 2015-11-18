@@ -1,7 +1,7 @@
-Welcome to simplelog's documentation!
+Welcome to pysimplelog's documentation!
 =====================================
 
-.. automodule:: simplelog.SimpleLog
+.. automodule:: pysimplelog.SimpleLog
     :members:
     :undoc-members:
     :noindex:
