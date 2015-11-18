@@ -453,7 +453,7 @@ if __name__ == "__main__":
     l.set_log_to_file_flag(True)
     l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
     l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
-    l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
+    l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
