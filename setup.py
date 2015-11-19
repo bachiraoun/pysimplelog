@@ -1,4 +1,7 @@
-from setuptools import setup, find_packages
+try:
+    from setuptools import setup
+except:
+    from distutils.core import setup
 from distutils.util import convert_path
 import os, sys
 
