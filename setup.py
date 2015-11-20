@@ -14,7 +14,7 @@ PACKAGE_NAME = 'pysimplelog'
 
 # check python version
 if sys.version_info[:2] < (2, 6):
-    raise RuntimeError("Python version 2.6, 2.7 or >= 3.2 required.")
+    raise RuntimeError("Python version 2.6, 2.7 required.")
 
 # automatically create MANIFEST.in
 commands = [# include MANIFEST.in
