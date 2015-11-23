@@ -85,7 +85,7 @@
 </div>
 <div class="section" id="output">
 <h2>output<a class="headerlink" href="#output" title="Permalink to this headline">¶</a></h2>
-<div class="highlight-python"><div class="highlight"><pre><span class="n">Logger</span> <span class="p">(</span><span class="n">Version</span> <span class="mf">0.1</span><span class="o">.</span><span class="mi">2</span><span class="p">)</span>
+<div class="highlight-python"><div class="highlight"><pre><span class="n">Logger</span> <span class="p">(</span><span class="n">Version</span> <span class="mf">0.1</span><span class="o">.</span><span class="mi">3</span><span class="p">)</span>
 <span class="n">log</span> <span class="nb">type</span>       <span class="o">|</span><span class="n">log</span> <span class="n">name</span>       <span class="o">|</span><span class="n">level</span>     <span class="o">|</span><span class="n">std</span> <span class="n">flag</span>  <span class="o">|</span><span class="nb">file</span> <span class="n">flag</span> <span class="o">|</span>
 <span class="o">---------------|---------------|----------|----------|----------|</span>
 <span class="n">wrong</span>          <span class="o">|</span><span class="n">info</span>           <span class="o">|</span><span class="mf">0.0</span>       <span class="o">|</span><span class="bp">True</span>      <span class="o">|</span><span class="bp">True</span>      <span class="o">|</span>
@@ -125,7 +125,7 @@ methods must be overloaded.</p>
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first arabic simple">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
 <li>name (str): The logger name.</li>
 <li>flush (boolean): Whether to always flush the logging streams.</li>
 <li>logToStdout (boolean): Whether to log to the standard output stream.</li>
@@ -140,13 +140,11 @@ set as logFileBasename.logFileExtension</li>
 <li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
 Once exceeded, another logging file as logFileBasename_N.logFileExtension
 will be created. Where N is an automatically incremented number.</li>
+<li>stdoutMinLevel(number): The minimum logging to system standard output level.</li>
+<li>stdoutMinLevel(number): The maximum logging to system standard output level.</li>
+<li>fileMinLevel(number): The minimum logging to file level.</li>
+<li>fileMaxLevel(number): The maximum logging to file level.</li>
 </ol>
-<blockquote class="last">
-<div><p># stdoutMinLevel(number): The minimum logging to system standard output level.
-# stdoutMinLevel(number): The maximum logging to system standard output level.
-# fileMinLevel(number): The minimum logging to file level.
-# fileMaxLevel(number): The maximum logging to file level.</p>
-</div></blockquote>
 </td>
 </tr>
 </tbody>
