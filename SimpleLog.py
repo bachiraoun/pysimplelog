@@ -9,7 +9,7 @@ Usage
         # initialize
         l=Logger("log test")
         
-        # change log file basename from log to mylog
+        # change log file basename from simplelog to mylog
         l.set_log_file_basename("mylog")
         
         # change log file extension from .log to .pylog
@@ -19,6 +19,9 @@ Usage
         l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
         l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
         l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
+        
+        # print logger
+        print l, '\\n'
         
         # test logging
         l.info("I am info, called using my shortcut method")
@@ -44,7 +47,19 @@ Usage
 output
 ====== 
 .. code-block:: python
-      
+        
+        Logger (Version 0.1.2)
+        log type       |log name       |level     |std flag  |file flag |
+        ---------------|---------------|----------|----------|----------|
+        wrong          |info           |0.0       |True      |True      |
+        debug          |DEBUG          |0.0       |True      |True      |
+        important      |info           |0.0       |True      |True      |
+        info           |INFO           |10.0      |True      |True      |
+        warn           |WARNING        |20.0      |True      |True      |
+        error          |ERROR          |30.0      |True      |True      |
+        critical       |CRITICAL       |100.0     |True      |True      |
+        super critical |SUPER CRITICAL |200.0     |True      |True      |
+
         2015-11-18 14:25:08 - log test <INFO> I am info, called using my shortcut method
         2015-11-18 14:25:08 - log test <INFO> I am  info, called using log method
         2015-11-18 14:25:08 - log test <WARNING> I am warn, called using my shortcut method
@@ -65,6 +80,9 @@ import sys
 import copy
 from datetime import datetime
 import atexit
+
+# pysimplelog imports
+from pysimplelog import __version__
 
         	        
 def _is_number(number):
@@ -110,7 +128,7 @@ class Logger(object):
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
-                       logToFile=True, logFileBasename="log", logFileExtension="log", logFileMaxSize=10,
+                       logToFile=True, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None):
         # set name
@@ -156,6 +174,40 @@ class Logger(object):
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
+    def __str__(self):
+        string = self.__class__.__name__+" (Version "+str(__version__)+")"
+        if not len(self.__logTypeNames):
+            string += "\nlog type  |log name  |level     |std flag   |file flag"
+            string += "\n----------|----------|----------|-----------|---------"
+            return string 
+        # get maximum logType and logTypeZName and maxLogLevel
+        maxLogType  = max( max([len(k)+1 for k in self.__logTypeNames.keys()]),   len("log type  "))
+        maxLogName  = max( max([len(k)+1 for k in self.__logTypeNames.values()]), len("log name  "))
+        maxLogLevel = max( max([len(str(k))+1 for k in self.__logTypeLevels.values()]), len("level     "))
+        # create header
+        string += "\n"+ "log type".ljust(maxLogType) + "|" +\
+                        "log name".ljust(maxLogName) + "|" +\
+                        "level".ljust(maxLogLevel) + "|" +\
+                        "std flag".ljust(10) + "|" +\
+                        "file flag".ljust(10) + "|" 
+        # create separator
+        string += "\n"+ "-"*maxLogType + "|" +\
+                        "-"*maxLogName + "|" +\
+                        "-"*maxLogLevel + "|" +\
+                        "-"*10 + "|" +\
+                        "-"*10 + "|" 
+        # order from min level to max level
+        keys = sorted(self.__logTypeLevels.keys(), key=self.__logTypeLevels.__getitem__)
+        # append log types
+        for k in keys:
+            string += "\n"+ str(k).ljust(maxLogType) + "|" +\
+                            str(self.__logTypeNames[k]).ljust(maxLogName) + "|" +\
+                            str(self.__logTypeLevels[k]).ljust(maxLogLevel) + "|" +\
+                            str(self.__logTypeStdoutFlags[k]).ljust(10) + "|" +\
+                            str(self.logTypeFileFlags[k]).ljust(10) + "|" 
+        return string
+    
+    
     def __stream_format_allowed(self, stream):
         """
         Check whether a stream allows formatting such as coloring.
@@ -183,69 +235,75 @@ class Logger(object):
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
            self.__logFileStream.close() 
-    
+        
     @property
     def flush(self):
-        """Flush flag"""
+        """Flush flag."""
         return self.__flush
         
     @property
     def logTypes(self):
-        """list of all defined log types"""
+        """list of all defined log types."""
         return self.__logTypeNames.keys()
     
     @property
     def logLevels(self):
-        """dictionary copy of all defined log types levels"""
+        """dictionary copy of all defined log types levels."""
         return copy.deepcopy(self.__logTypeLevels)
     
     @property
     def logTypeFileFlags(self):
-        """dictionary copy of all defined log types logging to a file flags"""
+        """dictionary copy of all defined log types logging to a file flags."""
         return copy.deepcopy(self.__logTypeFileFlags)
     
     @property
     def logTypeStdoutFlags(self):
-        """dictionary copy of all defined log types logging to stdout flags"""
+        """dictionary copy of all defined log types logging to Standard output flags."""
         return copy.deepcopy(self.__logTypeStdoutFlags)
     
     @property
     def stdoutMinLevel(self):
+        """Standard output minimum logging level."""
         return self.__stdoutMinLevel
         
     @property
     def stdoutMaxLevel(self):
+        """Standard output maximum logging level."""
         return self.__stdoutMaxLevel
         
     @property
     def fileMinLevel(self):
+        """file logging minimum level."""
         return self.__fileMinLevel 
         
     @property
     def fileMaxLevel(self):
+        """file logging maximum level."""
         return self.__fileMaxLevel 
         
     @property
     def forcedStdoutLevels(self):
-        return self.__forcedStdoutLevels
+        """dictionary copy of forced flags of logging to standard output."""
+        return copy.deepcopy(self.__forcedStdoutLevels)
         
     @property
     def forcedFileLevels(self):
-        return self.__forcedFileLevels 
+        """dictionary copy of forced flags of logging to file."""
+        return copy.deepcopy(self.__forcedFileLevels) 
         
     @property
     def logTypeNames(self):
-        """dictionary copy of all defined log types logging names"""
+        """dictionary copy of all defined log types logging names."""
         return copy.deepcopy(self.__logTypeNames)
         
     @property
     def logTypeLevels(self):
-        """dictionary copy of all defined log types levels showing when logging"""
+        """dictionary copy of all defined log types levels showing when logging."""
         return copy.deepcopy(self.__logTypeLevels)
     
     @property
     def logTypeFormats(self):
-        """dictionary copy of all defined log types format showing when logging"""
+        """dictionary copy of all defined log types format showing when logging."""
         return copy.deepcopy(self.__logTypeFormats)
         
     @property
@@ -468,11 +526,9 @@ class Logger(object):
         # set flags          
         if stdoutFlag:
             self.__stdoutMinLevel = level
-        else:
             self.__update_stdout_flags()
         if fileFlag:
             self.__fileMinLevel = level
-        else:
             self.__update_file_flags() 
                
     def set_maximum_level(self, level=0, stdoutFlag=True, fileFlag=True):
@@ -502,11 +558,9 @@ class Logger(object):
         # set flags          
         if stdoutFlag:
             self.__stdoutMaxLevel = level
-        else:
             self.__update_stdout_flags()
         if fileFlag:
             self.__fileMaxLevel = level  
-        else:
             self.__update_file_flags()          
 
     def __update_flags(self):
@@ -621,6 +675,26 @@ class Logger(object):
         name = str(name)
         self.__logTypeLevels[logType] = level
         
+    def remove_log_type(self, logType, _assert=False):
+        """ 
+        Remove a logtype.
+        
+        :Parameters:
+           #. logType (str): The logtype.
+           #. _assert (boolean): Raise an assertion error if logType is not defined.
+        """
+        # check logType
+        if _assert:
+            assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
+         # remove logType
+        self.__logTypeNames.pop(logType)
+        self.__logTypeLevels.pop(logType)
+        self.__logTypeFormat.pop(logType)
+        self.__logTypeStdoutFlags.pop(logType)
+        self.__logTypeFileFlags.pop(logType)
+        self.__forcedStdoutLevels.pop(logType, None)
+        self.__forcedFileLevels.pop(logType, None)
+             
     def add_log_type(self, logType, name=None, level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """ 
         Add a new logtype.
@@ -858,13 +932,8 @@ if __name__ == "__main__":
     l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
     l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
     l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
-    # standard output flags
-    print "logtype             |level     |stdflag   |fileflag"
-    print "--------------------|----------|----------|--------"
-    
-    for lt, lv in l.logTypeLevels.items():
-        print str(lt).ljust(20) + "|" + str(lv).ljust(10)  + "|" +  str(l.logTypeStdoutFlags[lt]).ljust(10) + "|" +  str(l.logTypeFileFlags[lt]).ljust(10)
-    
+    print l, '\n'
+    # print available logs and logging time.
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
