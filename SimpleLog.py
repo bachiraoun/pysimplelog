@@ -111,7 +111,7 @@ class Logger(object):
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
                        logToFile=True, logFileBasename="log", logFileExtension="log", logFileMaxSize=10,
-                       stdoutMinLevel=None, stdoutMaxLevel=200,
+                       stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None):
         # set name
         self.set_name(name)
@@ -519,12 +519,12 @@ class Logger(object):
         if self.__stdoutMinLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in stdoutkeys:
-                    self.__logTypeStdoutFlags[logType] = l>self.__stdoutMinLevel
+                    self.__logTypeStdoutFlags[logType] = l>=self.__stdoutMinLevel
         # stdoutMaxLevel
         if self.__stdoutMaxLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in stdoutkeys:
-                    self.__logTypeStdoutFlags[logType] = l<self.__stdoutMaxLevel
+                    self.__logTypeStdoutFlags[logType] = l<=self.__stdoutMaxLevel
         # when stdout min and max are None
         if (self.__stdoutMinLevel is None) and (self.__stdoutMaxLevel is None):
             for logType, l in self.__logTypeLevels.items():
@@ -537,12 +537,12 @@ class Logger(object):
         if self.__fileMinLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in filekeys:
-                    self.__logTypeFileFlags[logType] = l>self.__fileMinLevel
+                    self.__logTypeFileFlags[logType] = l>=self.__fileMinLevel
         # fileMaxLevel
         if self.__fileMaxLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in filekeys:
-                    self.__logTypeFileFlags[logType] = l<self.__fileMaxLevel
+                    self.__logTypeFileFlags[logType] = l<=self.__fileMaxLevel
         # when file min and max are None
         if (self.__fileMinLevel is None) and (self.__fileMaxLevel is None):
             for logType, l in self.__logTypeLevels.items():
