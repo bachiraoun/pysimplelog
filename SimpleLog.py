@@ -48,7 +48,7 @@ output
 ====== 
 .. code-block:: python
         
-        Logger (Version 0.1.2)
+        Logger (Version 0.1.3)
         log type       |log name       |level     |std flag  |file flag |
         ---------------|---------------|----------|----------|----------|
         wrong          |info           |0.0       |True      |True      |
@@ -121,10 +121,10 @@ class Logger(object):
        #. logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
           Once exceeded, another logging file as logFileBasename_N.logFileExtension
           will be created. Where N is an automatically incremented number.
-        # stdoutMinLevel(number): The minimum logging to system standard output level.
-        # stdoutMinLevel(number): The maximum logging to system standard output level.
-        # fileMinLevel(number): The minimum logging to file level.
-        # fileMaxLevel(number): The maximum logging to file level.
+       #. stdoutMinLevel(number): The minimum logging to system standard output level.
+       #. stdoutMinLevel(number): The maximum logging to system standard output level.
+       #. fileMinLevel(number): The minimum logging to file level.
+       #. fileMaxLevel(number): The maximum logging to file level.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
