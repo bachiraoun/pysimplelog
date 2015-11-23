@@ -103,10 +103,16 @@ class Logger(object):
        #. logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
           Once exceeded, another logging file as logFileBasename_N.logFileExtension
           will be created. Where N is an automatically incremented number.
+        # stdoutMinLevel(number): The minimum logging to system standard output level.
+        # stdoutMinLevel(number): The maximum logging to system standard output level.
+        # fileMinLevel(number): The minimum logging to file level.
+        # fileMaxLevel(number): The maximum logging to file level.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
-                       logToFile=True, logFileBasename="log", logFileExtension="log", logFileMaxSize=10):
+                       logToFile=True, logFileBasename="log", logFileExtension="log", logFileMaxSize=10,
+                       stdoutMinLevel=None, stdoutMaxLevel=200,
+                       fileMinLevel=None, fileMaxLevel=None):
         # set name
         self.set_name(name)
         # set flush
@@ -129,12 +135,24 @@ class Logger(object):
         self.__logTypeNames       = {}
         self.__logTypeLevels      = {}
         self.__logTypeFormat      = {}
+        # initialize forced levels
+        self.__forcedStdoutLevels = {}
+        self.__forcedFileLevels   = {}
+        # set levels
+        self.__stdoutMinLevel = None
+        self.__stdoutMaxLevel = None
+        self.__fileMinLevel   = None
+        self.__fileMaxLevel   = None
+        self.set_minimum_level(stdoutMinLevel, stdoutFlag=True, fileFlag=False)
+        self.set_maximum_level(stdoutMaxLevel, stdoutFlag=True, fileFlag=False)
+        self.set_minimum_level(fileMinLevel, stdoutFlag=False, fileFlag=True)
+        self.set_maximum_level(fileMaxLevel, stdoutFlag=False, fileFlag=True)
         # create default types
-        self.add_log_type("debug", name="DEBUG", level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_log_type("info", name="INFO", level=10, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_log_type("warn", name="WARNING", level=20, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_log_type("error", name="ERROR", level=30, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
-        self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None)
+        self.add_log_type("debug", name="DEBUG", level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("info", name="INFO", level=10, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("warn", name="WARNING", level=20, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("error", name="ERROR", level=30, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
@@ -165,6 +183,7 @@ class Logger(object):
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
            self.__logFileStream.close() 
+    
     @property
     def flush(self):
         """Flush flag"""
@@ -190,6 +209,30 @@ class Logger(object):
         """dictionary copy of all defined log types logging to stdout flags"""
         return copy.deepcopy(self.__logTypeStdoutFlags)
     
+    @property
+    def stdoutMinLevel(self):
+        return self.__stdoutMinLevel
+        
+    @property
+    def stdoutMaxLevel(self):
+        return self.__stdoutMaxLevel
+        
+    @property
+    def fileMinLevel(self):
+        return self.__fileMinLevel 
+        
+    @property
+    def fileMaxLevel(self):
+        return self.__fileMaxLevel 
+        
+    @property
+    def forcedStdoutLevels(self):
+        return self.__forcedStdoutLevels
+        
+    @property
+    def forcedFileLevels(self):
+        return self.__forcedFileLevels 
+        
     @property
     def logTypeNames(self):
         """dictionary copy of all defined log types logging names"""
@@ -407,21 +450,31 @@ class Logger(object):
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
         """
-        # check level
-        if level is None:
-            level = 0
-        assert _is_number(level), "level must be a number"
-        level = float(level)
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
-        # set levels
-        for logType, l in self.__logTypeLevels.items():
+        if not (stdoutFlag or fileFlag):
+            return
+        # check level
+        if level is not None:
+            assert _is_number(level), "level must be a number"
+            level = float(level)
             if stdoutFlag:
-                self.__logTypeStdoutFlags[logType] = l>=level
+                if self.__stdoutMaxLevel is not None:
+                    assert level<=self.__stdoutMaxLevel, "stdoutMinLevel must be smaller or equal to stdoutMaxLevel %s"%self.__stdoutMaxLevel
             if fileFlag:
-                self.__logTypeFileFlags[logType] = l>=level
-                
+                if self.__fileMaxLevel is not None:
+                    assert level<=self.__fileMaxLevel, "fileMinLevel must be smaller or equal to fileMaxLevel %s"%self.__fileMaxLevel
+        # set flags          
+        if stdoutFlag:
+            self.__stdoutMinLevel = level
+        else:
+            self.__update_stdout_flags()
+        if fileFlag:
+            self.__fileMinLevel = level
+        else:
+            self.__update_file_flags() 
+               
     def set_maximum_level(self, level=0, stdoutFlag=True, fileFlag=True):
         """ 
         Set the maximum logging level. All levels above the maximum will be ignored at logging.
@@ -431,45 +484,117 @@ class Logger(object):
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
         """
-        # check level
-        if level is None:
-            level = 0
-        assert _is_number(level), "level must be a number"
-        level = float(level)
         # check flags
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
-        # set levels
-        for logType, l in self.__logTypeLevels.items():
+        if not (stdoutFlag or fileFlag):
+            return
+        # check level
+        if level is not None:
+            assert _is_number(level), "level must be a number"
+            level = float(level)
             if stdoutFlag:
-                self.__logTypeStdoutFlags[logType] = l<level
+                if self.__stdoutMinLevel is not None:
+                    assert level>=self.__stdoutMinLevel, "stdoutMaxLevel must be bigger or equal to stdoutMinLevel %s"%self.__stdoutMinLevel
             if fileFlag:
-                self.__logTypeFileFlags[logType] = l<level
+                if self.__fileMinLevel is not None:
+                    assert level>=self.__fileMinLevel, "fileMaxLevel must be bigger or equal to fileMinLevel %s"%self.__fileMinLevel
+        # set flags          
+        if stdoutFlag:
+            self.__stdoutMaxLevel = level
+        else:
+            self.__update_stdout_flags()
+        if fileFlag:
+            self.__fileMaxLevel = level  
+        else:
+            self.__update_file_flags()          
+
+    def __update_flags(self):
+        self.__update_stdout_flags()
+        self.__update_file_flags()
         
-    def set_log_type_stdout_flag(self, logType, flag):
+    def __update_stdout_flags(self):
+        # set stdoutMinLevel
+        stdoutkeys = self.__forcedStdoutLevels.keys()
+        if self.__stdoutMinLevel is not None:
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in stdoutkeys:
+                    self.__logTypeStdoutFlags[logType] = l>self.__stdoutMinLevel
+        # stdoutMaxLevel
+        if self.__stdoutMaxLevel is not None:
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in stdoutkeys:
+                    self.__logTypeStdoutFlags[logType] = l<self.__stdoutMaxLevel
+        # when stdout min and max are None
+        if (self.__stdoutMinLevel is None) and (self.__stdoutMaxLevel is None):
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in stdoutkeys:
+                    self.__logTypeStdoutFlags[logType] = True
+    
+    def __update_file_flags(self):
+        # set fileMinLevel
+        filekeys = self.__forcedFileLevels.keys()
+        if self.__fileMinLevel is not None:
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in filekeys:
+                    self.__logTypeFileFlags[logType] = l>self.__fileMinLevel
+        # fileMaxLevel
+        if self.__fileMaxLevel is not None:
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in filekeys:
+                    self.__logTypeFileFlags[logType] = l<self.__fileMaxLevel
+        # when file min and max are None
+        if (self.__fileMinLevel is None) and (self.__fileMaxLevel is None):
+            for logType, l in self.__logTypeLevels.items():
+                if logType not in filekeys:
+                    self.__logTypeFileFlags[logType] = True
+                    
+    def force_log_type_stdout_flag(self, logType, flag):
         """ 
-        Set a logtype standard output logging flag.
+        Force a logtype standard output logging flag.
     
         :Parameters:
            #. logType (str): A defined logging type.
            #. flag (boolean): The standard output logging flag.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
-        assert isinstance(flag, bool), "flag must be boolean"
-        self.__logTypeStdoutFlags[logType] = flag
+        if flag is None:
+            self.__forcedStdoutLevels.pop(logType, None)
+            self.__update_stdout_flags()
+        else:
+            assert isinstance(flag, bool), "flag must be boolean"
+            self.__logTypeStdoutFlags[logType] = flag
+            self.__forcedStdoutLevels[logType] = flag
     
-    def set_log_type_file_flag(self, logType, flag):
+    def force_log_type_file_flag(self, logType, flag):
         """ 
-        Set a logtype file logging flag.
+        Force a logtype file logging flag.
     
         :Parameters:
            #. logType (str): A defined logging type.
            #. flag (boolean): The file logging flag.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
-        assert isinstance(flag, bool), "flag must be boolean"
-        self.__logTypeFileFlags[logType] = flag
+        if flag is None:
+            self.__forcedFileLevels.pop(logType, None)
+            self.__update_file_flags()
+        else:
+            assert isinstance(flag, bool), "flag must be boolean"
+            self.__logTypeFileFlags[logType] = flag
+            self.__forcedFileLevels[logType] = flag
     
+    def force_log_type_flags(self, logType, stdoutFlag, fileFlag):
+        """ 
+        Force a logtype logging flags.
+    
+        :Parameters:
+           #. logType (str): A defined logging type.
+           #. stdoutFlag (boolean): The standard output logging flag.
+           #. fileFlag (boolean): The file logging flag.
+        """
+        self.force_log_type_stdout_flag(logType, stdoutFlag)
+        self.force_log_type_file_flag(logType, fileFlag)
+        
     def set_log_type_name(self, logType, name):
         """ 
         Set a logtype name.
@@ -496,7 +621,7 @@ class Logger(object):
         name = str(name)
         self.__logTypeLevels[logType] = level
         
-    def add_log_type(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
+    def add_log_type(self, logType, name=None, level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """ 
         Add a new logtype.
     
@@ -504,8 +629,10 @@ class Logger(object):
            #. logType (str): The logtype.
            #. name (None, str): The logtype name. If None, name will be set to logtype.
            #. level (number): The level of logging.
-           #. stdoutFlag (boolean): The standard output logging flag.
-           #. fileFlag (boolean): The file logging flag.
+           #. stdoutFlag (None, boolean): Force standard output logging flag.
+              If None, flag will be set according to minimum and maximum levels.
+           #. fileFlag (None, boolean): Force file logging flag.
+              If None, flag will be set according to minimum and maximum levels.
            #. color (None, str): The logging text color. The defined colors are:\n
               black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
               light red , light green , yellow , light blue , pink , light cyan
@@ -526,7 +653,7 @@ class Logger(object):
                             color=color, highlight=highlight, attributes=attributes)
         
                 
-    def __set_log_type(self, logType, name=None, level=0, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
+    def __set_log_type(self, logType, name, level, stdoutFlag, fileFlag, color, highlight, attributes):
         # check name
         if name is None:
             name = logType
@@ -535,19 +662,29 @@ class Logger(object):
         # check level
         assert _is_number(level), "level must be a number"
         level = float(level)
+        # check color
+        if color is not None:
+            assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
+        # check highlight
+        if highlight is not None:
+            assert highlight in self.__stdoutFontFormat["highlight"], "highlight %s not known"%str(highlight)
+        # check attributes
+        if attributes is not None:
+            for attr in attributes:
+                assert attr in self.__stdoutFontFormat["attributes"], "attribute %s not known"%str(attr)
         # check flags
-        assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
-        assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        if stdoutFlag is not None:
+            assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
+        if fileFlag is not None:
+            assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         # set wrapFancy
         wrapFancy=["",""]
         if color is not None:
-            assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
             code = self.__stdoutFontFormat["color"][color]
             if len(code):
                 code = ";"+code
             wrapFancy[0] += code
         if highlight is not None:
-            assert highlight in self.__stdoutFontFormat["highlight"], "highlight %s not known"%str(highlight)
             code = self.__stdoutFontFormat["highlight"][highlight]
             if len(code):
                 code = ";"+code
@@ -557,7 +694,6 @@ class Logger(object):
         elif isinstance(attributes, basestring):
             attributes = [str(attributes)]
         for attr in attributes:
-            assert attr in self.__stdoutFontFormat["attributes"], "attribute %s not known"%str(attr)
             code = self.__stdoutFontFormat["attributes"][attr]
             if len(code):
                 code = ";"+code
@@ -565,13 +701,24 @@ class Logger(object):
         if len(wrapFancy[0]):
             wrapFancy = ["\033["+self.__stdoutFontFormat["reset"]+wrapFancy[0]+"m" , "\033["+self.__stdoutFontFormat["reset"]+"m" ]               
         # add logType
+        self.__logTypeNames[logType]  = name
+        self.__logTypeLevels[logType] = level
+        self.__logTypeFormat[logType] = wrapFancy
         self.__logTypeStdoutFlags[logType] = stdoutFlag
-        self.__logTypeFileFlags[logType]   = fileFlag
-        self.__logTypeNames[logType]       = name
-        self.__logTypeLevels[logType]      = level
-        self.__logTypeFormat[logType]      = wrapFancy
+        if stdoutFlag is not None:
+            self.__forcedStdoutLevels[logType] = stdoutFlag
+        else:
+            self.__forcedStdoutLevels.pop(logType, None)
+            self.__update_stdout_flags()
+        self.__logTypeFileFlags[logType] = fileFlag
+        if fileFlag is not None:
+            self.__forcedFileLevels[logType] = fileFlag
+        else:
+            self.__forcedFileLevels.pop(logType, None)
+            self.__update_file_flags()
+
     
-    def update_log_type(self, logType, name=None, level=None, stdoutFlag=True, fileFlag=True, color=None, highlight=None, attributes=None):
+    def update_log_type(self, logType, name=None, level=None, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """ 
         update a logtype.
     
@@ -579,8 +726,10 @@ class Logger(object):
            #. logType (str): The logtype.
            #. name (None, str): The logtype name. If None, name will be set to logtype.
            #. level (number): The level of logging.
-           #. stdoutFlag (boolean): The standard output logging flag.
-           #. fileFlag (boolean): The file logging flag.
+           #. stdoutFlag (None, boolean): Force standard output logging flag.
+              If None, flag will be set according to minimum and maximum levels.
+           #. fileFlag (None, boolean): Force file logging flag.
+              If None, flag will be set according to minimum and maximum levels.
            #. color (None, str): The logging text color. The defined colors are:\n
               black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
               light red , light green , yellow , light blue , pink , light cyan
@@ -709,6 +858,13 @@ if __name__ == "__main__":
     l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
     l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
     l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
+    # standard output flags
+    print "logtype             |level     |stdflag   |fileflag"
+    print "--------------------|----------|----------|--------"
+    
+    for lt, lv in l.logTypeLevels.items():
+        print str(lt).ljust(20) + "|" + str(lv).ljust(10)  + "|" +  str(l.logTypeStdoutFlags[lt]).ljust(10) + "|" +  str(l.logTypeFileFlags[lt]).ljust(10)
+    
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
