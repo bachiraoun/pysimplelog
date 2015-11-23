@@ -609,7 +609,8 @@ class Logger(object):
     
         :Parameters:
            #. logType (str): A defined logging type.
-           #. flag (boolean): The standard output logging flag.
+           #. flag (None boolean): The standard output logging flag.
+              If None, logtype flag forcing is released.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
         if flag is None:
