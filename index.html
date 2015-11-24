@@ -91,7 +91,7 @@
 <body>
 <pre>
 
-    Logger (Version 0.1.3)
+    Logger (Version 0.1.4)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -146,10 +146,10 @@ set as logFileBasename.logFileExtension</li>
 <li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
 Once exceeded, another logging file as logFileBasename_N.logFileExtension
 will be created. Where N is an automatically incremented number.</li>
-<li>stdoutMinLevel(number): The minimum logging to system standard output level.</li>
-<li>stdoutMinLevel(number): The maximum logging to system standard output level.</li>
-<li>fileMinLevel(number): The minimum logging to file level.</li>
-<li>fileMaxLevel(number): The maximum logging to file level.</li>
+<li>stdoutMinLevel(None, number): The minimum logging to system standard output level.</li>
+<li>stdoutMinLevel(None, number): The maximum logging to system standard output level.</li>
+<li>fileMinLevel(None, number): The minimum logging to file level.</li>
+<li>fileMaxLevel(None, number): The maximum logging to file level.</li>
 </ol>
 </td>
 </tr>
@@ -445,7 +445,7 @@ will be created. Where N is an automatically incremented number.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>level (number): The minimum level of logging.</li>
+<li>level (None, number): The minimum level of logging.</li>
 <li>stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.</li>
 <li>fileFlag (boolean): Whether to apply this minimum level to file logging.</li>
 </ol>
@@ -464,7 +464,7 @@ will be created. Where N is an automatically incremented number.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>level (number): The maximum level of logging.</li>
+<li>level (None, number): The maximum level of logging.</li>
 <li>stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.</li>
 <li>fileFlag (boolean): Whether to apply this maximum level to file logging.</li>
 </ol>
