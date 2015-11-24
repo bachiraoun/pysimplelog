@@ -54,7 +54,7 @@ output
         <body>
         <pre>
         
-            Logger (Version 0.1.3)
+            Logger (Version 0.1.4)
             log type       |log name       |level     |std flag  |file flag |
             ---------------|---------------|----------|----------|----------|
             wrong          |info           |0.0       |True      |True      |
@@ -131,10 +131,10 @@ class Logger(object):
        #. logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
           Once exceeded, another logging file as logFileBasename_N.logFileExtension
           will be created. Where N is an automatically incremented number.
-       #. stdoutMinLevel(number): The minimum logging to system standard output level.
-       #. stdoutMinLevel(number): The maximum logging to system standard output level.
-       #. fileMinLevel(number): The minimum logging to file level.
-       #. fileMaxLevel(number): The maximum logging to file level.
+       #. stdoutMinLevel(None, number): The minimum logging to system standard output level.
+       #. stdoutMinLevel(None, number): The maximum logging to system standard output level.
+       #. fileMinLevel(None, number): The minimum logging to file level.
+       #. fileMaxLevel(None, number): The maximum logging to file level.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
@@ -517,7 +517,7 @@ class Logger(object):
         Set the minimum logging level. All levels below the minimum will be ignored at logging.
     
         :Parameters:
-           #. level (number): The minimum level of logging.
+           #. level (None, number): The minimum level of logging.
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
         """
@@ -549,7 +549,7 @@ class Logger(object):
         Set the maximum logging level. All levels above the maximum will be ignored at logging.
     
         :Parameters:
-           #. level (number): The maximum level of logging.
+           #. level (None, number): The maximum level of logging.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
         """
