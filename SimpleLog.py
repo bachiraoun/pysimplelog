@@ -54,7 +54,7 @@ output
         <body>
         <pre>
         
-            Logger (Version 0.1.4)
+            Logger (Version %s)
             log type       |log name       |level     |std flag  |file flag |
             ---------------|---------------|----------|----------|----------|
             wrong          |info           |0.0       |True      |True      |
@@ -84,6 +84,7 @@ output
         <body>
             
 """
+
 # python standard distribution imports
 import os 
 import sys
@@ -94,7 +95,10 @@ import atexit
 # pysimplelog imports
 from pysimplelog import __version__
 
-        	        
+# automatically set pysimplelog version in docstring
+__doc__ = __doc__%__version__
+
+# useful is_number definition    	        
 def _is_number(number):
     if isinstance(number, (int, long, float, complex)):
         return True
