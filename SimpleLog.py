@@ -20,19 +20,19 @@ Usage
         l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
         l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
         
-        # update log type
-        l.update_log_type(logType='error', color='blue')
-        
+        # update error log type
+        l.update_log_type(logType='error', color='green', attributes=['underline','bold'])
+    
         # print logger
         print l, '\\n'
-        
+    
         # test logging
         l.info("I am info, called using my shortcut method")
         l.log("info", "I am  info, called using log method")
-        
+    
         l.warn("I am warn, called using my shortcut method")
         l.log("warn", "I am warn, called using log method")
-        
+    
         l.error("I am error, called using my shortcut method")
         l.log("error", "I am error, called using log method")
         
@@ -45,7 +45,7 @@ Usage
         l.log("super critical", "I am super critical, called using log method because I have no shortcut method.")
         l.log("wrong", "I am wrong, called using log method because I have no shortcut method.")
         l.log("important", "I am important, called using log method because I have no shortcut method.")
-        
+    
         
 output
 ====== 
@@ -163,6 +163,9 @@ class Logger(object):
         self.__logTypeNames       = {}
         self.__logTypeLevels      = {}
         self.__logTypeFormat      = {}
+        self.__logTypeColor       = {}
+        self.__logTypeHighlight   = {}
+        self.__logTypeAttributes  = {}
         # initialize forced levels
         self.__forcedStdoutLevels = {}
         self.__forcedFileLevels   = {}
@@ -789,9 +792,12 @@ class Logger(object):
         if len(wrapFancy[0]):
             wrapFancy = ["\033["+self.__stdoutFontFormat["reset"]+wrapFancy[0]+"m" , "\033["+self.__stdoutFontFormat["reset"]+"m" ]               
         # add logType
-        self.__logTypeNames[logType]  = name
-        self.__logTypeLevels[logType] = level
-        self.__logTypeFormat[logType] = wrapFancy
+        self.__logTypeColor[logType]       = color
+        self.__logTypeHighlight[logType]   = highlight
+        self.__logTypeAttributes[logType]  = attributes
+        self.__logTypeNames[logType]       = name
+        self.__logTypeLevels[logType]      = level
+        self.__logTypeFormat[logType]      = wrapFancy
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         if stdoutFlag is not None:
             self.__forcedStdoutLevels[logType] = stdoutFlag
@@ -830,8 +836,14 @@ class Logger(object):
         """
         # check logType
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
-        # MUST GET NONE ATTRIBUTES HERE
-        
+        # get None updates
+        if name is None:       name       = self.__logTypeNames[logType]
+        if level is None:      level      = self.__logTypeLevels[logType]
+        if stdoutFlag is None: stdoutFlag = self.__logTypeStdoutFlags[logType]
+        if fileFlag is None:   fileFlag   = self.__logTypeFileFlags[logType]
+        if color is None:      color      = self.__logTypeColor[logType]
+        if highlight is None:  highlight  = self.__logTypeHighlight[logType]
+        if attributes is None: attributes = self.__logTypeAttributes[logType]
         # update log type
         self.__set_log_type(logType=logType, name=name, level=level, 
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
