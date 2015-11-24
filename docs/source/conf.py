@@ -30,6 +30,7 @@ import os
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.util.console',
 ]
 
 # Add any paths that contain templates here, relative to this directory.

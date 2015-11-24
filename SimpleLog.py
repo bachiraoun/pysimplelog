@@ -1,4 +1,4 @@
-"""
+"""  
 Usage
 =====
 .. code-block:: python
@@ -18,7 +18,10 @@ Usage
         # Add new log types.
         l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
         l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
-        l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
+        l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
+        
+        # update log type
+        l.update_log_type(logType='error', color='blue')
         
         # print logger
         print l, '\\n'
@@ -46,33 +49,40 @@ Usage
         
 output
 ====== 
-.. code-block:: python
+.. raw:: html 
+    
+        <body>
+        <pre>
         
-        Logger (Version 0.1.3)
-        log type       |log name       |level     |std flag  |file flag |
-        ---------------|---------------|----------|----------|----------|
-        wrong          |info           |0.0       |True      |True      |
-        debug          |DEBUG          |0.0       |True      |True      |
-        important      |info           |0.0       |True      |True      |
-        info           |INFO           |10.0      |True      |True      |
-        warn           |WARNING        |20.0      |True      |True      |
-        error          |ERROR          |30.0      |True      |True      |
-        critical       |CRITICAL       |100.0     |True      |True      |
-        super critical |SUPER CRITICAL |200.0     |True      |True      |
+            Logger (Version 0.1.3)
+            log type       |log name       |level     |std flag  |file flag |
+            ---------------|---------------|----------|----------|----------|
+            wrong          |info           |0.0       |True      |True      |
+            debug          |DEBUG          |0.0       |True      |True      |
+            important      |info           |0.0       |True      |True      |
+            info           |INFO           |10.0      |True      |True      |
+            warn           |WARNING        |20.0      |True      |True      |
+            error          |ERROR          |30.0      |True      |True      |
+            critical       |CRITICAL       |100.0     |True      |True      |
+            super critical |SUPER CRITICAL |200.0     |True      |True      |
+            
+            2015-11-18 14:25:08 - log test <INFO> I am info, called using my shortcut method
+            2015-11-18 14:25:08 - log test <INFO> I am  info, called using log method
+            2015-11-18 14:25:08 - log test <WARNING> I am warn, called using my shortcut method
+            2015-11-18 14:25:08 - log test <WARNING> I am warn, called using log method
+            <font color="blue">2015-11-18 14:25:08 - log test <ERROR> I am error, called using my shortcut method</font>
+            <font color="blue">2015-11-18 14:25:08 - log test <ERROR> I am error, called using log method</font>
+            2015-11-18 14:25:08 - log test <CRITICAL> I am critical, called using my shortcut method
+            2015-11-18 14:25:08 - log test <CRITICAL> I critical, called using log method
+            2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using my shortcut method
+            2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using log method
+            <font color="red"><b><ins>2015-11-18 14:25:08 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.</ins></b></font>
+            <font color="magenta"><del>2015-11-18 14:25:08 - log test <info> I am wrong, called using log method because I have no shortcut method.</del></font>
+            <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method. </b></mark>
 
-        2015-11-18 14:25:08 - log test <INFO> I am info, called using my shortcut method
-        2015-11-18 14:25:08 - log test <INFO> I am  info, called using log method
-        2015-11-18 14:25:08 - log test <WARNING> I am warn, called using my shortcut method
-        2015-11-18 14:25:08 - log test <WARNING> I am warn, called using log method
-        2015-11-18 14:25:08 - log test <ERROR> I am error, called using my shortcut method
-        2015-11-18 14:25:08 - log test <ERROR> I am error, called using log method
-        2015-11-18 14:25:08 - log test <CRITICAL> I am critical, called using my shortcut method
-        2015-11-18 14:25:08 - log test <CRITICAL> I critical, called using log method
-        2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using my shortcut method
-        2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using log method
-        2015-11-18 14:25:08 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.
-        2015-11-18 14:25:08 - log test <info> I am wrong, called using log method because I have no shortcut method.
-        2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method.
+        </pre>
+        <body>
+            
 """
 # python standard distribution imports
 import os 
@@ -820,6 +830,8 @@ class Logger(object):
         """
         # check logType
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
+        # MUST GET NONE ATTRIBUTES HERE
+        
         # update log type
         self.__set_log_type(logType=logType, name=name, level=level, 
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
