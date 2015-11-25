@@ -115,7 +115,7 @@
     2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using log method.
     <font color="red"><b><ins>2015-11-18 14:25:08 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.</ins></b></font>
     <font color="magenta"><del>2015-11-18 14:25:08 - log test <info> I am wrong, called using log method because I have no shortcut method.</del></font>
-    <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method. </b></mark>
+    <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method.</b></mark>
 
 </pre>
 <body><dl class="class">
@@ -132,24 +132,28 @@ methods must be overloaded.</p>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>name (str): The logger name.</li>
+<li>name (string): The logger name.</li>
 <li>flush (boolean): Whether to always flush the logging streams.</li>
 <li>logToStdout (boolean): Whether to log to the standard output stream.</li>
 <li>stdout (None, stream): The standard output stream. If None, system standard
 output will be set automatically. Otherwise any stream with read and write 
 methods can be passed</li>
 <li>logToFile (boolean): Whether to log to to file.</li>
-<li>logFileBasename (str): Logging file basename. A logging file full name is 
+<li>logFileBasename (string): Logging file basename. A logging file full name is 
 set as logFileBasename.logFileExtension</li>
-<li>logFileExtension (str): Logging file extension. A logging file full name is 
+<li>logFileExtension (string): Logging file extension. A logging file full name is 
 set as logFileBasename.logFileExtension</li>
 <li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
 Once exceeded, another logging file as logFileBasename_N.logFileExtension
 will be created. Where N is an automatically incremented number.</li>
-<li>stdoutMinLevel(None, number): The minimum logging to system standard output level.</li>
-<li>stdoutMinLevel(None, number): The maximum logging to system standard output level.</li>
-<li>fileMinLevel(None, number): The minimum logging to file level.</li>
-<li>fileMaxLevel(None, number): The maximum logging to file level.</li>
+<li>stdoutMinLevel(None, number): The minimum logging to system standard output level.
+If None, standard output minimum level checking is left out.</li>
+<li>stdoutMaxLevel(None, number): The maximum logging to system standard output level.
+If None, standard output maximum level checking is left out.</li>
+<li>fileMinLevel(None, number): The minimum logging to file level.
+If None, file minimum level checking is left out.</li>
+<li>fileMaxLevel(None, number): The maximum logging to file level.
+If None, file maximum level checking is left out.</li>
 </ol>
 </td>
 </tr>
@@ -284,7 +288,7 @@ will be created. Where N is an automatically incremented number.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>name (str): The logger name.</li>
+<li>name (string): The logger name.</li>
 </ol>
 </td>
 </tr>
@@ -371,7 +375,7 @@ methods can be passed</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
+<li>logType (string): A defined logging type.</li>
 <li>stdoutFlag (boolean): Whether to log to the standard output stream.</li>
 <li>fileFlag (boolean): Whether to log to to file.</li>
 </ol>
@@ -390,7 +394,7 @@ methods can be passed</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileExtension (str): Logging file extension. A logging file full name is 
+<li>logFileExtension (string): Logging file extension. A logging file full name is 
 set as logFileBasename.logFileExtension</li>
 </ol>
 </td>
@@ -408,7 +412,7 @@ set as logFileBasename.logFileExtension</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileBasename (str): Logging file basename. A logging file full name is 
+<li>logFileBasename (string): Logging file basename. A logging file full name is 
 set as logFileBasename.logFileExtension</li>
 </ol>
 </td>
@@ -445,7 +449,8 @@ will be created. Where N is an automatically incremented number.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>level (None, number): The minimum level of logging.</li>
+<li>level (None, number): The minimum level of logging.
+If None, minimum level checking is left out.</li>
 <li>stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.</li>
 <li>fileFlag (boolean): Whether to apply this minimum level to file logging.</li>
 </ol>
@@ -464,7 +469,8 @@ will be created. Where N is an automatically incremented number.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>level (None, number): The maximum level of logging.</li>
+<li>level (None, number): The maximum level of logging.
+If None, maximum level checking is left out.</li>
 <li>stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.</li>
 <li>fileFlag (boolean): Whether to apply this maximum level to file logging.</li>
 </ol>
@@ -477,15 +483,15 @@ will be created. Where N is an automatically incremented number.</li>
 <dl class="method">
 <dt>
 <tt class="descname">force_log_type_stdout_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big></dt>
-<dd><p>Force a logtype standard output logging flag.</p>
+<dd><p>Force a logtype standard output logging flag despite minimum and maximum logging level boundaries.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
+<li>logType (string): A defined logging type.</li>
 <li>flag (None boolean): The standard output logging flag.
-If None, logtype flag forcing is released.</li>
+If None, logtype existing forced flag is released.</li>
 </ol>
 </td>
 </tr>
@@ -496,15 +502,15 @@ If None, logtype flag forcing is released.</li>
 <dl class="method">
 <dt>
 <tt class="descname">force_log_type_file_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big></dt>
-<dd><p>Force a logtype file logging flag.</p>
+<dd><p>Force a logtype file logging flag despite minimum and maximum logging level boundaries.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
+<li>logType (string): A defined logging type.</li>
 <li>flag (None, boolean): The file logging flag.
-If None, logtype flag forcing is released.</li>
+If None, logtype existing forced flag is released.</li>
 </ol>
 </td>
 </tr>
@@ -521,7 +527,7 @@ If None, logtype flag forcing is released.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
+<li>logType (string): A defined logging type.</li>
 <li>stdoutFlag (None, boolean): The standard output logging flag.
 If None, logtype stdoutFlag forcing is released.</li>
 <li>fileFlag (None, boolean): The file logging flag.
@@ -542,8 +548,8 @@ If None, logtype fileFlag forcing is released.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
-<li>name (str): The logtype new name.</li>
+<li>logType (string): A defined logging type.</li>
+<li>name (string): The logtype new name.</li>
 </ol>
 </td>
 </tr>
@@ -560,7 +566,7 @@ If None, logtype fileFlag forcing is released.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
+<li>logType (string): A defined logging type.</li>
 <li>level (number): The level of logging.</li>
 </ol>
 </td>
@@ -578,7 +584,7 @@ If None, logtype fileFlag forcing is released.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): The logtype.</li>
+<li>logType (string): The logtype.</li>
 <li>_assert (boolean): Raise an assertion error if logType is not defined.</li>
 </ol>
 </td>
@@ -596,9 +602,9 @@ If None, logtype fileFlag forcing is released.</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic">
-<li><p class="first">logType (str): The logtype.</p>
+<li><p class="first">logType (string): The logtype.</p>
 </li>
-<li><p class="first">name (None, str): The logtype name. If None, name will be set to logtype.</p>
+<li><p class="first">name (None, string): The logtype name. If None, name will be set to logtype.</p>
 </li>
 <li><p class="first">level (number): The level of logging.</p>
 </li>
@@ -608,14 +614,14 @@ If None, flag will be set according to minimum and maximum levels.</p>
 <li><p class="first">fileFlag (None, boolean): Force file logging flag.
 If None, flag will be set according to minimum and maximum levels.</p>
 </li>
-<li><p class="first">color (None, str): The logging text color. The defined colors are:</p>
+<li><p class="first">color (None, string): The logging text color. The defined colors are:</p>
 <p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
 light red , light green , yellow , light blue , pink , light cyan</p>
 </li>
-<li><p class="first">highlight (None, str): The logging text highlight color. The defined highlights are:</p>
+<li><p class="first">highlight (None, string): The logging text highlight color. The defined highlights are:</p>
 <p>black , red , green , orange , blue , magenta , cyan , grey</p>
 </li>
-<li><p class="first">attributes (None, str): The logging text attribute. The defined attributes are:</p>
+<li><p class="first">attributes (None, string): The logging text attribute. The defined attributes are:</p>
 <p>bold , underline , blink , invisible , strike through</p>
 </li>
 </ol>
@@ -635,9 +641,9 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic">
-<li><p class="first">logType (str): The logtype.</p>
+<li><p class="first">logType (string): The logtype.</p>
 </li>
-<li><p class="first">name (None, str): The logtype name. If None, name will be set to logtype.</p>
+<li><p class="first">name (None, string): The logtype name. If None, name will be set to logtype.</p>
 </li>
 <li><p class="first">level (number): The level of logging.</p>
 </li>
@@ -647,14 +653,14 @@ If None, flag will be set according to minimum and maximum levels.</p>
 <li><p class="first">fileFlag (None, boolean): Force file logging flag.
 If None, flag will be set according to minimum and maximum levels.</p>
 </li>
-<li><p class="first">color (None, str): The logging text color. The defined colors are:</p>
+<li><p class="first">color (None, string): The logging text color. The defined colors are:</p>
 <p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
 light red , light green , yellow , light blue , pink , light cyan</p>
 </li>
-<li><p class="first">highlight (None, str): The logging text highlight color. The defined highlights are:</p>
+<li><p class="first">highlight (None, string): The logging text highlight color. The defined highlights are:</p>
 <p>black , red , green , orange , blue , magenta , cyan , grey</p>
 </li>
-<li><p class="first">attributes (None, str): The logging text attribute. The defined attributes are:</p>
+<li><p class="first">attributes (None, string): The logging text attribute. The defined attributes are:</p>
 <p>bold , underline , blink , invisible , strike through</p>
 </li>
 </ol>
@@ -674,8 +680,8 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
-<li>message (str): Any message to log.</li>
+<li>logType (string): A defined logging type.</li>
+<li>message (string): Any message to log.</li>
 </ol>
 </td>
 </tr>
@@ -692,8 +698,8 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logType (str): A defined logging type.</li>
-<li>message (str): Any message to log.</li>
+<li>logType (string): A defined logging type.</li>
+<li>message (string): Any message to log.</li>
 <li>stdout (boolean): Whether to force logging to standard output.</li>
 <li>file (boolean): Whether to force logging to file.</li>
 </ol>
