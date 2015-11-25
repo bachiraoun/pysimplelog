@@ -47,7 +47,7 @@ with open('MANIFEST.in','w') as fd:
        
 # declare classifiers
 CLASSIFIERS = """\
-Development Status :: 4 - Beta
+Development Status :: 5 - Production/Stable
 Intended Audience :: Science/Research
 Intended Audience :: Developers
 License :: OSI Approved :: GNU Affero General Public License v3
