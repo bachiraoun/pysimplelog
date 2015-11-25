@@ -54,7 +54,7 @@ output
         <body>
         <pre>
         
-            Logger (Version %s)
+            Logger (Version %AUTO_VERSION)
             log type       |log name       |level     |std flag  |file flag |
             ---------------|---------------|----------|----------|----------|
             wrong          |info           |0.0       |True      |True      |
@@ -78,7 +78,7 @@ output
             2015-11-18 14:25:08 - log test <DEBUG> I am debug, called using log method.
             <font color="red"><b><ins>2015-11-18 14:25:08 - log test <SUPER CRITICAL> I am super critical, called using log method because I have no shortcut method.</ins></b></font>
             <font color="magenta"><del>2015-11-18 14:25:08 - log test <info> I am wrong, called using log method because I have no shortcut method.</del></font>
-            <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method. </b></mark>
+            <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test <info> I am important, called using log method because I have no shortcut method.</b></mark>
 
         </pre>
         <body>
@@ -91,12 +91,8 @@ import sys
 import copy
 from datetime import datetime
 import atexit
-
 # pysimplelog imports
 from pysimplelog import __version__
-
-# automatically set pysimplelog version in docstring
-__doc__ = __doc__%__version__
 
 # useful is_number definition    	        
 def _is_number(number):
@@ -121,24 +117,28 @@ class Logger(object):
     methods must be overloaded.
     
     :Parameters:
-       #. name (str): The logger name.
+       #. name (string): The logger name.
        #. flush (boolean): Whether to always flush the logging streams.
        #. logToStdout (boolean): Whether to log to the standard output stream.
        #. stdout (None, stream): The standard output stream. If None, system standard
           output will be set automatically. Otherwise any stream with read and write 
           methods can be passed
        #. logToFile (boolean): Whether to log to to file.
-       #. logFileBasename (str): Logging file basename. A logging file full name is 
+       #. logFileBasename (string): Logging file basename. A logging file full name is 
           set as logFileBasename.logFileExtension
-       #. logFileExtension (str): Logging file extension. A logging file full name is 
+       #. logFileExtension (string): Logging file extension. A logging file full name is 
           set as logFileBasename.logFileExtension
        #. logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
           Once exceeded, another logging file as logFileBasename_N.logFileExtension
           will be created. Where N is an automatically incremented number.
        #. stdoutMinLevel(None, number): The minimum logging to system standard output level.
-       #. stdoutMinLevel(None, number): The maximum logging to system standard output level.
+          If None, standard output minimum level checking is left out.
+       #. stdoutMaxLevel(None, number): The maximum logging to system standard output level.
+          If None, standard output maximum level checking is left out.
        #. fileMinLevel(None, number): The minimum logging to file level.
+          If None, file minimum level checking is left out.
        #. fileMaxLevel(None, number): The maximum logging to file level.
+          If None, file maximum level checking is left out.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
@@ -363,7 +363,7 @@ class Logger(object):
         Set the logger name. 
     
         :Parameters:
-           #. name (str): The logger name.
+           #. name (string): The logger name.
         """
         assert isinstance(name, basestring), "name must be a string"
         self.__name = name
@@ -446,7 +446,7 @@ class Logger(object):
         Set a defined log type flags.
     
         :Parameters:
-           #. logType (str): A defined logging type.
+           #. logType (string): A defined logging type.
            #. stdoutFlag (boolean): Whether to log to the standard output stream.
            #. fileFlag (boolean): Whether to log to to file.
         """
@@ -461,7 +461,7 @@ class Logger(object):
         Set the log file extension.
     
         :Parameters:
-           #. logFileExtension (str): Logging file extension. A logging file full name is 
+           #. logFileExtension (string): Logging file extension. A logging file full name is 
               set as logFileBasename.logFileExtension
         """
         assert isinstance(logFileExtension, basestring), "logFileExtension must be a basestring"
@@ -478,7 +478,7 @@ class Logger(object):
         Set the log file basename.
     
         :Parameters:
-           #. logFileBasename (str): Logging file basename. A logging file full name is 
+           #. logFileBasename (string): Logging file basename. A logging file full name is 
               set as logFileBasename.logFileExtension
         """
         self.__set_log_file_basename(logFileBasename)
@@ -522,6 +522,7 @@ class Logger(object):
     
         :Parameters:
            #. level (None, number): The minimum level of logging.
+              If None, minimum level checking is left out.
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
         """
@@ -554,6 +555,7 @@ class Logger(object):
     
         :Parameters:
            #. level (None, number): The maximum level of logging.
+              If None, maximum level checking is left out.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
         """
@@ -591,7 +593,7 @@ class Logger(object):
             for logType, l in self.__logTypeLevels.items():
                 if logType not in stdoutkeys:
                     self.__logTypeStdoutFlags[logType] = l>=self.__stdoutMinLevel
-        # stdoutMaxLevel
+        # set stdoutMaxLevel
         if self.__stdoutMaxLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in stdoutkeys:
@@ -609,7 +611,7 @@ class Logger(object):
             for logType, l in self.__logTypeLevels.items():
                 if logType not in filekeys:
                     self.__logTypeFileFlags[logType] = l>=self.__fileMinLevel
-        # fileMaxLevel
+        # set fileMaxLevel
         if self.__fileMaxLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in filekeys:
@@ -622,12 +624,12 @@ class Logger(object):
                     
     def force_log_type_stdout_flag(self, logType, flag):
         """ 
-        Force a logtype standard output logging flag.
+        Force a logtype standard output logging flag despite minimum and maximum logging level boundaries.
     
         :Parameters:
-           #. logType (str): A defined logging type.
+           #. logType (string): A defined logging type.
            #. flag (None boolean): The standard output logging flag.
-              If None, logtype flag forcing is released.
+              If None, logtype existing forced flag is released.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
         if flag is None:
@@ -640,12 +642,12 @@ class Logger(object):
     
     def force_log_type_file_flag(self, logType, flag):
         """ 
-        Force a logtype file logging flag.
+        Force a logtype file logging flag despite minimum and maximum logging level boundaries.
     
         :Parameters:
-           #. logType (str): A defined logging type.
+           #. logType (string): A defined logging type.
            #. flag (None, boolean): The file logging flag.
-              If None, logtype flag forcing is released.
+              If None, logtype existing forced flag is released.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
         if flag is None:
@@ -661,7 +663,7 @@ class Logger(object):
         Force a logtype logging flags.
     
         :Parameters:
-           #. logType (str): A defined logging type.
+           #. logType (string): A defined logging type.
            #. stdoutFlag (None, boolean): The standard output logging flag.
               If None, logtype stdoutFlag forcing is released.
            #. fileFlag (None, boolean): The file logging flag.
@@ -675,8 +677,8 @@ class Logger(object):
         Set a logtype name.
     
         :Parameters:
-           #. logType (str): A defined logging type.
-           #. name (str): The logtype new name.
+           #. logType (string): A defined logging type.
+           #. name (string): The logtype new name.
         """
         assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
         assert isinstance(name, basestring), "name must be a string"
@@ -688,7 +690,7 @@ class Logger(object):
         Set a logtype logging level.
     
         :Parameters:
-           #. logType (str): A defined logging type.
+           #. logType (string): A defined logging type.
            #. level (number): The level of logging.
         """
         assert _is_number(level), "level must be a number"
@@ -701,13 +703,16 @@ class Logger(object):
         Remove a logtype.
         
         :Parameters:
-           #. logType (str): The logtype.
+           #. logType (string): The logtype.
            #. _assert (boolean): Raise an assertion error if logType is not defined.
         """
         # check logType
         if _assert:
             assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
-         # remove logType
+        # remove logType
+        self.__logTypeColor.pop(logType)
+        self.__logTypeHighlight.pop(logType)
+        self.__logTypeAttributes.pop(logType)
         self.__logTypeNames.pop(logType)
         self.__logTypeLevels.pop(logType)
         self.__logTypeFormat.pop(logType)
@@ -721,19 +726,19 @@ class Logger(object):
         Add a new logtype.
     
         :Parameters:
-           #. logType (str): The logtype.
-           #. name (None, str): The logtype name. If None, name will be set to logtype.
+           #. logType (string): The logtype.
+           #. name (None, string): The logtype name. If None, name will be set to logtype.
            #. level (number): The level of logging.
            #. stdoutFlag (None, boolean): Force standard output logging flag.
               If None, flag will be set according to minimum and maximum levels.
            #. fileFlag (None, boolean): Force file logging flag.
               If None, flag will be set according to minimum and maximum levels.
-           #. color (None, str): The logging text color. The defined colors are:\n
+           #. color (None, string): The logging text color. The defined colors are:\n
               black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
               light red , light green , yellow , light blue , pink , light cyan
-           #. highlight (None, str): The logging text highlight color. The defined highlights are:\n
+           #. highlight (None, string): The logging text highlight color. The defined highlights are:\n
               black , red , green , orange , blue , magenta , cyan , grey
-           #. attributes (None, str): The logging text attribute. The defined attributes are:\n
+           #. attributes (None, string): The logging text attribute. The defined attributes are:\n
               bold , underline , blink , invisible , strike through
         
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
@@ -815,25 +820,24 @@ class Logger(object):
             self.__forcedFileLevels.pop(logType, None)
             self.__update_file_flags()
 
-    
     def update_log_type(self, logType, name=None, level=None, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """ 
         update a logtype.
     
         :Parameters:
-           #. logType (str): The logtype.
-           #. name (None, str): The logtype name. If None, name will be set to logtype.
+           #. logType (string): The logtype.
+           #. name (None, string): The logtype name. If None, name will be set to logtype.
            #. level (number): The level of logging.
            #. stdoutFlag (None, boolean): Force standard output logging flag.
               If None, flag will be set according to minimum and maximum levels.
            #. fileFlag (None, boolean): Force file logging flag.
               If None, flag will be set according to minimum and maximum levels.
-           #. color (None, str): The logging text color. The defined colors are:\n
+           #. color (None, string): The logging text color. The defined colors are:\n
               black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
               light red , light green , yellow , light blue , pink , light cyan
-           #. highlight (None, str): The logging text highlight color. The defined highlights are:\n
+           #. highlight (None, string): The logging text highlight color. The defined highlights are:\n
               black , red , green , orange , blue , magenta , cyan , grey
-           #. attributes (None, str): The logging text attribute. The defined attributes are:\n
+           #. attributes (None, string): The logging text attribute. The defined attributes are:\n
               bold , underline , blink , invisible , strike through
         
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
@@ -852,8 +856,6 @@ class Logger(object):
         self.__set_log_type(logType=logType, name=name, level=level, 
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
                             color=color, highlight=highlight, attributes=attributes)
-        
-        
         
     def _format_message(self, level, message):
         header = self._get_header(level, message)
@@ -885,8 +887,8 @@ class Logger(object):
         log a message of a certain logtype.
     
         :Parameters:
-           #. logType (str): A defined logging type.
-           #. message (str): Any message to log.
+           #. logType (string): A defined logging type.
+           #. message (string): Any message to log.
         """
         # log to stdout
         if self.__logToStdout and self.__logTypeStdoutFlags[logType]:
@@ -905,8 +907,8 @@ class Logger(object):
         Force logging a message of a certain logtype whether logtype level is allowed or not.
     
         :Parameters:
-           #. logType (str): A defined logging type.
-           #. message (str): Any message to log.
+           #. logType (string): A defined logging type.
+           #. message (string): Any message to log.
            #. stdout (boolean): Whether to force logging to standard output.
            #. file (boolean): Whether to force logging to file.
         """

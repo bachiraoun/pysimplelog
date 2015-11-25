@@ -55,7 +55,11 @@ copyright = u'2015, Bachir Aoun'
 #
 # The short X.Y version.
 try:
+    # get pysimplelog version
     from pysimplelog import __version__ as VER
+    # automatically set pysimplelog version in SimpleLog module docstring
+    from pysimplelog import SimpleLog
+    SimpleLog.__doc__ = SimpleLog.__doc__.replace("%AUTO_VERSION", VER)
 except:
     VER = "unknown"
 version = VER
