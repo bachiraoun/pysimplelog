@@ -91,6 +91,24 @@ import sys
 import copy
 from datetime import datetime
 import atexit
+# python 3 and 2 compatibility
+try:
+    unicode = unicode
+except NameError:
+    # 'unicode' is undefined, must be Python 3
+    str = str
+    long = int
+    unicode = str
+    bytes = bytes
+    basestring = (str,bytes)
+else:
+    # 'unicode' exists, must be Python 2
+    str = str
+    unicode = unicode
+    bytes = str
+    long = long
+    basestring = basestring
+    
 # pysimplelog imports
 from pysimplelog import __version__
 
@@ -966,12 +984,12 @@ if __name__ == "__main__":
     l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
     l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
     l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
-    print l, '\n'
+    print(l, '\n')
     # print available logs and logging time.
     for logType in l.logTypes:
         tic = time.clock()
         l.log(logType, "this is '%s' level log message."%logType)
-        print "%s seconds\n"%str(time.clock()-tic)
+        print("%s seconds\n"%str(time.clock()-tic))
         
         
         
