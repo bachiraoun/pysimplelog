@@ -110,7 +110,7 @@ else:
     basestring = basestring
     
 # pysimplelog imports
-from pysimplelog import __version__
+from __pkginfo__ import __version__
 
 # useful is_number definition    	        
 def _is_number(number):
