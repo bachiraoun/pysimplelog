@@ -71,7 +71,7 @@ DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
 # get package info
 PACKAGE_INFO={}
-ver_path = convert_path('__init__.py')
+ver_path = convert_path('__pkginfo__.py')
 with open(ver_path) as ver_file:
     exec(ver_file.read(), PACKAGE_INFO)
 
