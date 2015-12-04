@@ -84,34 +84,35 @@ output
         <body>
             
 """
-
 # python standard distribution imports
 import os 
 import sys
 import copy
 from datetime import datetime
 import atexit
-# python 3 and 2 compatibility
-try:
-    unicode = unicode
-except NameError:
-    # 'unicode' is undefined, must be Python 3
+
+# python version dependant imports
+if sys.version_info >= (3, 0):
+    # This is python 3
     str = str
     long = int
     unicode = str
     bytes = bytes
     basestring = (str,bytes)
 else:
-    # 'unicode' exists, must be Python 2
     str = str
     unicode = unicode
     bytes = str
     long = long
     basestring = basestring
-    
-# pysimplelog imports
-from .__pkginfo__ import __version__
 
+# import pysimplelog version
+try:
+    from __pkginfo__ import __version__
+except:
+    from .__pkginfo__ import __version__
+
+    
 # useful is_number definition    	        
 def _is_number(number):
     if isinstance(number, (int, long, float, complex)):
