@@ -577,7 +577,7 @@ class Logger(object):
         Set the maximum logging level. All levels above the maximum will be ignored at logging.
     
         :Parameters:
-           #. level (None, number): The maximum level of logging.
+           #. level (None, number, str): The maximum level of logging.
               If None, maximum level checking is left out.
               If str, it must be a defined logtype and therefore the maximum level would be the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
