@@ -113,7 +113,7 @@ except:
     from .__pkginfo__ import __version__
 
     
-# useful is_number definition    	        
+# useful definitions    	        
 def _is_number(number):
     if isinstance(number, (int, long, float, complex)):
         return True
@@ -243,7 +243,6 @@ class Logger(object):
                             str(self.logTypeFileFlags[k]).ljust(10) + "|" 
         return string
     
-    
     def __stream_format_allowed(self, stream):
         """
         Check whether a stream allows formatting such as coloring.
@@ -268,6 +267,32 @@ class Logger(object):
         else:
             return True
             
+    def __get_stream_fonts_attributes(self, stream):
+        # foreground color
+        fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
+        fgCode  = [str(idx) for idx in range(30,38,1)]
+        fgNames.extend(["dark grey","light red","light green","yellow","light blue","pink","light cyan"])
+        fgCode.extend([str(idx) for idx in range(90,97,1)])
+        # background color
+        bgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
+        bgCode  = [str(idx) for idx in range(40,48,1)]
+        # attributes
+        attrNames = ["bold","underline","blink","invisible","strike through"]
+        attrCode  = ["1","4","5","8","9"]
+        # set reset
+        resetCode = "0"
+        # if attributing is not allowed
+        if not self.__stream_format_allowed(stream):
+            fgCode    = ["" for idx in fgCode]
+            bgCode    = ["" for idx in bgCode]
+            attrCode  = ["" for idx in attrCode]
+            resetCode = ""
+        # set font attributes dict
+        color = dict( [(fgNames[idx],fgCode[idx]) for idx in range(len(fgCode))] )
+        highlight = dict( [(bgNames[idx],bgCode[idx]) for idx in range(len(bgCode))] )
+        attributes = dict( [(attrNames[idx],attrCode[idx]) for idx in range(len(attrCode))] )
+        return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
+        
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
            self.__logFileStream.close() 
@@ -389,7 +414,7 @@ class Logger(object):
     
     def set_flush(self, flush):
         """ 
-        Set the logger flush flag
+        Set the logger flush flag.
     
         :Parameters:
            #. flush (boolean): Whether to always flush the logging streams.
@@ -413,32 +438,6 @@ class Logger(object):
             self.__stdout = stream
         # set stdout colors
         self.__stdoutFontFormat = self.__get_stream_fonts_attributes(stream)
-    
-    def __get_stream_fonts_attributes(self, stream):
-        # foreground color
-        fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
-        fgCode  = [str(idx) for idx in range(30,38,1)]
-        fgNames.extend(["dark grey","light red","light green","yellow","light blue","pink","light cyan"])
-        fgCode.extend([str(idx) for idx in range(90,97,1)])
-        # background color
-        bgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
-        bgCode  = [str(idx) for idx in range(40,48,1)]
-        # attributes
-        attrNames = ["bold","underline","blink","invisible","strike through"]
-        attrCode  = ["1","4","5","8","9"]
-        # set reset
-        resetCode = "0"
-        # if attributing is not allowed
-        if not self.__stream_format_allowed(stream):
-            fgCode    = ["" for idx in fgCode]
-            bgCode    = ["" for idx in bgCode]
-            attrCode  = ["" for idx in attrCode]
-            resetCode = ""
-        # set font attributes dict
-        color = dict( [(fgNames[idx],fgCode[idx]) for idx in range(len(fgCode))] )
-        highlight = dict( [(bgNames[idx],bgCode[idx]) for idx in range(len(bgCode))] )
-        attributes = dict( [(attrNames[idx],attrCode[idx]) for idx in range(len(attrCode))] )
-        return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
     
     def set_log_to_stdout_flag(self, logToStdout):
         """ 
@@ -540,8 +539,9 @@ class Logger(object):
         Set the minimum logging level. All levels below the minimum will be ignored at logging.
     
         :Parameters:
-           #. level (None, number): The minimum level of logging.
+           #. level (None, number, str): The minimum level of logging.
               If None, minimum level checking is left out.
+              If str, it must be a defined logtype and therefore the minimum level would be the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
         """
@@ -552,6 +552,10 @@ class Logger(object):
             return
         # check level
         if level is not None:
+            if isinstance(level, basestring):
+                level = str(level)
+                assert level in self.__logTypeStdoutFlags.keys(), "level '%s' given as string, is not defined logType" %level
+                level = self.__logTypeLevels[level]
             assert _is_number(level), "level must be a number"
             level = float(level)
             if stdoutFlag:
@@ -575,6 +579,7 @@ class Logger(object):
         :Parameters:
            #. level (None, number): The maximum level of logging.
               If None, maximum level checking is left out.
+              If str, it must be a defined logtype and therefore the maximum level would be the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
         """
@@ -585,6 +590,10 @@ class Logger(object):
             return
         # check level
         if level is not None:
+            if isinstance(level, basestring):
+                level = str(level)
+                assert level in self.__logTypeStdoutFlags.keys(), "level '%s' given as string, is not defined logType" %level
+                level = self.__logTypeLevels[level]
             assert _is_number(level), "level must be a number"
             level = float(level)
             if stdoutFlag:
