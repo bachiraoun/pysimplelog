@@ -252,20 +252,12 @@ class Logger(object):
         try:
             import curses as CURSES
         except:
-            CURSES = None
-        if CURSES is not None:
+            return False
+        try:
             CURSES.setupterm()
             return CURSES.tigetnum("colors") >= 2
-        else:
-            # guess false in case of error
+        except:
             return False
-        # if stream is not TeleTYpewriter (tty)
-        if not hasattr(stream, "isatty"):
-            return False
-        if not stream.isatty():
-            return False # auto color only on TTYs
-        else:
-            return True
             
     def __get_stream_fonts_attributes(self, stream):
         # foreground color
