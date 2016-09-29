@@ -6,15 +6,15 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to pysimplelog’s documentation! &mdash; pysimplelog 0.2.1 documentation</title>
+    <title>Welcome to pysimplelog V. 0.2.2 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.2</title>
     
-    <link rel="stylesheet" href="_static/sphinxdoc.css" type="text/css" />
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.2.1',
+        VERSION:     '0.2.2',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -23,66 +23,67 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="pysimplelog 0.2.1 documentation" href="#" /> 
+    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.2" href="#" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
   </head>
-  <body>
-    <div class="related">
-      <h3>Navigation</h3>
-      <ul>
-        <li><a href="#">pysimplelog 0.2.1 documentation</a> &raquo;</li> 
-      </ul>
-    </div>
+  <body role="document">
+  
 
     <div class="document">
       <div class="documentwrapper">
-          <div class="body">
+          <div class="body" role="main">
             
-  <div class="section" id="welcome-to-pysimplelog-s-documentation">
-<h1>Welcome to pysimplelog&#8217;s documentation!<a class="headerlink" href="#welcome-to-pysimplelog-s-documentation" title="Permalink to this headline">¶</a></h1>
+  <div class="section" id="welcome-to-pysimplelog-v-version-documentation">
+<h1>Welcome to pysimplelog V. 0.2.2 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
-<div class="highlight-python"><div class="highlight"><pre><span class="c"># import Logger</span>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># import Logger</span>
 <span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">Logger</span>
 
-<span class="c"># initialize</span>
-<span class="n">l</span><span class="o">=</span><span class="n">Logger</span><span class="p">(</span><span class="s">&quot;log test&quot;</span><span class="p">)</span>
+<span class="c1"># initialize</span>
+<span class="n">l</span><span class="o">=</span><span class="n">Logger</span><span class="p">(</span><span class="s2">&quot;log test&quot;</span><span class="p">)</span>
 
-<span class="c"># change log file basename from simplelog to mylog</span>
-<span class="n">l</span><span class="o">.</span><span class="n">set_log_file_basename</span><span class="p">(</span><span class="s">&quot;mylog&quot;</span><span class="p">)</span>
+<span class="c1"># change log file basename from simplelog to mylog</span>
+<span class="n">l</span><span class="o">.</span><span class="n">set_log_file_basename</span><span class="p">(</span><span class="s2">&quot;mylog&quot;</span><span class="p">)</span>
 
-<span class="c"># change log file extension from .log to .pylog</span>
-<span class="n">l</span><span class="o">.</span><span class="n">set_log_file_extension</span><span class="p">(</span><span class="s">&quot;pylog&quot;</span><span class="p">)</span>
+<span class="c1"># change log file extension from .log to .pylog</span>
+<span class="n">l</span><span class="o">.</span><span class="n">set_log_file_extension</span><span class="p">(</span><span class="s2">&quot;pylog&quot;</span><span class="p">)</span>
 
-<span class="c"># Add new log types.</span>
-<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;super critical&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;SUPER CRITICAL&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;red&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;bold&quot;</span><span class="p">,</span><span class="s">&quot;underline&quot;</span><span class="p">])</span>
-<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;wrong&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;magenta&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;strike through&quot;</span><span class="p">])</span>
-<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s">&quot;important&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;black&#39;</span><span class="p">,</span> <span class="n">highlight</span><span class="o">=</span><span class="s">&quot;orange&quot;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;bold&quot;</span><span class="p">])</span>
+<span class="c1"># Add new log types.</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s2">&quot;super critical&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;SUPER CRITICAL&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;red&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">,</span><span class="s2">&quot;underline&quot;</span><span class="p">])</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s2">&quot;wrong&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;magenta&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;strike through&quot;</span><span class="p">])</span>
+<span class="n">l</span><span class="o">.</span><span class="n">add_log_type</span><span class="p">(</span><span class="s2">&quot;important&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;black&#39;</span><span class="p">,</span> <span class="n">highlight</span><span class="o">=</span><span class="s2">&quot;orange&quot;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;bold&quot;</span><span class="p">])</span>
 
-<span class="c"># update error log type</span>
-<span class="n">l</span><span class="o">.</span><span class="n">update_log_type</span><span class="p">(</span><span class="n">logType</span><span class="o">=</span><span class="s">&#39;error&#39;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s">&#39;pink&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;underline&#39;</span><span class="p">,</span><span class="s">&#39;bold&#39;</span><span class="p">])</span>
+<span class="c1"># update error log type</span>
+<span class="n">l</span><span class="o">.</span><span class="n">update_log_type</span><span class="p">(</span><span class="n">logType</span><span class="o">=</span><span class="s1">&#39;error&#39;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;pink&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;underline&#39;</span><span class="p">,</span><span class="s1">&#39;bold&#39;</span><span class="p">])</span>
 
-<span class="c"># print logger</span>
-<span class="k">print</span> <span class="n">l</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span>
+<span class="c1"># print logger</span>
+<span class="k">print</span> <span class="n">l</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
 
-<span class="c"># test logging</span>
-<span class="n">l</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;I am info, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="s">&quot;I am  info, called using log method.&quot;</span><span class="p">)</span>
+<span class="c1"># test logging</span>
+<span class="n">l</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;I am info, called using my shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="s2">&quot;I am  info, called using log method.&quot;</span><span class="p">)</span>
 
-<span class="n">l</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;I am warn, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;warn&quot;</span><span class="p">,</span> <span class="s">&quot;I am warn, called using log method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s2">&quot;I am warn, called using my shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;warn&quot;</span><span class="p">,</span> <span class="s2">&quot;I am warn, called using log method.&quot;</span><span class="p">)</span>
 
-<span class="n">l</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s">&quot;I am error, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;error&quot;</span><span class="p">,</span> <span class="s">&quot;I am error, called using log method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;I am error, called using my shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;I am error, called using log method.&quot;</span><span class="p">)</span>
 
-<span class="n">l</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s">&quot;I am critical, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;critical&quot;</span><span class="p">,</span> <span class="s">&quot;I critical, called using log method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s2">&quot;I am critical, called using my shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;critical&quot;</span><span class="p">,</span> <span class="s2">&quot;I critical, called using log method.&quot;</span><span class="p">)</span>
 
-<span class="n">l</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;I am debug, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;debug&quot;</span><span class="p">,</span> <span class="s">&quot;I am debug, called using log method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;I am debug, called using my shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span> <span class="s2">&quot;I am debug, called using log method.&quot;</span><span class="p">)</span>
 
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;super critical&quot;</span><span class="p">,</span> <span class="s">&quot;I am super critical, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;wrong&quot;</span><span class="p">,</span> <span class="s">&quot;I am wrong, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s">&quot;important&quot;</span><span class="p">,</span> <span class="s">&quot;I am important, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;super critical&quot;</span><span class="p">,</span> <span class="s2">&quot;I am super critical, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;wrong&quot;</span><span class="p">,</span> <span class="s2">&quot;I am wrong, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;important&quot;</span><span class="p">,</span> <span class="s2">&quot;I am important, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
@@ -91,7 +92,7 @@
 <body>
 <pre>
 
-    Logger (Version 0.2.1)
+    Logger (Version %AUTO_VERSION)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -120,7 +121,7 @@
 </pre>
 <body><dl class="class">
 <dt>
-<em class="property">class </em><tt class="descclassname">pysimplelog.SimpleLog.</tt><tt class="descname">Logger</tt><big>(</big><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em><big>)</big></dt>
+<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">Logger</code><span class="sig-paren">(</span><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em><span class="sig-paren">)</span></dt>
 <dd><p>This is simplelog main Logger class definition.</p>
 <p>A logging is constituted of a header a message and a footer.
 In the current implementation the footer is empty and the header is as the following:</p>
@@ -161,127 +162,127 @@ If None, file maximum level checking is left out.</li>
 </table>
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypes</tt></dt>
+<code class="descname">logTypes</code></dt>
 <dd><p>list of all defined log types.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logLevels</tt></dt>
+<code class="descname">logLevels</code></dt>
 <dd><p>dictionary copy of all defined log types levels.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypeFileFlags</tt></dt>
+<code class="descname">logTypeFileFlags</code></dt>
 <dd><p>dictionary copy of all defined log types logging to a file flags.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypeStdoutFlags</tt></dt>
+<code class="descname">logTypeStdoutFlags</code></dt>
 <dd><p>dictionary copy of all defined log types logging to Standard output flags.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">stdoutMinLevel</tt></dt>
+<code class="descname">stdoutMinLevel</code></dt>
 <dd><p>Standard output minimum logging level.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">stdoutMaxLevel</tt></dt>
+<code class="descname">stdoutMaxLevel</code></dt>
 <dd><p>Standard output maximum logging level.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">fileMinLevel</tt></dt>
+<code class="descname">fileMinLevel</code></dt>
 <dd><p>file logging minimum level.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">fileMaxLevel</tt></dt>
+<code class="descname">fileMaxLevel</code></dt>
 <dd><p>file logging maximum level.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">forcedStdoutLevels</tt></dt>
+<code class="descname">forcedStdoutLevels</code></dt>
 <dd><p>dictionary copy of forced flags of logging to standard output.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">forcedFileLevels</tt></dt>
+<code class="descname">forcedFileLevels</code></dt>
 <dd><p>dictionary copy of forced flags of logging to file.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypeNames</tt></dt>
+<code class="descname">logTypeNames</code></dt>
 <dd><p>dictionary copy of all defined log types logging names.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypeLevels</tt></dt>
+<code class="descname">logTypeLevels</code></dt>
 <dd><p>dictionary copy of all defined log types levels showing when logging.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logTypeFormats</tt></dt>
+<code class="descname">logTypeFormats</code></dt>
 <dd><p>dictionary copy of all defined log types format showing when logging.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">name</tt></dt>
+<code class="descname">name</code></dt>
 <dd><p>logger name.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logToStdout</tt></dt>
+<code class="descname">logToStdout</code></dt>
 <dd><p>log to stdout flag.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logToFile</tt></dt>
+<code class="descname">logToFile</code></dt>
 <dd><p>log to file flag.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logFileName</tt></dt>
+<code class="descname">logFileName</code></dt>
 <dd><p>currently used log file name.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logFileBasename</tt></dt>
+<code class="descname">logFileBasename</code></dt>
 <dd><p>log file basename.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logFileExtension</tt></dt>
+<code class="descname">logFileExtension</code></dt>
 <dd><p>log file extension.</p>
 </dd></dl>
 
 <dl class="attribute">
 <dt>
-<tt class="descname">logFileMaxSize</tt></dt>
+<code class="descname">logFileMaxSize</code></dt>
 <dd><p>maximum allowed logfile size in megabytes.</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_name</tt><big>(</big><em>name</em><big>)</big></dt>
+<code class="descname">set_name</code><span class="sig-paren">(</span><em>name</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the logger name.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -298,7 +299,7 @@ If None, file maximum level checking is left out.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_flush</tt><big>(</big><em>flush</em><big>)</big></dt>
+<code class="descname">set_flush</code><span class="sig-paren">(</span><em>flush</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the logger flush flag.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -315,7 +316,7 @@ If None, file maximum level checking is left out.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_stdout</tt><big>(</big><em>stream=None</em><big>)</big></dt>
+<code class="descname">set_stdout</code><span class="sig-paren">(</span><em>stream=None</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the logger standard output stream.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -334,7 +335,7 @@ methods can be passed</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_to_stdout_flag</tt><big>(</big><em>logToStdout</em><big>)</big></dt>
+<code class="descname">set_log_to_stdout_flag</code><span class="sig-paren">(</span><em>logToStdout</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the logging to the defined standard output flag.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -351,7 +352,7 @@ methods can be passed</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_to_file_flag</tt><big>(</big><em>logToFile</em><big>)</big></dt>
+<code class="descname">set_log_to_file_flag</code><span class="sig-paren">(</span><em>logToFile</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the logging to a file flag.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -368,7 +369,7 @@ methods can be passed</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_type_flags</tt><big>(</big><em>logType</em>, <em>stdoutFlag</em>, <em>fileFlag</em><big>)</big></dt>
+<code class="descname">set_log_type_flags</code><span class="sig-paren">(</span><em>logType</em>, <em>stdoutFlag</em>, <em>fileFlag</em><span class="sig-paren">)</span></dt>
 <dd><p>Set a defined log type flags.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -387,7 +388,7 @@ methods can be passed</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_file_extension</tt><big>(</big><em>logFileExtension</em><big>)</big></dt>
+<code class="descname">set_log_file_extension</code><span class="sig-paren">(</span><em>logFileExtension</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the log file extension.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -405,7 +406,7 @@ set as logFileBasename.logFileExtension</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_file_basename</tt><big>(</big><em>logFileBasename</em><big>)</big></dt>
+<code class="descname">set_log_file_basename</code><span class="sig-paren">(</span><em>logFileBasename</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the log file basename.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -423,7 +424,7 @@ set as logFileBasename.logFileExtension</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_file_maximum_size</tt><big>(</big><em>logFileMaxSize</em><big>)</big></dt>
+<code class="descname">set_log_file_maximum_size</code><span class="sig-paren">(</span><em>logFileMaxSize</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the log file maximum size in megabytes</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -442,7 +443,7 @@ will be created. Where N is an automatically incremented number.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_minimum_level</tt><big>(</big><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><big>)</big></dt>
+<code class="descname">set_minimum_level</code><span class="sig-paren">(</span><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the minimum logging level. All levels below the minimum will be ignored at logging.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -463,7 +464,7 @@ If str, it must be a defined logtype and therefore the minimum level would be th
 
 <dl class="method">
 <dt>
-<tt class="descname">set_maximum_level</tt><big>(</big><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><big>)</big></dt>
+<code class="descname">set_maximum_level</code><span class="sig-paren">(</span><em>level=0</em>, <em>stdoutFlag=True</em>, <em>fileFlag=True</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the maximum logging level. All levels above the maximum will be ignored at logging.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -484,7 +485,7 @@ If str, it must be a defined logtype and therefore the maximum level would be th
 
 <dl class="method">
 <dt>
-<tt class="descname">force_log_type_stdout_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big></dt>
+<code class="descname">force_log_type_stdout_flag</code><span class="sig-paren">(</span><em>logType</em>, <em>flag</em><span class="sig-paren">)</span></dt>
 <dd><p>Force a logtype standard output logging flag despite minimum and maximum logging level boundaries.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -503,7 +504,7 @@ If None, logtype existing forced flag is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">force_log_type_file_flag</tt><big>(</big><em>logType</em>, <em>flag</em><big>)</big></dt>
+<code class="descname">force_log_type_file_flag</code><span class="sig-paren">(</span><em>logType</em>, <em>flag</em><span class="sig-paren">)</span></dt>
 <dd><p>Force a logtype file logging flag despite minimum and maximum logging level boundaries.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -522,7 +523,7 @@ If None, logtype existing forced flag is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">force_log_type_flags</tt><big>(</big><em>logType</em>, <em>stdoutFlag</em>, <em>fileFlag</em><big>)</big></dt>
+<code class="descname">force_log_type_flags</code><span class="sig-paren">(</span><em>logType</em>, <em>stdoutFlag</em>, <em>fileFlag</em><span class="sig-paren">)</span></dt>
 <dd><p>Force a logtype logging flags.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -543,7 +544,7 @@ If None, logtype fileFlag forcing is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_type_name</tt><big>(</big><em>logType</em>, <em>name</em><big>)</big></dt>
+<code class="descname">set_log_type_name</code><span class="sig-paren">(</span><em>logType</em>, <em>name</em><span class="sig-paren">)</span></dt>
 <dd><p>Set a logtype name.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -561,7 +562,7 @@ If None, logtype fileFlag forcing is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">set_log_type_level</tt><big>(</big><em>logType</em>, <em>level</em><big>)</big></dt>
+<code class="descname">set_log_type_level</code><span class="sig-paren">(</span><em>logType</em>, <em>level</em><span class="sig-paren">)</span></dt>
 <dd><p>Set a logtype logging level.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -579,7 +580,7 @@ If None, logtype fileFlag forcing is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">remove_log_type</tt><big>(</big><em>logType</em>, <em>_assert=False</em><big>)</big></dt>
+<code class="descname">remove_log_type</code><span class="sig-paren">(</span><em>logType</em>, <em>_assert=False</em><span class="sig-paren">)</span></dt>
 <dd><p>Remove a logtype.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -597,7 +598,7 @@ If None, logtype fileFlag forcing is released.</li>
 
 <dl class="method">
 <dt>
-<tt class="descname">add_log_type</tt><big>(</big><em>logType</em>, <em>name=None</em>, <em>level=0</em>, <em>stdoutFlag=None</em>, <em>fileFlag=None</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><big>)</big></dt>
+<code class="descname">add_log_type</code><span class="sig-paren">(</span><em>logType</em>, <em>name=None</em>, <em>level=0</em>, <em>stdoutFlag=None</em>, <em>fileFlag=None</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><span class="sig-paren">)</span></dt>
 <dd><p>Add a new logtype.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -636,7 +637,7 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<tt class="descname">update_log_type</tt><big>(</big><em>logType</em>, <em>name=None</em>, <em>level=None</em>, <em>stdoutFlag=None</em>, <em>fileFlag=None</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><big>)</big></dt>
+<code class="descname">update_log_type</code><span class="sig-paren">(</span><em>logType</em>, <em>name=None</em>, <em>level=None</em>, <em>stdoutFlag=None</em>, <em>fileFlag=None</em>, <em>color=None</em>, <em>highlight=None</em>, <em>attributes=None</em><span class="sig-paren">)</span></dt>
 <dd><p>update a logtype.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -675,7 +676,7 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<tt class="descname">log</tt><big>(</big><em>logType</em>, <em>message</em><big>)</big></dt>
+<code class="descname">log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>log a message of a certain logtype.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -693,7 +694,7 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<tt class="descname">force_log</tt><big>(</big><em>logType</em>, <em>message</em>, <em>stdout=True</em>, <em>file=True</em><big>)</big></dt>
+<code class="descname">force_log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em>, <em>stdout=True</em>, <em>file=True</em><span class="sig-paren">)</span></dt>
 <dd><p>Force logging a message of a certain logtype whether logtype level is allowed or not.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -713,49 +714,49 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<tt class="descname">flush</tt><big>(</big><big>)</big></dt>
+<code class="descname">flush</code><span class="sig-paren">(</span><span class="sig-paren">)</span></dt>
 <dd><p>Flush all streams.</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">info</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">info</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at information level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">information</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">information</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at information level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">warn</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">warn</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at warning level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">warning</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">warning</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at warning level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">error</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">error</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at error level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">critical</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">critical</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at critical level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<tt class="descname">debug</tt><big>(</big><em>message</em><big>)</big></dt>
+<code class="descname">debug</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at debug level</p>
 </dd></dl>
 
@@ -769,14 +770,17 @@ light red , light green , yellow , light blue , pink , light cyan</p>
       </div>
       <div class="clearer"></div>
     </div>
-    <div class="related">
-      <h3>Navigation</h3>
-      <ul>
-        <li><a href="#">pysimplelog 0.2.1 documentation</a> &raquo;</li> 
-      </ul>
-    </div>
     <div class="footer">
-        &copy; Copyright 2015, Bachir Aoun.
+      &copy;2016, Bachir Aoun.
+      
     </div>
+
+    
+    <a href="https://github.com/bachiraoun/pysimplelog" class="github">
+        <img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub"  class="github"/>
+    </a>
+    
+
+    
   </body>
 </html>
