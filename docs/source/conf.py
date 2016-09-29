@@ -64,6 +64,8 @@ author = u'Bachir Aoun'
 try:
     # get pysimplelog version
     from pysimplelog import __version__ as VER
+    from pysimplelog import SimpleLog
+    SimpleLog.__doc__ = SimpleLog.__doc__.replace("%AUTO_VERSION", VER)
 except:
     VER = "unknown"
 version = VER
