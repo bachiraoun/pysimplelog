@@ -1,5 +1,5 @@
-Welcome to pysimplelog's documentation!
-=======================================
+Welcome to pysimplelog V. |VERSION| documentation!
+==================================================
 
 .. automodule:: pysimplelog.SimpleLog
     :members:

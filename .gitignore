@@ -1,2 +1,8 @@
 *.pyc
 *.log
+.DS_Store
+MANIFEST.in
+dist/
+docs/.DS_Store
+docs/build/
+pysimplelog.egg-info/

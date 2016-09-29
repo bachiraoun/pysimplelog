@@ -287,7 +287,9 @@ class Logger(object):
         
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
-           self.__logFileStream.close() 
+            self.__logFileStream.flush() 
+            os.fsync(self.__logFileStream.fileno())
+            self.__logFileStream.close() 
         
     @property
     def flush(self):
@@ -915,12 +917,16 @@ class Logger(object):
             log = self._format_message(logType, message)
             log = self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n"
             self.__log_to_stdout(log)
-            if self.__flush:self.__stdout.flush()
+            if self.__flush:
+                self.__stdout.flush()
+                os.fsync(self.__stdout.fileno())
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[logType]:
             log = self._format_message(logType, message)
             self.__log_to_file(log+"\n")
-            if self.__flush:self.__logFileStream.flush()
+            if self.__flush:
+                self.__logFileStream.flush()
+                os.fsync(self.__logFileStream.fileno())
     
     def force_log(self, logType, message, stdout=True, file=True):
         """ 
@@ -938,18 +944,22 @@ class Logger(object):
             log = self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n"
             self.__log_to_stdout(log)
             self.__stdout.flush()
+            os.fsync(self.__stdout.fileno())
         if file:    
             # log to file
             log = self._format_message(logType, message)
             self.__log_to_file(log+"\n")
             self.__logFileStream.flush()
+            os.fsync(self.__logFileStream.fileno())
             
     def flush(self):
         """Flush all streams."""
         if self.__logFileStream is not None:
             self.__logFileStream.flush()
+            os.fsync(self.__logFileStream.fileno())
         if self.__stdout is not None:
             self.__stdout.flush()
+            os.fsync(self.__stdout.fileno())
         
     def info(self, message):
         """alias to message at information level"""
