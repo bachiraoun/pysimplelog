@@ -164,6 +164,8 @@ class Logger(object):
                        logToFile=True, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None):
+        # set last logged message
+        self.__lastLoggedMessage = ''
         # set name
         self.set_name(name)
         # set flush
@@ -287,9 +289,20 @@ class Logger(object):
         
     def _flush_atexit_logfile(self):   
         if self.__logFileStream is not None:
-            self.__logFileStream.flush() 
-            os.fsync(self.__logFileStream.fileno())
+            try:
+                self.__logFileStream.flush() 
+            except:
+                pass
+            try:    
+                os.fsync(self.__logFileStream.fileno())
+            except:
+                pass
             self.__logFileStream.close() 
+        
+    @property
+    def lastLoggedMessage(self):
+        """Get last logged message of any type"""
+        return self.__lastLoggedMessage
         
     @property
     def flush(self):
@@ -918,15 +931,29 @@ class Logger(object):
             log = self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n"
             self.__log_to_stdout(log)
             if self.__flush:
-                self.__stdout.flush()
-                os.fsync(self.__stdout.fileno())
+                try:
+                    self.__stdout.flush()
+                except:
+                    pass
+                try:
+                    os.fsync(self.__stdout.fileno())
+                except:
+                    pass
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[logType]:
             log = self._format_message(logType, message)
             self.__log_to_file(log+"\n")
             if self.__flush:
-                self.__logFileStream.flush()
-                os.fsync(self.__logFileStream.fileno())
+                try:
+                    self.__logFileStream.flush()
+                except:
+                    pass
+                try:
+                    os.fsync(self.__logFileStream.fileno())
+                except:
+                    pass
+        # set last logged message
+        self.__lastLoggedMessage = message
     
     def force_log(self, logType, message, stdout=True, file=True):
         """ 
@@ -943,23 +970,49 @@ class Logger(object):
             log = self._format_message(logType, message)
             log = self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n"
             self.__log_to_stdout(log)
-            self.__stdout.flush()
-            os.fsync(self.__stdout.fileno())
+            try:
+                self.__stdout.flush()
+            except:
+                pass
+            try:
+                os.fsync(self.__stdout.fileno())
+            except:
+                pass
         if file:    
             # log to file
             log = self._format_message(logType, message)
             self.__log_to_file(log+"\n")
-            self.__logFileStream.flush()
-            os.fsync(self.__logFileStream.fileno())
+            try:
+                self.__logFileStream.flush()
+            except:
+                pass
+            try:
+                os.fsync(self.__logFileStream.fileno())
+            except:
+                pass
+        # set last logged message
+        self.__lastLoggedMessage = message
             
     def flush(self):
         """Flush all streams."""
         if self.__logFileStream is not None:
-            self.__logFileStream.flush()
-            os.fsync(self.__logFileStream.fileno())
+            try:
+                self.__logFileStream.flush()
+            except:
+                pass
+            try:
+                os.fsync(self.__logFileStream.fileno())
+            except:
+                pass
         if self.__stdout is not None:
-            self.__stdout.flush()
-            os.fsync(self.__stdout.fileno())
+            try:
+                self.__stdout.flush()
+            except:
+                pass
+            try:
+                os.fsync(self.__stdout.fileno())
+            except:
+                pass
         
     def info(self, message):
         """alias to message at information level"""
