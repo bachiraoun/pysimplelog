@@ -166,6 +166,7 @@ class Logger(object):
                        fileMinLevel=None, fileMaxLevel=None):
         # set last logged message
         self.__lastLoggedMessage = ''
+        self.__lastLoggedError   = ''
         # set name
         self.set_name(name)
         # set flush
@@ -303,6 +304,11 @@ class Logger(object):
     def lastLoggedMessage(self):
         """Get last logged message of any type"""
         return self.__lastLoggedMessage
+    
+    @property
+    def lastLoggedError(self):
+        """Get last logged error message exclusively"""
+        return self.__lastLoggedError
         
     @property
     def flush(self):
@@ -954,6 +960,8 @@ class Logger(object):
                     pass
         # set last logged message
         self.__lastLoggedMessage = message
+        if logType == "error":
+            self.__lastLoggedError = message
     
     def force_log(self, logType, message, stdout=True, file=True):
         """ 
@@ -992,6 +1000,8 @@ class Logger(object):
                 pass
         # set last logged message
         self.__lastLoggedMessage = message
+        if logType == "error":
+            self.__lastLoggedError = message
             
     def flush(self):
         """Flush all streams."""
