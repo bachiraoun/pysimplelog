@@ -1,8 +1,8 @@
 """  
 Usage
 =====
-.. code-block:: python
-        
+    .. code-block:: python
+            
         # import Logger
         from pysimplelog import Logger
         
@@ -22,22 +22,22 @@ Usage
         
         # update error log type
         l.update_log_type(logType='error', color='pink', attributes=['underline','bold'])
-    
+        
         # print logger
         print l, '\\n'
-    
+        
         # test logging
         l.info("I am info, called using my shortcut method.")
         l.log("info", "I am  info, called using log method.")
-    
+        
         l.warn("I am warn, called using my shortcut method.")
         l.log("warn", "I am warn, called using log method.")
-    
+        
         l.error("I am error, called using my shortcut method.")
         l.log("error", "I am error, called using log method.")
         
         l.critical("I am critical, called using my shortcut method.")
-        l.log("critical", "I critical, called using log method.")
+        l.log("critical", "I am critical, called using log method.")
         
         l.debug("I am debug, called using my shortcut method.")
         l.log("debug", "I am debug, called using log method.")
@@ -45,8 +45,18 @@ Usage
         l.log("super critical", "I am super critical, called using log method because I have no shortcut method.")
         l.log("wrong", "I am wrong, called using log method because I have no shortcut method.")
         l.log("important", "I am important, called using log method because I have no shortcut method.")
-    
         
+        # print last logged messages
+        print "Last logged messages are:
+        print "========================="
+        print l.lastLoggedMessage
+        print l.lastLoggedDebug
+        print l.lastLoggedInfo
+        print l.lastLoggedWarning
+        print l.lastLoggedError
+        print l.lastLoggedCritical
+
+                
 output
 ====== 
 .. raw:: html 
@@ -79,6 +89,15 @@ output
             <font color="red"><b><ins>2015-11-18 14:25:08 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
             <font color="magenta"><del>2015-11-18 14:25:08 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
             <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test &#60info&#62 I am important, called using log method because I have no shortcut method.</b></mark>
+            
+            Last logged messages are:
+            =========================
+            I am important, called using log method because I have no shortcut method.
+            I am debug, called using log method.
+            I am  info, called using log method.
+            I am warn, called using log method.
+            I am error, called using log method.
+            I am critical, called using log method.
 
         </pre>
         <body>
@@ -124,6 +143,7 @@ def _is_number(number):
     else:
         return True
     
+    
 class Logger(object):
     """ 
     This is simplelog main Logger class definition.\n  
@@ -165,8 +185,7 @@ class Logger(object):
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None):
         # set last logged message
-        self.__lastLoggedMessage = ''
-        self.__lastLoggedError   = ''
+        self.__lastLogged = {}
         # set name
         self.set_name(name)
         # set flush
@@ -299,16 +318,44 @@ class Logger(object):
             except:
                 pass
             self.__logFileStream.close() 
+
+    @property
+    def lastLogged(self):
+        """Get a dictionary of last logged messages. 
+        Keys are log types and values are the the last messages."""
+        d = copy.deepcopy(self.__lastLogged)
+        d.pop(-1, None)
+        return d
         
     @property
     def lastLoggedMessage(self):
-        """Get last logged message of any type"""
-        return self.__lastLoggedMessage
+        """Get last logged message of any type. Retuns None if no message was logged."""
+        return self.__lastLogged.get(-1, None)
     
     @property
+    def lastLoggedDebug(self):
+        """Get last logged message of type 'debug'. Retuns None if no message was logged."""
+        return self.__lastLogged.get('debug', None)
+
+    @property
+    def lastLoggedInfo(self):
+        """Get last logged message of type 'info'. Retuns None if no message was logged."""
+        return self.__lastLogged.get('info', None)
+
+    @property
+    def lastLoggedWarning(self):
+        """Get last logged message of type 'warn'. Retuns None if no message was logged."""
+        return self.__lastLogged.get('warn', None)
+                
+    @property
     def lastLoggedError(self):
-        """Get last logged error message exclusively"""
-        return self.__lastLoggedError
+        """Get last logged message of type 'error'. Retuns None if no message was logged."""
+        return self.__lastLogged.get('error', None)
+        
+    @property
+    def lastLoggedCritical(self):
+        """Get last logged message of type 'critical'. Retuns None if no message was logged."""
+        return self.__lastLogged.get('critical', None)
         
     @property
     def flush(self):
@@ -787,7 +834,7 @@ class Logger(object):
         # check logType
         assert logType not in self.__logTypeStdoutFlags.keys(), "logType '%s' already defined" %logType
         assert isinstance(logType, basestring), "logType must be a string"
-        logType=str(logType)
+        logType = str(logType)
         # set log type
         self.__set_log_type(logType=logType, name=name, level=level, 
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag, 
@@ -959,9 +1006,8 @@ class Logger(object):
                 except:
                     pass
         # set last logged message
-        self.__lastLoggedMessage = message
-        if logType == "error":
-            self.__lastLoggedError = message
+        self.__lastLogged[logType] = message
+        self.__lastLogged[-1]      = message
     
     def force_log(self, logType, message, stdout=True, file=True):
         """ 
@@ -999,9 +1045,8 @@ class Logger(object):
             except:
                 pass
         # set last logged message
-        self.__lastLoggedMessage = message
-        if logType == "error":
-            self.__lastLoggedError = message
+        self.__lastLogged[logType] = message
+        self.__lastLogged[-1]      = message
             
     def flush(self):
         """Flush all streams."""
