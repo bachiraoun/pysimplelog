@@ -6,7 +6,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to pysimplelog V. 0.2.3 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.3</title>
+    <title>Welcome to pysimplelog V. 0.2.4 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.4</title>
     
     <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -14,7 +14,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.2.3',
+        VERSION:     '0.2.4',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -23,7 +23,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.3" href="#" />
+    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.4" href="#" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -39,10 +39,11 @@
           <div class="body" role="main">
             
   <div class="section" id="welcome-to-pysimplelog-v-version-documentation">
-<h1>Welcome to pysimplelog V. 0.2.3 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
+<h1>Welcome to pysimplelog V. 0.2.4 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
-<div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># import Logger</span>
+<blockquote>
+<div><div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># import Logger</span>
 <span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">Logger</span>
 
 <span class="c1"># initialize</span>
@@ -76,7 +77,7 @@
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;I am error, called using log method.&quot;</span><span class="p">)</span>
 
 <span class="n">l</span><span class="o">.</span><span class="n">critical</span><span class="p">(</span><span class="s2">&quot;I am critical, called using my shortcut method.&quot;</span><span class="p">)</span>
-<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;critical&quot;</span><span class="p">,</span> <span class="s2">&quot;I critical, called using log method.&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;critical&quot;</span><span class="p">,</span> <span class="s2">&quot;I am critical, called using log method.&quot;</span><span class="p">)</span>
 
 <span class="n">l</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;I am debug, called using my shortcut method.&quot;</span><span class="p">)</span>
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span> <span class="s2">&quot;I am debug, called using log method.&quot;</span><span class="p">)</span>
@@ -84,15 +85,26 @@
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;super critical&quot;</span><span class="p">,</span> <span class="s2">&quot;I am super critical, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;wrong&quot;</span><span class="p">,</span> <span class="s2">&quot;I am wrong, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;important&quot;</span><span class="p">,</span> <span class="s2">&quot;I am important, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
+
+<span class="c1"># print last logged messages</span>
+<span class="k">print</span> <span class="s2">&quot;Last logged messages are:</span>
+<span class="k">print</span> <span class="s2">&quot;=========================&quot;</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedMessage</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedDebug</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedInfo</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedWarning</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedError</span>
+<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedCritical</span>
 </pre></div>
 </div>
+</div></blockquote>
 </div>
 <div class="section" id="output">
 <h2>output<a class="headerlink" href="#output" title="Permalink to this headline">¶</a></h2>
 <body>
 <pre>
 
-    Logger (Version 0.2.3)
+    Logger (Version 0.2.4)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -117,6 +129,15 @@
     <font color="red"><b><ins>2015-11-18 14:25:08 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
     <font color="magenta"><del>2015-11-18 14:25:08 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
     <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test &#60info&#62 I am important, called using log method because I have no shortcut method.</b></mark>
+    
+    Last logged messages are:
+    =========================
+    I am important, called using log method because I have no shortcut method.
+    I am debug, called using log method.
+    I am  info, called using log method.
+    I am warn, called using log method.
+    I am error, called using log method.
+    I am critical, called using log method.
 
 </pre>
 <body><dl class="class">
@@ -162,8 +183,45 @@ If None, file maximum level checking is left out.</li>
 </table>
 <dl class="attribute">
 <dt>
+<code class="descname">lastLogged</code></dt>
+<dd><p>Get a dictionary of last logged messages. 
+Keys are log types and values are the the last messages.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
 <code class="descname">lastLoggedMessage</code></dt>
-<dd><p>Get last logged message of any type</p>
+<dd><p>Get last logged message of any type. Retuns None if no message was logged.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
+<code class="descname">lastLoggedDebug</code></dt>
+<dd><p>Get last logged message of type &#8216;debug&#8217;. Retuns None if no message was logged.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
+<code class="descname">lastLoggedInfo</code></dt>
+<dd><p>Get last logged message of type &#8216;info&#8217;. Retuns None if no message was logged.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
+<code class="descname">lastLoggedWarning</code></dt>
+<dd><p>Get last logged message of type &#8216;warn&#8217;. Retuns None if no message was logged.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
+<code class="descname">lastLoggedError</code></dt>
+<dd><p>Get last logged message of type &#8216;error&#8217;. Retuns None if no message was logged.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt>
+<code class="descname">lastLoggedCritical</code></dt>
+<dd><p>Get last logged message of type &#8216;critical&#8217;. Retuns None if no message was logged.</p>
 </dd></dl>
 
 <dl class="attribute">
