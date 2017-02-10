@@ -163,8 +163,11 @@ class Logger(object):
           output will be set automatically. Otherwise any stream with read and write 
           methods can be passed
        #. logToFile (boolean): Whether to log to to file.
-       #. logFileBasename (string): Logging file basename. A logging file full name is 
-          set as logFileBasename.logFileExtension
+       #. logFile (None, string): the full log file path including basename and extension. 
+          If this is given, all of logFileBasename and logFileExtension will be
+          discarded. logfile is equivalent to logFileBasename.logFileExtension
+       #. logFileBasename (string): Logging file directory path and file basename. 
+          A logging file full name is set as logFileBasename.logFileExtension
        #. logFileExtension (string): Logging file extension. A logging file full name is 
           set as logFileBasename.logFileExtension
        #. logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
@@ -181,7 +184,7 @@ class Logger(object):
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
-                       logToFile=True, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
+                       logToFile=True, logFile=None, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None):
         # set last logged message
@@ -198,10 +201,12 @@ class Logger(object):
         self.set_log_to_file_flag(logToFile)
         # set maximum logFile size
         self.set_log_file_maximum_size(logFileMaxSize)
-        # set logFile name
-        self.__set_log_file_basename(logFileBasename)
-        # set logFile name
-        self.set_log_file_extension(logFileExtension)
+        # set logFile basename and extension
+        if logFile is not None:
+            self.set_log_file(self, logFile)
+        else:
+            self.__set_log_file_basename(logFileBasename)
+            self.set_log_file_extension(logFileExtension)
         # initialize types parameters
         self.__logTypeFileFlags   = {}
         self.__logTypeStdoutFlags = {}
@@ -533,7 +538,21 @@ class Logger(object):
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         self.__logTypeFileFlags[logType]   = fileFlag       
-       
+    
+    def set_log_file(self, logfile):
+        """ 
+        Set the log file full path including directory path basename and extension.
+    
+        :Parameters:
+           #. logFile (string): the full log file path including basename and 
+              extension. If this is given, all of logFileBasename and logFileExtension 
+              will be discarded. logfile is equivalent to logFileBasename.logFileExtension
+        """
+        assert isinstance(logfile, basestring), "logfile must be a string"
+        basename, extension = os.path.splitext(logfile)
+        self.__set_log_file_basename(logFileBasename=basename)
+        self.set_log_file_extension(logFileExtension=extension)
+        
     def set_log_file_extension(self, logFileExtension):
         """ 
         Set the log file extension.
@@ -543,7 +562,6 @@ class Logger(object):
               set as logFileBasename.logFileExtension
         """
         assert isinstance(logFileExtension, basestring), "logFileExtension must be a basestring"
-        logFileExtension = str(logFileExtension)
         assert len(logFileExtension), "logFileExtension can't be empty"
         assert logFileExtension[0] != ".", "logFileExtension first character can't be a dot"
         assert logFileExtension[-1] != ".", "logFileExtension last character can't be a dot"
@@ -565,11 +583,15 @@ class Logger(object):
     
     def __set_log_file_basename(self, logFileBasename):
         assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
-        logFileBasename = str(logFileBasename)
         self.__logFileBasename = logFileBasename
         
     def __set_log_file_name(self):
         """Automatically set logFileName attribute"""
+        # ensure directory exists
+        dir, _ = os.path.split(self.__logFileBasename)
+        if len(dir) and not os.path.exists(dir):
+            os.makedirs(dir)
+        # create logFileName
         self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
         number = 0
         while os.path.isfile(self.__logFileName):
