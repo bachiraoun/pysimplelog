@@ -163,9 +163,9 @@ class Logger(object):
           output will be set automatically. Otherwise any stream with read and write 
           methods can be passed
        #. logToFile (boolean): Whether to log to to file.
-       #. logFile (None, string): the full log file path including basename and extension. 
-          If this is given, all of logFileBasename and logFileExtension will be
-          discarded. logfile is equivalent to logFileBasename.logFileExtension
+       #. logFile (None, string): the full log file path including directory basename and 
+          extension.  If this is given, all of logFileBasename and logFileExtension 
+          will be discarded. logfile is equivalent to logFileBasename.logFileExtension
        #. logFileBasename (string): Logging file directory path and file basename. 
           A logging file full name is set as logFileBasename.logFileExtension
        #. logFileExtension (string): Logging file extension. A logging file full name is 
@@ -574,8 +574,8 @@ class Logger(object):
         Set the log file basename.
     
         :Parameters:
-           #. logFileBasename (string): Logging file basename. A logging file full name is 
-              set as logFileBasename.logFileExtension
+           #. logFileBasename (string): Logging file directory path and file basename. 
+              A logging file full name is set as logFileBasename.logFileExtension
         """
         self.__set_log_file_basename(logFileBasename)
         # set log file name
