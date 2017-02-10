@@ -563,8 +563,12 @@ class Logger(object):
         """
         assert isinstance(logFileExtension, basestring), "logFileExtension must be a basestring"
         assert len(logFileExtension), "logFileExtension can't be empty"
-        assert logFileExtension[0] != ".", "logFileExtension first character can't be a dot"
-        assert logFileExtension[-1] != ".", "logFileExtension last character can't be a dot"
+        if logFileExtension[0] == ".":
+            logFileExtension = logFileExtension[1:]
+        assert len(logFileExtension), "logFileExtension is not allowed to be single dot"
+        if logFileExtension[-1] == ".":
+            logFileExtension = logFileExtension[:-1]
+        assert len(logFileExtension), "logFileExtension is not allowed to be double dots"
         self.__logFileExtension = logFileExtension
         # set log file name
         self.__set_log_file_name()
