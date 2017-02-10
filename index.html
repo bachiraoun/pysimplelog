@@ -6,7 +6,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to pysimplelog V. 0.2.4 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.4</title>
+    <title>Welcome to pysimplelog V. 0.2.5 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.5</title>
     
     <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -14,7 +14,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.2.4',
+        VERSION:     '0.2.5',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -23,7 +23,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.4" href="#" />
+    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.5" href="#" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -39,7 +39,7 @@
           <div class="body" role="main">
             
   <div class="section" id="welcome-to-pysimplelog-v-version-documentation">
-<h1>Welcome to pysimplelog V. 0.2.4 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
+<h1>Welcome to pysimplelog V. 0.2.5 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
 <blockquote>
@@ -104,7 +104,7 @@
 <body>
 <pre>
 
-    Logger (Version 0.2.4)
+    Logger (Version 0.2.5)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -142,7 +142,7 @@
 </pre>
 <body><dl class="class">
 <dt>
-<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">Logger</code><span class="sig-paren">(</span><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em><span class="sig-paren">)</span></dt>
+<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">Logger</code><span class="sig-paren">(</span><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFile=None</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em><span class="sig-paren">)</span></dt>
 <dd><p>This is simplelog main Logger class definition.</p>
 <p>A logging is constituted of a header a message and a footer.
 In the current implementation the footer is empty and the header is as the following:</p>
@@ -161,8 +161,11 @@ methods must be overloaded.</p>
 output will be set automatically. Otherwise any stream with read and write 
 methods can be passed</li>
 <li>logToFile (boolean): Whether to log to to file.</li>
-<li>logFileBasename (string): Logging file basename. A logging file full name is 
-set as logFileBasename.logFileExtension</li>
+<li>logFile (None, string): the full log file path including directory basename and 
+extension.  If this is given, all of logFileBasename and logFileExtension 
+will be discarded. logfile is equivalent to logFileBasename.logFileExtension</li>
+<li>logFileBasename (string): Logging file directory path and file basename. 
+A logging file full name is set as logFileBasename.logFileExtension</li>
 <li>logFileExtension (string): Logging file extension. A logging file full name is 
 set as logFileBasename.logFileExtension</li>
 <li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
@@ -452,6 +455,25 @@ methods can be passed</li>
 
 <dl class="method">
 <dt>
+<code class="descname">set_log_file</code><span class="sig-paren">(</span><em>logfile</em><span class="sig-paren">)</span></dt>
+<dd><p>Set the log file full path including directory path basename and extension.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>logFile (string): the full log file path including basename and 
+extension. If this is given, all of logFileBasename and logFileExtension 
+will be discarded. logfile is equivalent to logFileBasename.logFileExtension</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt>
 <code class="descname">set_log_file_extension</code><span class="sig-paren">(</span><em>logFileExtension</em><span class="sig-paren">)</span></dt>
 <dd><p>Set the log file extension.</p>
 <table class="docutils field-list" frame="void" rules="none">
@@ -477,8 +499,8 @@ set as logFileBasename.logFileExtension</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileBasename (string): Logging file basename. A logging file full name is 
-set as logFileBasename.logFileExtension</li>
+<li>logFileBasename (string): Logging file directory path and file basename. 
+A logging file full name is set as logFileBasename.logFileExtension</li>
 </ol>
 </td>
 </tr>
