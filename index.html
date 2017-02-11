@@ -6,7 +6,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to pysimplelog V. 0.2.5 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.2.5</title>
+    <title>Welcome to pysimplelog V. 0.3.0 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.3.0</title>
     
     <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -14,7 +14,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.2.5',
+        VERSION:     '0.3.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -23,7 +23,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.2.5" href="#" />
+    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.3.0" href="#" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -38,8 +38,57 @@
       <div class="documentwrapper">
           <div class="body" role="main">
             
-  <div class="section" id="welcome-to-pysimplelog-v-version-documentation">
-<h1>Welcome to pysimplelog V. 0.2.5 documentation!<a class="headerlink" href="#welcome-to-pysimplelog-v-version-documentation" title="Permalink to this headline">¶</a></h1>
+  <div class="section" id="module-pysimplelog">
+<span id="welcome-to-pysimplelog-v-version-documentation"></span><h1>Welcome to pysimplelog V. 0.3.0 documentation!<a class="headerlink" href="#module-pysimplelog" title="Permalink to this headline">¶</a></h1>
+<p>This is a pythonic simple yet complete system logger. It allows logging simultaneously 
+to two streams, the first one is the system standard output by default and the second 
+one is designated to be set to a file. In addition, pysimplelog is text colouring 
+and attributes enabled when the stream allows it.</p>
+<div class="section" id="installation-guide">
+<h2>Installation guide:<a class="headerlink" href="#installation-guide" title="Permalink to this headline">¶</a></h2>
+<p>pysimplelog is a pure python 2.7.x module that needs no particular installation. 
+One can either fork pysimplelog&#8217;s <a class="reference external" href="https://github.com/bachiraoun/pysimplelog/">github repository</a> and copy the 
+package to python&#8217;s site-packages or use pip as the following:</p>
+<div class="highlight-console"><div class="highlight"><pre><span></span><span class="go">pip install pysimplelog</span>
+</pre></div>
+</div>
+<dl class="function">
+<dt id="pysimplelog.get_version">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_version</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_version" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog&#8217;s version number.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="pysimplelog.get_author">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_author</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_author" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog&#8217;s author&#8217;s name.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="pysimplelog.get_email">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_email</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_email" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog&#8217;s author&#8217;s email.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="pysimplelog.get_doc">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_doc</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_doc" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog&#8217;s official online documentation link.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="pysimplelog.get_repository">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_repository</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_repository" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog&#8217;s official online repository link.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="pysimplelog.get_pypi">
+<code class="descclassname">pysimplelog.</code><code class="descname">get_pypi</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#pysimplelog.get_pypi" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get pysimplelog pypi&#8217;s link.</p>
+</dd></dl>
+
+</div>
 <div class="section" id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
 <blockquote>
@@ -104,7 +153,7 @@
 <body>
 <pre>
 
-    Logger (Version 0.2.5)
+    Logger (Version 0.3.0)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -142,18 +191,44 @@
 </pre>
 <body><dl class="class">
 <dt>
-<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">Logger</code><span class="sig-paren">(</span><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFile=None</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em><span class="sig-paren">)</span></dt>
+<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">Logger</code><span class="sig-paren">(</span><em>name='logger'</em>, <em>flush=True</em>, <em>logToStdout=True</em>, <em>stdout=None</em>, <em>logToFile=True</em>, <em>logFile=None</em>, <em>logFileBasename='simplelog'</em>, <em>logFileExtension='log'</em>, <em>logFileMaxSize=10</em>, <em>stdoutMinLevel=None</em>, <em>stdoutMaxLevel=None</em>, <em>fileMinLevel=None</em>, <em>fileMaxLevel=None</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>This is simplelog main Logger class definition.</p>
 <p>A logging is constituted of a header a message and a footer.
 In the current implementation the footer is empty and the header is as the following:</p>
 <p>date time - loggerName &lt;logTypeName&gt;</p>
 <p>In order to change any of the header or the footer, &#8216;_get_header&#8217; and &#8216;_get_footer&#8217;
 methods must be overloaded.</p>
+<p>When used in a python application, it is advisable to use Logger singleton 
+implementation and not Logger itself.
+if no overloading is needed one can simply import the singleton as the following:</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">SingleLogger</span> <span class="k">as</span> <span class="n">Logger</span>
+</pre></div>
+</div>
+<p>Recommended overloading implementation, this is how it could be done:</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">SingleLogger</span> <span class="k">as</span> <span class="n">LOG</span>
+
+<span class="k">class</span> <span class="nc">Logger</span><span class="p">(</span><span class="n">LOG</span><span class="p">):</span>
+    <span class="c1"># *args and **kwargs can be replace by fixed arguments</span>
+    <span class="k">def</span> <span class="nf">custom_init</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c1"># hereinafter any further instanciation can be coded</span>
+</pre></div>
+</div>
+<p>In case overloading __init__ is needed, this is how it could be done:</p>
+<div class="highlight-python"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">SingleLogger</span> <span class="k">as</span> <span class="n">LOG</span>
+
+<span class="k">class</span> <span class="nc">Logger</span><span class="p">(</span><span class="n">LOG</span><span class="p">):</span>
+    <span class="c1"># custom_init will still be called in super(Logger, self).__init__(*args, **kwargs)</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_isInitialized</span><span class="p">:</span> <span class="k">return</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Logger</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="c1"># hereinafter any further instanciation can be coded</span>
+</pre></div>
+</div>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
-<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first arabic simple">
 <li>name (string): The logger name.</li>
 <li>flush (boolean): Whether to always flush the logging streams.</li>
 <li>logToStdout (boolean): Whether to log to the standard output stream.</li>
@@ -180,6 +255,14 @@ If None, file minimum level checking is left out.</li>
 <li>fileMaxLevel(None, number): The maximum logging to file level.
 If None, file maximum level checking is left out.</li>
 </ol>
+<blockquote class="last">
+<div><ol class="arabic simple">
+<li>*args (): This is used to send non-keyworded variable length argument 
+list to custom initialize. args will be parsed and used in custom_init method.</li>
+<li>**kwargs (): This allows passing keyworded variable length of arguments to
+custom_init method. kwargs can be anything other than __init__ arguments.</li>
+</ol>
+</div></blockquote>
 </td>
 </tr>
 </tbody>
@@ -345,6 +428,28 @@ Keys are log types and values are the the last messages.</p>
 <dt>
 <code class="descname">logFileMaxSize</code></dt>
 <dd><p>maximum allowed logfile size in megabytes.</p>
+</dd></dl>
+
+<dl class="method">
+<dt>
+<code class="descname">custom_init</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
+<dd><p>Custom initialize abstract method. This method will be called  at the end of 
+initialzation. This method needs to be overloaded to custom initialize 
+Logger instances.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
+<li>*args (): This is used to send non-keyworded variable length argument 
+list to custom initialize.</li>
+<li>**kwargs (): This is keyworded variable length of arguments.
+kwargs can be anything other than __init__ arguments.</li>
+</ol>
+</td>
+</tr>
+</tbody>
+</table>
 </dd></dl>
 
 <dl class="method">
@@ -846,6 +951,12 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 <dd><p>alias to message at debug level</p>
 </dd></dl>
 
+</dd></dl>
+
+<dl class="class">
+<dt>
+<em class="property">class </em><code class="descclassname">pysimplelog.SimpleLog.</code><code class="descname">SingleLogger</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
+<dd><p>This is singleton implementation of Logger class.</p>
 </dd></dl>
 
 </div>
