@@ -66,7 +66,7 @@ Operating System :: MacOS
 # create descriptions                    
 LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
                     "It allows logging simultaneously to two streams, the first one is the system standard output by default and the second one is designated to be set to a file.",
-                    "In addition, pysimplelog allows text colouring and attributes when the stream allows it.",]
+                    "In addition, pysimplelog is text colouring and attributes enabled when the stream allows it.",]
 DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
 # get package info

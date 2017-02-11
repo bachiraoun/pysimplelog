@@ -155,6 +155,44 @@ class Logger(object):
     In order to change any of the header or the footer, '_get_header' and '_get_footer'
     methods must be overloaded.
     
+    
+    When used in a python application, it is advisable to use Logger singleton 
+    implementation and not Logger itself.
+    if no overloading is needed one can simply import the singleton as the following:
+    
+    .. code-block:: python
+        
+        from pysimplelog import SingleLogger as Logger
+    
+    
+    
+    Recommended overloading implementation, this is how it could be done:    
+    
+    .. code-block:: python
+        
+        from pysimplelog import SingleLogger as LOG
+        
+        class Logger(LOG):
+            # *args and **kwargs can be replace by fixed arguments
+            def custom_init(self, *args, **kwargs):
+                # hereinafter any further instanciation can be coded
+                
+                
+                
+    In case overloading __init__ is needed, this is how it could be done:    
+    
+    .. code-block:: python
+        
+        from pysimplelog import SingleLogger as LOG
+        
+        class Logger(LOG):
+            # custom_init will still be called in super(Logger, self).__init__(*args, **kwargs)
+            def __init__(self, *args, **kwargs):
+                if self._isInitialized: return
+                super(Logger, self).__init__(*args, **kwargs)
+                # hereinafter any further instanciation can be coded
+                
+    
     :Parameters:
        #. name (string): The logger name.
        #. flush (boolean): Whether to always flush the logging streams.
@@ -181,12 +219,17 @@ class Logger(object):
           If None, file minimum level checking is left out.
        #. fileMaxLevel(None, number): The maximum logging to file level.
           If None, file maximum level checking is left out.
+        #. \*args (): This is used to send non-keyworded variable length argument 
+           list to custom initialize. args will be parsed and used in custom_init method.
+        #. \**kwargs (): This allows passing keyworded variable length of arguments to
+           custom_init method. kwargs can be anything other than __init__ arguments.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None, 
                        logToFile=True, logFile=None, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
-                       fileMinLevel=None, fileMaxLevel=None):
+                       fileMinLevel=None, fileMaxLevel=None,
+                       *args, **kwargs):
         # set last logged message
         self.__lastLogged = {}
         # set name
@@ -234,6 +277,8 @@ class Logger(object):
         self.add_log_type("warn", name="WARNING", level=20, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("error", name="ERROR", level=30, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        # custom initialize
+        self.custom_init( *args, **kwargs )
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)  
         
@@ -466,6 +511,20 @@ class Logger(object):
     def logFileMaxSize(self):
         """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
+        
+    def custom_init(self, *args, **kwargs):
+        """
+        Custom initialize abstract method. This method will be called  at the end of 
+        initialzation. This method needs to be overloaded to custom initialize 
+        Logger instances. 
+        
+        :Parameters:
+            #. \*args (): This is used to send non-keyworded variable length argument 
+               list to custom initialize. 
+            #. \**kwargs (): This is keyworded variable length of arguments.
+               kwargs can be anything other than __init__ arguments.
+        """
+        pass
         
     def set_name(self, name):
         """ 
@@ -1123,7 +1182,28 @@ class Logger(object):
         """alias to message at debug level"""
         self.log("debug", message)
     
+
+
+class SingleLogger(Logger):
+    """
+    This is singleton implementation of Logger class.
+    """
+    __thisInstance = None
+    def __new__(cls, *args, **kwds):
+        if cls.__thisInstance is None:
+            cls.__thisInstance = super(SingleLogger,cls).__new__(cls)
+            cls.__thisInstance._isInitialized = False
+        return cls.__thisInstance
+    
+    def __init__(self, *args, **kwargs):      
+        if (self._isInitialized): return
+        # initialize
+        super(SingleLogger, self).__init__(*args, **kwargs)
+        # update flag
+        self._isInitialized = True
         
+               
+               
 if __name__ == "__main__":
     import time
     l=Logger("log test")
