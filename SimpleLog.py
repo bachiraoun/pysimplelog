@@ -113,16 +113,16 @@ import atexit
 # python version dependant imports
 if sys.version_info >= (3, 0):
     # This is python 3
-    str = str
-    long = int
-    unicode = str
-    bytes = bytes
-    basestring = (str,bytes)
+    str        = str
+    long       = int
+    unicode    = str
+    bytes      = bytes
+    basestring = str
 else:
-    str = str
-    unicode = unicode
-    bytes = str
-    long = long
+    str        = str
+    unicode    = unicode
+    bytes      = str
+    long       = long
     basestring = basestring
 
 # import pysimplelog version
