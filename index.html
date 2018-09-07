@@ -6,7 +6,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Welcome to pysimplelog V. 0.3.0 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v0.3.0</title>
+    <title>Welcome to pysimplelog V. 1.0.0 documentation! &#8212; PYthon SIMPLE LOGger package. pysimplelog v1.0.0</title>
     
     <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -14,16 +14,18 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    './',
-        VERSION:     '0.3.0',
+        VERSION:     '1.0.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
-        HAS_SOURCE:  true
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
       };
     </script>
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="PYthon SIMPLE LOGger package. pysimplelog v0.3.0" href="#" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -39,7 +41,7 @@
           <div class="body" role="main">
             
   <div class="section" id="module-pysimplelog">
-<span id="welcome-to-pysimplelog-v-version-documentation"></span><h1>Welcome to pysimplelog V. 0.3.0 documentation!<a class="headerlink" href="#module-pysimplelog" title="Permalink to this headline">¶</a></h1>
+<span id="welcome-to-pysimplelog-v-version-documentation"></span><h1>Welcome to pysimplelog V. 1.0.0 documentation!<a class="headerlink" href="#module-pysimplelog" title="Permalink to this headline">¶</a></h1>
 <p>This is a pythonic simple yet complete system logger. It allows logging simultaneously 
 to two streams, the first one is the system standard output by default and the second 
 one is designated to be set to a file. In addition, pysimplelog is text colouring 
@@ -92,7 +94,9 @@ package to python&#8217;s site-packages or use pip as the following:</p>
 <div class="section" id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h2>
 <blockquote>
-<div><div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># import Logger</span>
+<div><div class="highlight-python"><div class="highlight"><pre><span></span><span class="c1"># import python 2.7.x 3.x.y compatible print function</span>
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">print_function</span>
+<span class="c1"># import Logger</span>
 <span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">Logger</span>
 
 <span class="c1"># initialize</span>
@@ -113,7 +117,7 @@ package to python&#8217;s site-packages or use pip as the following:</p>
 <span class="n">l</span><span class="o">.</span><span class="n">update_log_type</span><span class="p">(</span><span class="n">logType</span><span class="o">=</span><span class="s1">&#39;error&#39;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;pink&#39;</span><span class="p">,</span> <span class="n">attributes</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;underline&#39;</span><span class="p">,</span><span class="s1">&#39;bold&#39;</span><span class="p">])</span>
 
 <span class="c1"># print logger</span>
-<span class="k">print</span> <span class="n">l</span><span class="p">,</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="p">)</span>
 
 <span class="c1"># test logging</span>
 <span class="n">l</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;I am info, called using my shortcut method.&quot;</span><span class="p">)</span>
@@ -136,14 +140,29 @@ package to python&#8217;s site-packages or use pip as the following:</p>
 <span class="n">l</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;important&quot;</span><span class="p">,</span> <span class="s2">&quot;I am important, called using log method because I have no shortcut method.&quot;</span><span class="p">)</span>
 
 <span class="c1"># print last logged messages</span>
-<span class="k">print</span> <span class="s2">&quot;Last logged messages are:</span>
-<span class="k">print</span> <span class="s2">&quot;=========================&quot;</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedMessage</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedDebug</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedInfo</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedWarning</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedError</span>
-<span class="k">print</span> <span class="n">l</span><span class="o">.</span><span class="n">lastLoggedCritical</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;Last logged messages are:&quot;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;=========================&quot;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedMessage</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedDebug</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedInfo</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedWarning</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedError</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="n">l</span><span class="o">.</span><span class="n">lastLoggedCritical</span><span class="p">)</span>
+
+<span class="c1"># log data</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;Log random data and traceback stack:&quot;</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;====================================&quot;</span><span class="p">)</span>
+<span class="n">l</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Check out this data&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
+<span class="k">print</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+<span class="c1"># log error with traceback</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="mi">1</span><span class="o">/</span><span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+    <span class="n">l</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s1">&#39;</span><span class="si">%s</span><span class="s1"> (is this python ?)&#39;</span><span class="o">%</span><span class="n">err</span><span class="p">,</span> <span class="n">tback</span><span class="o">=</span><span class="n">traceback</span><span class="o">.</span><span class="n">extract_stack</span><span class="p">())</span>
 </pre></div>
 </div>
 </div></blockquote>
@@ -153,7 +172,7 @@ package to python&#8217;s site-packages or use pip as the following:</p>
 <body>
 <pre>
 
-    Logger (Version 0.3.0)
+    Logger (Version 1.0.0)
     log type       |log name       |level     |std flag  |file flag |
     ---------------|---------------|----------|----------|----------|
     wrong          |info           |0.0       |True      |True      |
@@ -164,21 +183,21 @@ package to python&#8217;s site-packages or use pip as the following:</p>
     error          |ERROR          |30.0      |True      |True      |
     critical       |CRITICAL       |100.0     |True      |True      |
     super critical |SUPER CRITICAL |200.0     |True      |True      |
-    
-    2015-11-18 14:25:08 - log test &#60INFO&#62 I am info, called using my shortcut method.
-    2015-11-18 14:25:08 - log test &#60INFO&#62 I am  info, called using log method.
-    2015-11-18 14:25:08 - log test &#60WARNING&#62 I am warn, called using my shortcut method.
-    2015-11-18 14:25:08 - log test &#60WARNING&#62 I am warn, called using log method.
-    <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></font>
-    <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></font>
-    2015-11-18 14:25:08 - log test &#60CRITICAL&#62 I am critical, called using my shortcut method.
-    2015-11-18 14:25:08 - log test &#60CRITICAL&#62 I critical, called using log method.
-    2015-11-18 14:25:08 - log test &#60DEBUG&#62 I am debug, called using my shortcut method.
-    2015-11-18 14:25:08 - log test &#60DEBUG&#62 I am debug, called using log method.
-    <font color="red"><b><ins>2015-11-18 14:25:08 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
-    <font color="magenta"><del>2015-11-18 14:25:08 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
+
+    2018-09-07 16:07:58 - log test &#60INFO&#62 I am info, called using my shortcut method.
+    2018-09-07 16:07:58 - log test &#60INFO&#62 I am  info, called using log method.
+    2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using my shortcut method.
+    2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using log method.
+    <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></font>
+    <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></font>
+    2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I am critical, called using my shortcut method.
+    2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I critical, called using log method.
+    2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using my shortcut method.
+    2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using log method.
+    <font color="red"><b><ins>2018-09-07 16:07:58 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
+    <font color="magenta"><del>2018-09-07 16:07:58 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
     <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test &#60info&#62 I am important, called using log method because I have no shortcut method.</b></mark>
-    
+
     Last logged messages are:
     =========================
     I am important, called using log method because I have no shortcut method.
@@ -187,6 +206,14 @@ package to python&#8217;s site-packages or use pip as the following:</p>
     I am warn, called using log method.
     I am error, called using log method.
     I am critical, called using log method.
+
+    Log random data and traceback stack:
+    ====================================
+    2018-09-07 16:07:58 - log test <INFO> Check out this data
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 unsupported operand type(s) for /: 'int' and 'list' (is this python ?)</ins></b></font>
+    <font color="pink"><b><ins>  File "&#60stdin&#62", line 4, in &#60module&#62</ins></b></font>
+
 
 </pre>
 <body><dl class="class">
@@ -198,7 +225,7 @@ In the current implementation the footer is empty and the header is as the follo
 <p>date time - loggerName &lt;logTypeName&gt;</p>
 <p>In order to change any of the header or the footer, &#8216;_get_header&#8217; and &#8216;_get_footer&#8217;
 methods must be overloaded.</p>
-<p>When used in a python application, it is advisable to use Logger singleton 
+<p>When used in a python application, it is advisable to use Logger singleton
 implementation and not Logger itself.
 if no overloading is needed one can simply import the singleton as the following:</p>
 <div class="highlight-python"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">pysimplelog</span> <span class="kn">import</span> <span class="n">SingleLogger</span> <span class="k">as</span> <span class="n">Logger</span>
@@ -218,9 +245,9 @@ if no overloading is needed one can simply import the singleton as the following
 
 <span class="k">class</span> <span class="nc">Logger</span><span class="p">(</span><span class="n">LOG</span><span class="p">):</span>
     <span class="c1"># custom_init will still be called in super(Logger, self).__init__(*args, **kwargs)</span>
-    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_isInitialized</span><span class="p">:</span> <span class="k">return</span>
-        <span class="nb">super</span><span class="p">(</span><span class="n">Logger</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">Logger</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="c1"># hereinafter any further instanciation can be coded</span>
 </pre></div>
 </div>
@@ -233,17 +260,17 @@ if no overloading is needed one can simply import the singleton as the following
 <li>flush (boolean): Whether to always flush the logging streams.</li>
 <li>logToStdout (boolean): Whether to log to the standard output stream.</li>
 <li>stdout (None, stream): The standard output stream. If None, system standard
-output will be set automatically. Otherwise any stream with read and write 
+output will be set automatically. Otherwise any stream with read and write
 methods can be passed</li>
 <li>logToFile (boolean): Whether to log to to file.</li>
-<li>logFile (None, string): the full log file path including directory basename and 
-extension.  If this is given, all of logFileBasename and logFileExtension 
+<li>logFile (None, string): the full log file path including directory basename and
+extension.  If this is given, all of logFileBasename and logFileExtension
 will be discarded. logfile is equivalent to logFileBasename.logFileExtension</li>
-<li>logFileBasename (string): Logging file directory path and file basename. 
+<li>logFileBasename (string): Logging file directory path and file basename.
 A logging file full name is set as logFileBasename.logFileExtension</li>
-<li>logFileExtension (string): Logging file extension. A logging file full name is 
+<li>logFileExtension (string): Logging file extension. A logging file full name is
 set as logFileBasename.logFileExtension</li>
-<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
+<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file.
 Once exceeded, another logging file as logFileBasename_N.logFileExtension
 will be created. Where N is an automatically incremented number.</li>
 <li>stdoutMinLevel(None, number): The minimum logging to system standard output level.
@@ -257,7 +284,7 @@ If None, file maximum level checking is left out.</li>
 </ol>
 <blockquote class="last">
 <div><ol class="arabic simple">
-<li>*args (): This is used to send non-keyworded variable length argument 
+<li>*args (): This is used to send non-keyworded variable length argument
 list to custom initialize. args will be parsed and used in custom_init method.</li>
 <li>**kwargs (): This allows passing keyworded variable length of arguments to
 custom_init method. kwargs can be anything other than __init__ arguments.</li>
@@ -270,7 +297,7 @@ custom_init method. kwargs can be anything other than __init__ arguments.</li>
 <dl class="attribute">
 <dt>
 <code class="descname">lastLogged</code></dt>
-<dd><p>Get a dictionary of last logged messages. 
+<dd><p>Get a dictionary of last logged messages.
 Keys are log types and values are the the last messages.</p>
 </dd></dl>
 
@@ -433,15 +460,15 @@ Keys are log types and values are the the last messages.</p>
 <dl class="method">
 <dt>
 <code class="descname">custom_init</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
-<dd><p>Custom initialize abstract method. This method will be called  at the end of 
-initialzation. This method needs to be overloaded to custom initialize 
+<dd><p>Custom initialize abstract method. This method will be called  at the end of
+initialzation. This method needs to be overloaded to custom initialize
 Logger instances.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>*args (): This is used to send non-keyworded variable length argument 
+<li>*args (): This is used to send non-keyworded variable length argument
 list to custom initialize.</li>
 <li>**kwargs (): This is keyworded variable length of arguments.
 kwargs can be anything other than __init__ arguments.</li>
@@ -496,7 +523,7 @@ kwargs can be anything other than __init__ arguments.</li>
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
 <li>stdout (None, stream): The standard output stream. If None, system standard
-output will be set automatically. Otherwise any stream with read and write 
+output will be set automatically. Otherwise any stream with read and write
 methods can be passed</li>
 </ol>
 </td>
@@ -567,8 +594,8 @@ methods can be passed</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFile (string): the full log file path including basename and 
-extension. If this is given, all of logFileBasename and logFileExtension 
+<li>logFile (string): the full log file path including basename and
+extension. If this is given, all of logFileBasename and logFileExtension
 will be discarded. logfile is equivalent to logFileBasename.logFileExtension</li>
 </ol>
 </td>
@@ -586,7 +613,7 @@ will be discarded. logfile is equivalent to logFileBasename.logFileExtension</li
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileExtension (string): Logging file extension. A logging file full name is 
+<li>logFileExtension (string): Logging file extension. A logging file full name is
 set as logFileBasename.logFileExtension</li>
 </ol>
 </td>
@@ -604,7 +631,7 @@ set as logFileBasename.logFileExtension</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileBasename (string): Logging file directory path and file basename. 
+<li>logFileBasename (string): Logging file directory path and file basename.
 A logging file full name is set as logFileBasename.logFileExtension</li>
 </ol>
 </td>
@@ -622,7 +649,7 @@ A logging file full name is set as logFileBasename.logFileExtension</li>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
-<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file. 
+<li>logFileMaxSize (number): The maximum size in Megabytes of a logging file.
 Once exceeded, another logging file as logFileBasename_N.logFileExtension
 will be created. Where N is an automatically incremented number.</li>
 </ol>
@@ -809,7 +836,7 @@ If None, flag will be set according to minimum and maximum levels.</p>
 If None, flag will be set according to minimum and maximum levels.</p>
 </li>
 <li><p class="first">color (None, string): The logging text color. The defined colors are:</p>
-<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
+<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey ,
 light red , light green , yellow , light blue , pink , light cyan</p>
 </li>
 <li><p class="first">highlight (None, string): The logging text highlight color. The defined highlights are:</p>
@@ -848,7 +875,7 @@ If None, flag will be set according to minimum and maximum levels.</p>
 If None, flag will be set according to minimum and maximum levels.</p>
 </li>
 <li><p class="first">color (None, string): The logging text color. The defined colors are:</p>
-<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey , 
+<p>black , red , green , orange , blue , magenta , cyan , grey , dark grey ,
 light red , light green , yellow , light blue , pink , light cyan</p>
 </li>
 <li><p class="first">highlight (None, string): The logging text highlight color. The defined highlights are:</p>
@@ -867,7 +894,7 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<code class="descname">log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em>, <em>data=None</em>, <em>tback=None</em><span class="sig-paren">)</span></dt>
 <dd><p>log a message of a certain logtype.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -876,6 +903,10 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ol class="first last arabic simple">
 <li>logType (string): A defined logging type.</li>
 <li>message (string): Any message to log.</li>
+<li>data (None,  object): Any type of data to print and/or write to log file
+after log message</li>
+<li>tback (None, list): Stack traceback to print and/or write to
+log file. In general, this should be traceback.extract_stack</li>
 </ol>
 </td>
 </tr>
@@ -885,7 +916,7 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<code class="descname">force_log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em>, <em>stdout=True</em>, <em>file=True</em><span class="sig-paren">)</span></dt>
+<code class="descname">force_log</code><span class="sig-paren">(</span><em>logType</em>, <em>message</em>, <em>data=None</em>, <em>tback=None</em>, <em>stdout=True</em>, <em>file=True</em><span class="sig-paren">)</span></dt>
 <dd><p>Force logging a message of a certain logtype whether logtype level is allowed or not.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
@@ -911,43 +942,43 @@ light red , light green , yellow , light blue , pink , light cyan</p>
 
 <dl class="method">
 <dt>
-<code class="descname">info</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">info</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at information level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">information</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">information</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at information level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">warn</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">warn</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at warning level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">warning</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">warning</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at warning level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">error</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">error</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at error level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">critical</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">critical</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at critical level</p>
 </dd></dl>
 
 <dl class="method">
 <dt>
-<code class="descname">debug</code><span class="sig-paren">(</span><em>message</em><span class="sig-paren">)</span></dt>
+<code class="descname">debug</code><span class="sig-paren">(</span><em>message</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span></dt>
 <dd><p>alias to message at debug level</p>
 </dd></dl>
 
