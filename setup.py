@@ -14,7 +14,7 @@ PACKAGE_NAME = 'pysimplelog'
 
 # check python version
 if sys.version_info[:2] < (2, 6):
-    raise RuntimeError("Python version 2.6, 2.7 required.")
+    raise RuntimeError("Python version 2.6, and above is required.")
 
 # automatically create MANIFEST.in
 commands = [# include MANIFEST.in
@@ -23,7 +23,7 @@ commands = [# include MANIFEST.in
             # exclude all .log files
             '\n# exclude all logs',
             'global-exclude *.log',
-            # exclude all other non necessary files 
+            # exclude all other non necessary files
             '\n# exclude all other non necessary files ',
             'global-exclude .project',
             'global-exclude .pydevproject',
@@ -39,12 +39,12 @@ commands = [# include MANIFEST.in
             # include all README files
             '\n# include all readme files found',
             'global-include ./*README.*',
-            'global-include ./*readme.*']         
+            'global-include ./*readme.*']
 with open('MANIFEST.in','w') as fd:
     for l in commands:
         fd.write(l)
         fd.write('\n')
-       
+
 # declare classifiers
 CLASSIFIERS = """\
 Development Status :: 5 - Production/Stable
@@ -63,7 +63,7 @@ Operating System :: Unix
 Operating System :: MacOS
 """
 
-# create descriptions                    
+# create descriptions
 LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
                     "It allows logging simultaneously to two streams, the first one is the system standard output by default and the second one is designated to be set to a file.",
                     "In addition, pysimplelog is text colouring and attributes enabled when the stream allows it.",]
@@ -90,6 +90,5 @@ metadata = dict(name = PACKAGE_NAME,
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
                 platforms = ["Windows", "Linux", "Mac OS-X", "Unix"], )
 
-# setup              
+# setup
 setup(**metadata)
-

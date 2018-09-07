@@ -63,7 +63,7 @@ Usage
         print("")
         print("Log random data and traceback stack:")
         print("====================================")
-        l.info("Check out this data", data=range(10))
+        l.info("Check out this data", data=list(range(10)))
         print("")
 
         # log error with traceback
