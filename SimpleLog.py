@@ -127,7 +127,7 @@ output
         </pre>
         <body>
 
-"""
+"""s
 # python standard distribution imports
 import os
 import sys
@@ -171,7 +171,7 @@ def _is_number(number):
 
 class Logger(object):
     """
-    This is simplelog main Logger class definition.\n
+    This is simplelog main Logger class definition.\n 
 
     A logging is constituted of a header a message and a footer.
     In the current implementation the footer is empty and the header is as the following:\n
