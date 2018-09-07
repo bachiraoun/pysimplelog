@@ -3,6 +3,8 @@ Usage
 =====
     .. code-block:: python
 
+        # import python 2.7.x 3.x.y compatible print function
+        from __future__ import print_function
         # import Logger
         from pysimplelog import Logger
 
@@ -24,7 +26,7 @@ Usage
         l.update_log_type(logType='error', color='pink', attributes=['underline','bold'])
 
         # print logger
-        print l, '\\n'
+        print(l, end="\\n\\n")
 
         # test logging
         l.info("I am info, called using my shortcut method.")
@@ -47,14 +49,29 @@ Usage
         l.log("important", "I am important, called using log method because I have no shortcut method.")
 
         # print last logged messages
-        print "Last logged messages are:
-        print "========================="
-        print l.lastLoggedMessage
-        print l.lastLoggedDebug
-        print l.lastLoggedInfo
-        print l.lastLoggedWarning
-        print l.lastLoggedError
-        print l.lastLoggedCritical
+        print("")
+        print("Last logged messages are:")
+        print("=========================")
+        print(l.lastLoggedMessage)
+        print(l.lastLoggedDebug)
+        print(l.lastLoggedInfo)
+        print(l.lastLoggedWarning)
+        print(l.lastLoggedError)
+        print(l.lastLoggedCritical)
+
+        # log data
+        print("")
+        print("Log random data and traceback stack:")
+        print("====================================")
+        l.info("Check out this data", data=range(10))
+        print("")
+
+        # log error with traceback
+        import traceback
+        try:
+            1/range(10)
+        except Exception as err:
+            l.error('%s (is this python ?)'%err, tback=traceback.extract_stack())
 
 
 output
@@ -76,18 +93,18 @@ output
             critical       |CRITICAL       |100.0     |True      |True      |
             super critical |SUPER CRITICAL |200.0     |True      |True      |
 
-            2015-11-18 14:25:08 - log test &#60INFO&#62 I am info, called using my shortcut method.
-            2015-11-18 14:25:08 - log test &#60INFO&#62 I am  info, called using log method.
-            2015-11-18 14:25:08 - log test &#60WARNING&#62 I am warn, called using my shortcut method.
-            2015-11-18 14:25:08 - log test &#60WARNING&#62 I am warn, called using log method.
-            <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></font>
-            <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></font>
-            2015-11-18 14:25:08 - log test &#60CRITICAL&#62 I am critical, called using my shortcut method.
-            2015-11-18 14:25:08 - log test &#60CRITICAL&#62 I critical, called using log method.
-            2015-11-18 14:25:08 - log test &#60DEBUG&#62 I am debug, called using my shortcut method.
-            2015-11-18 14:25:08 - log test &#60DEBUG&#62 I am debug, called using log method.
-            <font color="red"><b><ins>2015-11-18 14:25:08 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
-            <font color="magenta"><del>2015-11-18 14:25:08 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
+            2018-09-07 16:07:58 - log test &#60INFO&#62 I am info, called using my shortcut method.
+            2018-09-07 16:07:58 - log test &#60INFO&#62 I am  info, called using log method.
+            2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using my shortcut method.
+            2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using log method.
+            <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></font>
+            <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></font>
+            2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I am critical, called using my shortcut method.
+            2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I critical, called using log method.
+            2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using my shortcut method.
+            2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using log method.
+            <font color="red"><b><ins>2018-09-07 16:07:58 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
+            <font color="magenta"><del>2018-09-07 16:07:58 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
             <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test &#60info&#62 I am important, called using log method because I have no shortcut method.</b></mark>
 
             Last logged messages are:
@@ -98,6 +115,14 @@ output
             I am warn, called using log method.
             I am error, called using log method.
             I am critical, called using log method.
+
+            Log random data and traceback stack:
+            ====================================
+            2018-09-07 16:07:58 - log test <INFO> Check out this data
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+            <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 unsupported operand type(s) for /: 'int' and 'list' (is this python ?)</ins></b></font>
+            <font color="pink"><b><ins>  File "&#60stdin&#62", line 4, in &#60module&#62</ins></b></font>
+
 
         </pre>
         <body>
@@ -154,7 +179,6 @@ class Logger(object):
 
     In order to change any of the header or the footer, '_get_header' and '_get_footer'
     methods must be overloaded.
-
 
     When used in a python application, it is advisable to use Logger singleton
     implementation and not Logger itself.
@@ -1110,8 +1134,8 @@ class Logger(object):
                 except:
                     pass
         # set last logged message
-        self.__lastLogged[logType] = message
-        self.__lastLogged[-1]      = message
+        self.__lastLogged[logType] = log
+        self.__lastLogged[-1]      = log
 
     def force_log(self, logType, message, data=None, tback=None, stdout=True, file=True):
         """
@@ -1148,8 +1172,8 @@ class Logger(object):
             except:
                 pass
         # set last logged message
-        self.__lastLogged[logType] = message
-        self.__lastLogged[-1]      = message
+        self.__lastLogged[logType] = log
+        self.__lastLogged[-1]      = log
 
     def flush(self):
         """Flush all streams."""
