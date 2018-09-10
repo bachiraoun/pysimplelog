@@ -1062,17 +1062,18 @@ class Logger(object):
         if data is not None:
             dataStr = '\n%s'%(repr(data))
         if tback is not None:
-            try:
-                tbackStr = []
-                for filename, lineno, name, line in tback:
-                    tbackStr.append( '\n  File "%s", line %d, in %s'%(filename,lineno,name) )
-                    if line:
-                        tbackStr.append( '\n    %s'%(line.strip(),) )
-                tbackStr = ''.join(tbackStr)
-            except:
-                tbackStr = str(tback)
-        else:
-            tback = ''
+            if isinstance(tback, str):
+                tbackStr = '\n%s'%(tback,)
+            else:
+                try:
+                    tbackStr = []
+                    for filename, lineno, name, line in tback:
+                        tbackStr.append( '\n  File "%s", line %d, in %s'%(filename,lineno,name) )
+                        if line:
+                            tbackStr.append( '\n    %s'%(line.strip(),) )
+                    tbackStr = ''.join(tbackStr)
+                except:
+                    tbackStr = '\n%s'%(str(tback),)
         return "%s%s%s%s%s" %(header, message, footer, dataStr, tbackStr)
 
     def _get_header(self, logType, message):
@@ -1104,7 +1105,7 @@ class Logger(object):
            #. message (string): Any message to log.
            #. data (None,  object): Any type of data to print and/or write to log file
               after log message
-           #. tback (None, list): Stack traceback to print and/or write to
+           #. tback (None, str, list): Stack traceback to print and/or write to
               log file. In general, this should be traceback.extract_stack
         """
         # log to stdout
@@ -1144,6 +1145,8 @@ class Logger(object):
         :Parameters:
            #. logType (string): A defined logging type.
            #. message (string): Any message to log.
+           #. tback (None, str, list): Stack traceback to print and/or write to
+              log file. In general, this should be traceback.extract_stack
            #. stdout (boolean): Whether to force logging to standard output.
            #. file (boolean): Whether to force logging to file.
         """
