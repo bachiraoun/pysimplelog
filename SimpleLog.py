@@ -243,9 +243,9 @@ class Logger(object):
           If None, file minimum level checking is left out.
        #. fileMaxLevel(None, number): The maximum logging to file level.
           If None, file maximum level checking is left out.
-        #. \*args (): This is used to send non-keyworded variable length argument
+       #. \*args (): This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in custom_init method.
-        #. \**kwargs (): This allows passing keyworded variable length of arguments to
+       #. \**kwargs (): This allows passing keyworded variable length of arguments to
            custom_init method. kwargs can be anything other than __init__ arguments.
     """
     def __init__(self, name="logger", flush=True,
@@ -307,15 +307,26 @@ class Logger(object):
         atexit.register(self._flush_atexit_logfile)
 
     def __str__(self):
-        string = self.__class__.__name__+" (Version "+str(__version__)+")"
+        # create version
+        string  = self.__class__.__name__+" (Version "+str(__version__)+")"
+        # add general properties
+        #string += "\n - Log To Standard Output General Flag:  %s"%(self.__logToStdout)
+        #string += "\n - Log To Standard Output Minimum Level: %s"%(self.__stdoutMinLevel)
+        #string += "\n - Log To Standard Output Maximum Level: %s"%(self.__stdoutMaxLevel)
+        #string += "\n - Log To File General Flag:  %s"%(self.__logToFile)
+        #string += "\n - Log To File Minimum Level: %s"%(self.__fileMinLevel)
+        #string += "\n - Log To File Maximum Level: %s"%(self.__fileMaxLevel)
+        string += "\n - Log To Stdout: Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToStdout,self.__stdoutMinLevel,self.__stdoutMaxLevel)
+        string += "\n - Log To File:   Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToFile,self.__fileMinLevel,self.__fileMaxLevel)
+        # add log types table
         if not len(self.__logTypeNames):
             string += "\nlog type  |log name  |level     |std flag   |file flag"
             string += "\n----------|----------|----------|-----------|---------"
             return string
         # get maximum logType and logTypeZName and maxLogLevel
-        maxLogType  = max( max([len(k)+1 for k in self.__logTypeNames.keys()]),   len("log type  "))
-        maxLogName  = max( max([len(k)+1 for k in self.__logTypeNames.values()]), len("log name  "))
-        maxLogLevel = max( max([len(str(k))+1 for k in self.__logTypeLevels.values()]), len("level     "))
+        maxLogType  = max( max([len(k)+1 for k in self.__logTypeNames]),   len("log type  "))
+        maxLogName  = max( max([len(self.__logTypeNames[k])+1 for k in self.__logTypeNames]), len("log name  "))
+        maxLogLevel = max( max([len(str(self.__logTypeLevels[k]))+1 for k in self.__logTypeLevels]), len("level     "))
         # create header
         string += "\n"+ "log type".ljust(maxLogType) + "|" +\
                         "log name".ljust(maxLogName) + "|" +\
@@ -329,7 +340,7 @@ class Logger(object):
                         "-"*10 + "|" +\
                         "-"*10 + "|"
         # order from min level to max level
-        keys = sorted(self.__logTypeLevels.keys(), key=self.__logTypeLevels.__getitem__)
+        keys = sorted(self.__logTypeLevels, key=self.__logTypeLevels.__getitem__)
         # append log types
         for k in keys:
             string += "\n"+ str(k).ljust(maxLogType) + "|" +\
@@ -439,7 +450,7 @@ class Logger(object):
     @property
     def logTypes(self):
         """list of all defined log types."""
-        return self.__logTypeNames.keys()
+        return list(self.__logTypeNames)
 
     @property
     def logLevels(self):
@@ -589,7 +600,9 @@ class Logger(object):
 
     def set_log_to_stdout_flag(self, logToStdout):
         """
-        Set the logging to the defined standard output flag.
+        Set the logging to the defined standard output flag. When set to False,
+        no logging to  standard output will happen regardless of a logType
+        standard output flag.
 
         :Parameters:
            #. logToStdout (boolean): Whether to log to the standard output stream.
@@ -599,7 +612,8 @@ class Logger(object):
 
     def set_log_to_file_flag(self, logToFile):
         """
-        Set the logging to a file flag.
+        Set the logging to a file general flag. When set to False, no logging
+        to file will happen regardless of a logType file flag.
 
         :Parameters:
            #. logToFile (boolean): Whether to log to to file.
@@ -616,7 +630,7 @@ class Logger(object):
            #. stdoutFlag (boolean): Whether to log to the standard output stream.
            #. fileFlag (boolean): Whether to log to to file.
         """
-        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
+        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
         assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
         assert isinstance(fileFlag, bool), "fileFlag must be boolean"
         self.__logTypeStdoutFlags[logType] = stdoutFlag
@@ -723,7 +737,7 @@ class Logger(object):
         if level is not None:
             if isinstance(level, basestring):
                 level = str(level)
-                assert level in self.__logTypeStdoutFlags.keys(), "level '%s' given as string, is not defined logType" %level
+                assert level in self.__logTypeStdoutFlags, "level '%s' given as string, is not defined logType" %level
                 level = self.__logTypeLevels[level]
             assert _is_number(level), "level must be a number"
             level = float(level)
@@ -761,7 +775,7 @@ class Logger(object):
         if level is not None:
             if isinstance(level, basestring):
                 level = str(level)
-                assert level in self.__logTypeStdoutFlags.keys(), "level '%s' given as string, is not defined logType" %level
+                assert level in self.__logTypeStdoutFlags, "level '%s' given as string, is not defined logType"%level
                 level = self.__logTypeLevels[level]
             assert _is_number(level), "level must be a number"
             level = float(level)
@@ -785,7 +799,7 @@ class Logger(object):
 
     def __update_stdout_flags(self):
         # set stdoutMinLevel
-        stdoutkeys = self.__forcedStdoutLevels.keys()
+        stdoutkeys = list(self.__forcedStdoutLevels)
         if self.__stdoutMinLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in stdoutkeys:
@@ -803,7 +817,7 @@ class Logger(object):
 
     def __update_file_flags(self):
         # set fileMinLevel
-        filekeys = self.__forcedFileLevels.keys()
+        filekeys = list(self.__forcedFileLevels)
         if self.__fileMinLevel is not None:
             for logType, l in self.__logTypeLevels.items():
                 if logType not in filekeys:
@@ -828,7 +842,7 @@ class Logger(object):
            #. flag (None boolean): The standard output logging flag.
               If None, logtype existing forced flag is released.
         """
-        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
+        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
         if flag is None:
             self.__forcedStdoutLevels.pop(logType, None)
             self.__update_stdout_flags()
@@ -846,7 +860,7 @@ class Logger(object):
            #. flag (None, boolean): The file logging flag.
               If None, logtype existing forced flag is released.
         """
-        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
+        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
         if flag is None:
             self.__forcedFileLevels.pop(logType, None)
             self.__update_file_flags()
@@ -877,7 +891,7 @@ class Logger(object):
            #. logType (string): A defined logging type.
            #. name (string): The logtype new name.
         """
-        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' not defined" %logType
+        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
         assert isinstance(name, basestring), "name must be a string"
         name = str(name)
         self.__logTypeNames[logType] = name
@@ -905,7 +919,7 @@ class Logger(object):
         """
         # check logType
         if _assert:
-            assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
+            assert logType in self.__logTypeStdoutFlags, "logType '%s' is not defined" %logType
         # remove logType
         self.__logTypeColor.pop(logType)
         self.__logTypeHighlight.pop(logType)
@@ -941,7 +955,7 @@ class Logger(object):
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
         """
         # check logType
-        assert logType not in self.__logTypeStdoutFlags.keys(), "logType '%s' already defined" %logType
+        assert logType not in self.__logTypeStdoutFlags, "logType '%s' already defined" %logType
         assert isinstance(logType, basestring), "logType must be a string"
         logType = str(logType)
         # set log type
@@ -1040,7 +1054,7 @@ class Logger(object):
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
         """
         # check logType
-        assert logType in self.__logTypeStdoutFlags.keys(), "logType '%s' is not defined" %logType
+        assert logType in self.__logTypeStdoutFlags, "logType '%s' is not defined" %logType
         # get None updates
         if name is None:       name       = self.__logTypeNames[logType]
         if level is None:      level      = self.__logTypeLevels[logType]
@@ -1095,6 +1109,39 @@ class Logger(object):
 
     def __log_to_stdout(self, message):
         self.__stdout.write(message)
+
+    def is_enabled_for_stdout(self, logType):
+        """Get whether given logtype is enabled for standard output logging.
+        When a logType is not enabled, calling for log will return without
+        logging.
+        This method will check general standard output logging flag and given
+        logType standard output flag. For a logType to log it must have both
+        flags set to True
+
+        :Parameters:
+           #. logType (string): A defined logging type.
+
+        :Returns:
+           #. enabled (bool): whehter enabled or not.
+        """
+        return self.__logToStdout and self.__logTypeStdoutFlags[logType]
+
+    def is_enabled_for_file(self, logType):
+        """Get whether given logtype is enabled for file logging.
+        When a logType is not enabled, calling for log will return without
+        logging.
+        This method will check general file logging flag and given
+        logType file flag. For a logType to log it must have both
+        flags set to True
+
+        :Parameters:
+           #. logType (string): A defined logging type.
+
+        :Returns:
+           #. enabled (bool): whehter enabled or not.
+        """
+        return self.__logToFile and self.__logTypeFileFlags[logType]
+
 
     def log(self, logType, message, data=None, tback=None):
         """
