@@ -547,6 +547,24 @@ class Logger(object):
         """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
 
+    def is_logtype(self, logType):
+        """
+        Get whether given logType is defined or not
+
+        :Parameters:
+           #. logType (string): A defined logging type.
+
+        :Result:
+           #. result (boolean): Whether given logType is defined or not
+        """
+        try:
+            result = logType in self.__logTypeNames
+        except:
+            result = False
+        finally:
+            return result
+
+
     def custom_init(self, *args, **kwargs):
         """
         Custom initialize abstract method. This method will be called  at the end of
