@@ -547,7 +547,7 @@ class Logger(object):
         """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
 
-    def is_logtype(self, logType):
+    def is_logType(self, logType):
         """
         Get whether given logType is defined or not
 
