@@ -189,6 +189,14 @@ class Logger(object):
         from pysimplelog import SingleLogger as Logger
 
 
+    A new Logger instanciates with the following logType list (logTypes <NAME>: level)
+
+       * debug <DEBUG>: 0
+       * info <INFO>: 10
+       * warn <WARNING>: 20
+       * error <ERROR>: 30
+       * critical <CRITICAL>: 100
+
 
     Recommended overloading implementation, this is how it could be done:
 
@@ -243,9 +251,13 @@ class Logger(object):
           If None, file minimum level checking is left out.
        #. fileMaxLevel(None, number): The maximum logging to file level.
           If None, file maximum level checking is left out.
-       #. \*args (): This is used to send non-keyworded variable length argument
+       #. logTypes (None, dict): Used to create and update existing log types
+          upon initialization. Given dictionary keys are logType (new or existing)
+          and values can be None or a dictionary of kwargs to call
+          update_log_type upon. This argument will be called after custom_init
+       #. \*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in custom_init method.
-       #. \**kwargs (): This allows passing keyworded variable length of arguments to
+       #. \**kwargs: This allows passing keyworded variable length of arguments to
            custom_init method. kwargs can be anything other than __init__ arguments.
     """
     def __init__(self, name="logger", flush=True,
@@ -253,7 +265,7 @@ class Logger(object):
                        logToFile=True, logFile=None, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None,
-                       *args, **kwargs):
+                       logTypes=None, *args, **kwargs):
         # set last logged message
         self.__lastLogged = {}
         # set name
@@ -296,13 +308,26 @@ class Logger(object):
         self.set_minimum_level(fileMinLevel, stdoutFlag=False, fileFlag=True)
         self.set_maximum_level(fileMaxLevel, stdoutFlag=False, fileFlag=True)
         # create default types
-        self.add_log_type("debug", name="DEBUG", level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
-        self.add_log_type("info", name="INFO", level=10, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
-        self.add_log_type("warn", name="WARNING", level=20, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
-        self.add_log_type("error", name="ERROR", level=30, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("debug",    name="DEBUG",    level=0,   stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("info",     name="INFO",     level=10,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("warn",     name="WARNING",  level=20,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        self.add_log_type("error",    name="ERROR",    level=30,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         # custom initialize
         self.custom_init( *args, **kwargs )
+        # add logTypes
+        if logTypes is not None:
+            assert isinstance(logTypes, dict),"logTypes must be None or a dictionary"
+            assert all([isinstance(lt, basestring) for lt in logTypes]), "logTypes dictionary keys must be strings"
+            assert all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]), "logTypes dictionary values must be all None or dictionaries"
+            for lt in logTypes:
+                ltv = logTypes[lt]
+                if ltv is None:
+                    ltv = {}
+                if not self.is_logType(lt):
+                    self.add_log_type(lt, **ltv)
+                elif len(ltv):
+                    self.update_log_type(lt, **ltv)
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)
 
