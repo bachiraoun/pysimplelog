@@ -129,11 +129,8 @@ output
 
 """
 # python standard distribution imports
-import os
-import sys
-import copy
+import os, sys, copy, re, atexit
 from datetime import datetime
-import atexit
 
 # python version dependant imports
 if sys.version_info >= (3, 0):
@@ -229,40 +226,61 @@ class Logger(object):
        #. name (string): The logger name.
        #. flush (boolean): Whether to always flush the logging streams.
        #. logToStdout (boolean): Whether to log to the standard output stream.
-       #. stdout (None, stream): The standard output stream. If None, system standard
-          output will be set automatically. Otherwise any stream with read and write
-          methods can be passed
+       #. stdout (None, stream): The standard output stream. If None, system
+          standard output will be set automatically. Otherwise any stream with
+          read and write methods can be passed
        #. logToFile (boolean): Whether to log to to file.
-       #. logFile (None, string): the full log file path including directory basename and
-          extension.  If this is given, all of logFileBasename and logFileExtension
-          will be discarded. logfile is equivalent to logFileBasename.logFileExtension
-       #. logFileBasename (string): Logging file directory path and file basename.
-          A logging file full name is set as logFileBasename.logFileExtension
-       #. logFileExtension (string): Logging file extension. A logging file full name is
-          set as logFileBasename.logFileExtension
-       #. logFileMaxSize (number): The maximum size in Megabytes of a logging file.
-          Once exceeded, another logging file as logFileBasename_N.logFileExtension
-          will be created. Where N is an automatically incremented number.
-       #. stdoutMinLevel(None, number): The minimum logging to system standard output level.
-          If None, standard output minimum level checking is left out.
-       #. stdoutMaxLevel(None, number): The maximum logging to system standard output level.
-          If None, standard output maximum level checking is left out.
+       #. logFile (None, string): the full log file path including directory
+          basename and extension. If this is given, all of logFileBasename and
+          logFileExtension will be discarded. logfile is equivalent to
+          logFileBasename.logFileExtension
+       #. logFileBasename (string): Logging file directory path and file
+          basename. A logging file full name is set as
+          logFileBasename.logFileExtension
+       #. logFileExtension (string): Logging file extension. A logging file
+          full name is set as logFileBasename.logFileExtension
+       #. logFileMaxSize (None, number): The maximum size in Megabytes
+          of a logging file. Once exceeded, another logging file as
+          logFileBasename_N.logFileExtension will be created.
+          Where N is an automatically incremented number. If None or a
+          negative number is given, the logging file will grow
+          indefinitely
+       #. logFileFirstNumber (None, integer): first log file number 'N' in
+          logFileBasename_N.logFileExtension. If None is given then
+          first log file will be logFileBasename.logFileExtension and ince
+          logFileMaxSize is reached second log file will be
+          logFileBasename_0.logFileExtension and so on and so forth.
+          If number is given it must be an integer >=0
+       #. logFileRoll (None, intger): If given, it sets the maximum number of
+          log files to write. Exceeding the number will result in deleting
+          previous ones. This also insures always increasing files numbering.
+       #. stdoutMinLevel(None, number): The minimum logging to system standard
+          output level. If None, standard output minimum level checking is left
+          out.
+       #. stdoutMaxLevel(None, number): The maximum logging to system standard
+          output level. If None, standard output maximum level checking is
+          left out.
        #. fileMinLevel(None, number): The minimum logging to file level.
           If None, file minimum level checking is left out.
        #. fileMaxLevel(None, number): The maximum logging to file level.
           If None, file maximum level checking is left out.
        #. logTypes (None, dict): Used to create and update existing log types
-          upon initialization. Given dictionary keys are logType (new or existing)
-          and values can be None or a dictionary of kwargs to call
-          update_log_type upon. This argument will be called after custom_init
+          upon initialization. Given dictionary keys are logType
+          (new or existing) and values can be None or a dictionary of kwargs
+          to call update_log_type upon. This argument will be called after
+          custom_init
        #. \*args: This is used to send non-keyworded variable length argument
-           list to custom initialize. args will be parsed and used in custom_init method.
-       #. \**kwargs: This allows passing keyworded variable length of arguments to
-           custom_init method. kwargs can be anything other than __init__ arguments.
+           list to custom initialize. args will be parsed and used in
+           custom_init method.
+       #. \**kwargs: This allows passing keyworded variable length of
+           arguments to custom_init method. kwargs can be anything other
+           than __init__ arguments.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None,
-                       logToFile=True, logFile=None, logFileBasename="simplelog", logFileExtension="log", logFileMaxSize=10,
+                       logToFile=True, logFile=None,
+                       logFileBasename="simplelog", logFileExtension="log",
+                       logFileMaxSize=10, logFileFirstNumber=0, logFileRoll=None,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None,
                        logTypes=None, *args, **kwargs):
@@ -276,10 +294,14 @@ class Logger(object):
         self.set_log_to_stdout_flag(logToStdout)
         # set stdout
         self.set_stdout(stdout)
+        # set log file roll
+        self.set_log_file_roll(logFileRoll)
         # set log to file
         self.set_log_to_file_flag(logToFile)
         # set maximum logFile size
         self.set_log_file_maximum_size(logFileMaxSize)
+        # set logFile first number
+        self.set_log_file_first_number(logFileFirstNumber)
         # set logFile basename and extension
         if logFile is not None:
             self.set_log_file(self, logFile)
@@ -548,6 +570,11 @@ class Logger(object):
         return self.__logToStdout
 
     @property
+    def logFileRoll(self):
+        """Log file roll parameter."""
+        return self.__logFileRoll
+
+    @property
     def logToFile(self):
         """log to file flag."""
         return self.__logToFile
@@ -571,6 +598,11 @@ class Logger(object):
     def logFileMaxSize(self):
         """maximum allowed logfile size in megabytes."""
         return self.__maxlogFileSize
+
+    @property
+    def logFileFirstNumber(self):
+        """log file first number"""
+        return self.__logFileFirstNumber
 
     def is_logType(self, logType):
         """
@@ -679,6 +711,25 @@ class Logger(object):
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         self.__logTypeFileFlags[logType]   = fileFlag
 
+    def set_log_file_roll(self, logFileRoll):
+        """
+        Set roll parameter to determine the maximum number of log files allowed.
+        Beyond the maximum, older will be removed.
+
+        :Parameters:
+            #. logFileRoll (None, intger): If given, it sets the maximum number of
+               log files to write. Exceeding the number will result in deleting
+               older files. This also insures always increasing files numbering.
+               Log files will be identified in increasing N order of
+               logFileBasename_N.logFileExtension pattern. Be careful setting
+               this parameter as old log files will be permanently deleted if
+               the number of files exceeds the value of logFileRoll
+        """
+        if logFileRoll is not None:
+            assert isinstance(logFileRoll, int), "logFileRoll must be None or integer"
+            assert logFileRoll>0, "integer logFileRoll must be >0"
+        self.__logFileRoll = logFileRoll
+
     def set_log_file(self, logfile):
         """
         Set the log file full path including directory path basename and extension.
@@ -735,14 +786,54 @@ class Logger(object):
         dir, _ = os.path.split(self.__logFileBasename)
         if len(dir) and not os.path.exists(dir):
             os.makedirs(dir)
-        # create logFileName
-        self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
-        number = 0
-        while os.path.isfile(self.__logFileName):
-            if os.stat(self.__logFileName).st_size/1e6 < self.__maxlogFileSize:
-                break
-            number += 1
+        # get existing logfiles
+        numsLUT  = {}
+        filesLUT = {}
+        ordered  = []
+        if not len(dir) or os.path.isdir(dir):
+            listDir = os.listdir(dir) if len(dir) else os.listdir('.')
+            for f in listDir:
+                p = os.path.join(dir,f)
+                if not os.path.isfile(p):
+                    continue
+                if re.match("^{bsn}(_\\d+)?.{ext}$".format(bsn=self.__logFileBasename, ext=self.__logFileExtension), p) is None:
+                    continue
+                n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
+                n = int(n[1:]) if len(n) else ''
+                assert n not in numsLUT , "filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG"
+                numsLUT[n]  = p
+                filesLUT[p] = n
+            ordered = ([''] if '' in numsLUT else []) + sorted([n for n in numsLUT if isinstance(n, int)])
+            ordered = [numsLUT[n] for n in ordered]
+        # get last file number
+        if len(ordered):
+            number = filesLUT[ordered[-1]]
+        else:
+            number = self.__logFileFirstNumber
+        # limit number of log files to logFileRoll
+        if self.__logFileRoll is not None:
+            while len(ordered)>self.__logFileRoll:
+                os.remove(ordered.pop(0))
+            if len(ordered) == self.__logFileRoll and self.__maxlogFileSize is not None:
+                #if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__maxlogFileSize:
+                if os.stat(ordered[-1]).st_size/1e6 >= self.__maxlogFileSize:
+                    os.remove(ordered.pop(0))
+                    if isinstance(number, int):
+                        number = number + 1
+        # temporarily set self.__logFileName
+        if not isinstance(number, int):
+            self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
+            number = -1
+        else:
             self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
+        # check temporarily set logFileName file size
+        if self.__maxlogFileSize is not None:
+            while os.path.isfile(self.__logFileName):
+                #if os.stat(self.__logFileName).st_size/(1024.**2) < self.__maxlogFileSize:
+                if os.stat(self.__logFileName).st_size/1e6 < self.__maxlogFileSize:
+                    break
+                number += 1
+                self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
         # create log file stram
         self.__logFileStream = None
 
@@ -751,14 +842,37 @@ class Logger(object):
         Set the log file maximum size in megabytes
 
         :Parameters:
-           #. logFileMaxSize (number): The maximum size in Megabytes of a logging file.
-              Once exceeded, another logging file as logFileBasename_N.logFileExtension
-              will be created. Where N is an automatically incremented number.
+           #. logFileMaxSize (None, number): The maximum size in Megabytes
+              of a logging file. Once exceeded, another logging file as
+              logFileBasename_N.logFileExtension will be created.
+              Where N is an automatically incremented number. If None or a
+              negative number is given, the logging file will grow
+              indefinitely
         """
-        assert _is_number(logFileMaxSize), "logFileMaxSize must be a number"
-        logFileMaxSize = float(logFileMaxSize)
-        assert logFileMaxSize>=1, "logFileMaxSize minimum size is 1 megabytes"
+        if logFileMaxSize is not None:
+            assert _is_number(logFileMaxSize), "logFileMaxSize must be a number"
+            logFileMaxSize = float(logFileMaxSize)
+            if logFileMaxSize <=0:
+                logFileMaxSize = None
+        #assert logFileMaxSize>=1, "logFileMaxSize minimum size is 1 megabytes"
         self.__maxlogFileSize = logFileMaxSize
+
+    def set_log_file_first_number(self, logFileFirstNumber):
+        """
+        Set log file first number
+
+        :Parameters:
+            #. logFileFirstNumber (None, integer): first log file number 'N' in
+               logFileBasename_N.logFileExtension. If None is given then
+               first log file will be logFileBasename.logFileExtension and ince
+               logFileMaxSize is reached second log file will be
+               logFileBasename_0.logFileExtension and so on and so forth.
+               If number is given it must be an integer >=0
+        """
+        if logFileFirstNumber is not None:
+            assert isinstance(logFileFirstNumber, int), "logFileFirstNumber must be None or an integer"
+            assert logFileFirstNumber>=0, "logFileFirstNumber integer must be >=0"
+        self.__logFileFirstNumber = logFileFirstNumber
 
     def set_minimum_level(self, level=0, stdoutFlag=True, fileFlag=True):
         """
@@ -1144,9 +1258,11 @@ class Logger(object):
         # create log file stream
         if self.__logFileStream is None:
             self.__logFileStream = open(self.__logFileName, 'a')
-        elif self.__logFileStream.tell()/1e6 > self.__maxlogFileSize:
-            self.__set_log_file_name()
-            self.__logFileStream = open(self.__logFileName, 'a')
+        elif self.__maxlogFileSize is not None:
+            #if self.__logFileStream.tell()/(1024.**2) >= self.__maxlogFileSize:
+            if self.__logFileStream.tell()/1e6 >= self.__maxlogFileSize:
+                self.__set_log_file_name()
+                self.__logFileStream = open(self.__logFileName, 'a')
         # log to file
         self.__logFileStream.write(message)
 
