@@ -1386,7 +1386,8 @@ class Logger(object):
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
         if self.__logToStdout and self.__logTypeStdoutFlags[logType]:
-            self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
+            #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
+            self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
             if self.__flush:
                 try:
                     self.__stdout.flush()
@@ -1398,8 +1399,7 @@ class Logger(object):
                     pass
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[logType]:
-            self.__log_to_file(log)
-            self.__log_to_file("\n")
+            self.__log_to_file("%s\n"%log)
             if self.__flush:
                 try:
                     self.__logFileStream.flush()
@@ -1428,7 +1428,8 @@ class Logger(object):
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
         if stdout:
-            self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
+            #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
+            self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
             try:
                 self.__stdout.flush()
             except:
@@ -1439,8 +1440,7 @@ class Logger(object):
                 pass
         if file:
             # log to file
-            self.__log_to_file(log)
-            self.__log_to_file("\n")
+            self.__log_to_file("%s\n"%log)
             try:
                 self.__logFileStream.flush()
             except:
