@@ -285,7 +285,9 @@ class Logger(object):
                        fileMinLevel=None, fileMaxLevel=None,
                        logTypes=None, *args, **kwargs):
         # set last logged message
-        self.__lastLogged = {}
+        self.__lastLogged    = {}
+        # instanciate file stream
+        self.__logFileStream = None
         # set name
         self.set_name(name)
         # set flush
@@ -365,6 +367,8 @@ class Logger(object):
         #string += "\n - Log To File Maximum Level: %s"%(self.__fileMaxLevel)
         string += "\n - Log To Stdout: Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToStdout,self.__stdoutMinLevel,self.__stdoutMaxLevel)
         string += "\n - Log To File:   Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToFile,self.__fileMinLevel,self.__fileMaxLevel)
+        string += "\n                  File Size (%s) - First Number (%s) - Roll (%s)"%(self.__logFileMaxSize,self.__logFileFirstNumber,self.__logFileRoll)
+        string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
             string += "\nlog type  |log name  |level     |std flag   |file flag"
@@ -597,7 +601,7 @@ class Logger(object):
     @property
     def logFileMaxSize(self):
         """maximum allowed logfile size in megabytes."""
-        return self.__maxlogFileSize
+        return self.__logFileMaxSize
 
     @property
     def logFileFirstNumber(self):
@@ -620,6 +624,66 @@ class Logger(object):
             result = False
         finally:
             return result
+
+    def update(self, **kwargs):
+        """Update logger general parameters using key value pairs.
+        Updatable parameters are name, flush, stdout, logToStdout, logFileRoll,
+        logToFile, logFileMaxSize, stdoutMinLevel, stdoutMaxLevel, fileMinLevel,
+        fileMaxLevel and logFileFirstNumber.
+        """
+        # update name
+        if "name" in kwargs:
+            self.set_name(kwargs["name"])
+        # update flush
+        if "flush" in kwargs:
+            self.set_flush(kwargs["flush"])
+        # update stdout
+        if "stdout" in kwargs:
+            self.set_stdout(kwargs["stdout"])
+        # update logToStdout
+        if "logToStdout" in kwargs:
+            self.set_log_to_stdout_flag(kwargs["logToStdout"])
+        # update logFileRoll
+        if "logFileRoll" in kwargs:
+            self.set_log_file_roll(kwargs["logFileRoll"])
+        # update logToFile
+        if "logToFile" in kwargs:
+            self.set_log_to_file_flag(kwargs["logToFile"])
+        # update logFileMaxSize
+        if "logFileMaxSize" in kwargs:
+            self.set_log_file_maximum_size(kwargs["logFileMaxSize"])
+        # update logFileFirstNumber
+        if "logFileFirstNumber" in kwargs:
+            self.set_log_file_first_number(kwargs["logFileFirstNumber"])
+        # update stdoutMinLevel
+        if "stdoutMinLevel" in kwargs:
+            self.set_minimum_level(kwargs["stdoutMinLevel"], stdoutFlag=True, fileFlag=False)
+        # update stdoutMaxLevel
+        if "stdoutMaxLevel" in kwargs:
+            self.set_maximum_level(kwargs["stdoutMaxLevel"], stdoutFlag=True, fileFlag=False)
+        # update fileMinLevel
+        if "fileMinLevel" in kwargs:
+            self.set_minimum_level(kwargs["fileMinLevel"], stdoutFlag=False, fileFlag=True)
+        # update fileMaxLevel
+        if "fileMaxLevel" in kwargs:
+            self.set_maximum_level(kwargs["fileMaxLevel"], stdoutFlag=False, fileFlag=True)
+
+    @property
+    def parameters(self):
+        """get a dictionary of logger general parameters. The same dictionary
+        can be used to update another logger instance using update method"""
+        return {"name":self.__name,
+                "flush":self.__flush,
+                "stdout":None if self.__stdout is sys.stdout else self.__stdout,
+                "logToStdout":self.__logToStdout,
+                "logFileRoll":self.__logFileRoll,
+                "logToFile":self.__logToFile,
+                "logFileMaxSize":self.__logFileMaxSize,
+                "logFileFirstNumber":self.__logFileFirstNumber,
+                "stdoutMinLevel":self.__stdoutMinLevel,
+                "stdoutMaxLevel":self.__stdoutMaxLevel,
+                "fileMinLevel":self.__fileMinLevel,
+                "fileMaxLevel":self.__fileMaxLevel}
 
 
     def custom_init(self, *args, **kwargs):
@@ -814,9 +878,9 @@ class Logger(object):
         if self.__logFileRoll is not None:
             while len(ordered)>self.__logFileRoll:
                 os.remove(ordered.pop(0))
-            if len(ordered) == self.__logFileRoll and self.__maxlogFileSize is not None:
-                #if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__maxlogFileSize:
-                if os.stat(ordered[-1]).st_size/1e6 >= self.__maxlogFileSize:
+            if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
+                #if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
+                if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
                     os.remove(ordered.pop(0))
                     if isinstance(number, int):
                         number = number + 1
@@ -827,14 +891,19 @@ class Logger(object):
         else:
             self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
         # check temporarily set logFileName file size
-        if self.__maxlogFileSize is not None:
+        if self.__logFileMaxSize is not None:
             while os.path.isfile(self.__logFileName):
-                #if os.stat(self.__logFileName).st_size/(1024.**2) < self.__maxlogFileSize:
-                if os.stat(self.__logFileName).st_size/1e6 < self.__maxlogFileSize:
+                #if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
+                if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
                     break
                 number += 1
                 self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
-        # create log file stram
+        # create log file stream
+        if self.__logFileStream is not None:
+            try:
+                self.__logFileStream.close()
+            except:
+                pass
         self.__logFileStream = None
 
     def set_log_file_maximum_size(self, logFileMaxSize):
@@ -855,7 +924,7 @@ class Logger(object):
             if logFileMaxSize <=0:
                 logFileMaxSize = None
         #assert logFileMaxSize>=1, "logFileMaxSize minimum size is 1 megabytes"
-        self.__maxlogFileSize = logFileMaxSize
+        self.__logFileMaxSize = logFileMaxSize
 
     def set_log_file_first_number(self, logFileFirstNumber):
         """
@@ -1258,9 +1327,9 @@ class Logger(object):
         # create log file stream
         if self.__logFileStream is None:
             self.__logFileStream = open(self.__logFileName, 'a')
-        elif self.__maxlogFileSize is not None:
-            #if self.__logFileStream.tell()/(1024.**2) >= self.__maxlogFileSize:
-            if self.__logFileStream.tell()/1e6 >= self.__maxlogFileSize:
+        elif self.__logFileMaxSize is not None:
+            #if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
+            if self.__logFileStream.tell()/1e6 >= self.__logFileMaxSize:
                 self.__set_log_file_name()
                 self.__logFileStream = open(self.__logFileName, 'a')
         # log to file
