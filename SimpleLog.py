@@ -306,7 +306,7 @@ class Logger(object):
         self.set_log_file_first_number(logFileFirstNumber)
         # set logFile basename and extension
         if logFile is not None:
-            self.set_log_file(self, logFile)
+            self.set_log_file(logFile)
         else:
             self.__set_log_file_basename(logFileBasename)
             self.set_log_file_extension(logFileExtension)
@@ -667,6 +667,10 @@ class Logger(object):
         # update fileMaxLevel
         if "fileMaxLevel" in kwargs:
             self.set_maximum_level(kwargs["fileMaxLevel"], stdoutFlag=False, fileFlag=True)
+        # update logfile
+        if "logFile" in kwargs:
+            self.set_log_file(kwargs["logFile"])
+
 
     @property
     def parameters(self):
@@ -683,7 +687,8 @@ class Logger(object):
                 "stdoutMinLevel":self.__stdoutMinLevel,
                 "stdoutMaxLevel":self.__stdoutMaxLevel,
                 "fileMinLevel":self.__fileMinLevel,
-                "fileMaxLevel":self.__fileMaxLevel}
+                "fileMaxLevel":self.__fileMaxLevel,
+                "logFile":self.__logFileBasename+"."+self.__logFileExtension}
 
 
     def custom_init(self, *args, **kwargs):
@@ -879,8 +884,8 @@ class Logger(object):
             while len(ordered)>self.__logFileRoll:
                 os.remove(ordered.pop(0))
             if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
-                #if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
-                if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
+                if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
+                #if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
                     os.remove(ordered.pop(0))
                     if isinstance(number, int):
                         number = number + 1
@@ -893,8 +898,8 @@ class Logger(object):
         # check temporarily set logFileName file size
         if self.__logFileMaxSize is not None:
             while os.path.isfile(self.__logFileName):
-                #if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
-                if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
+                if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
+                #if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
                     break
                 number += 1
                 self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
@@ -1300,7 +1305,8 @@ class Logger(object):
         dataStr  = ''
         tbackStr = ''
         if data is not None:
-            dataStr = '\n%s'%(repr(data))
+            #dataStr = '\n%s'%(repr(data))
+            dataStr = '\n%s'%(data,)
         if tback is not None:
             if isinstance(tback, str):
                 tbackStr = '\n%s'%(tback,)
@@ -1328,8 +1334,8 @@ class Logger(object):
         if self.__logFileStream is None:
             self.__logFileStream = open(self.__logFileName, 'a')
         elif self.__logFileMaxSize is not None:
-            #if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
-            if self.__logFileStream.tell()/1e6 >= self.__logFileMaxSize:
+            if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
+            #if self.__logFileStream.tell()/1e6 >= self.__logFileMaxSize:
                 self.__set_log_file_name()
                 self.__logFileStream = open(self.__logFileName, 'a')
         # log to file
