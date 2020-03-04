@@ -1339,10 +1339,19 @@ class Logger(object):
                 self.__set_log_file_name()
                 self.__logFileStream = open(self.__logFileName, 'a')
         # log to file
+        # no need to try and catch. even when main thread dies a file handler
+        # shouldn't close
         self.__logFileStream.write(message)
 
     def __log_to_stdout(self, message):
-        self.__stdout.write(message)
+        try:
+            self.__stdout.write(message)
+        except:
+            # for the rare case when stdout buffer no more exits.
+            # this can happen when main thread dies and all remaining threads
+            # turn to daemon threads. Try and catch add absolutely no
+            # overhead unless when an error occurs. 
+            pass
 
     def is_enabled_for_stdout(self, logType):
         """Get whether given logtype is enabled for standard output logging.
