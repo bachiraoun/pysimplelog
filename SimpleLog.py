@@ -1350,7 +1350,7 @@ class Logger(object):
             # for the rare case when stdout buffer no more exits.
             # this can happen when main thread dies and all remaining threads
             # turn to daemon threads. Try and catch add absolutely no
-            # overhead unless when an error occurs. 
+            # overhead unless when an error occurs.
             pass
 
     def is_enabled_for_stdout(self, logType):
@@ -1397,6 +1397,9 @@ class Logger(object):
               after log message
            #. tback (None, str, list): Stack traceback to print and/or write to
               log file. In general, this should be traceback.extract_stack
+
+        :Returns:
+            #. message (string): the logged message
         """
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
@@ -1427,6 +1430,8 @@ class Logger(object):
         # set last logged message
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
+        # always return logged message
+        return message
 
     def force_log(self, logType, message, data=None, tback=None, stdout=True, file=True):
         """
@@ -1439,6 +1444,9 @@ class Logger(object):
               log file. In general, this should be traceback.extract_stack
            #. stdout (boolean): Whether to force logging to standard output.
            #. file (boolean): Whether to force logging to file.
+
+        :Returns:
+            #. message (string): the logged message
         """
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
@@ -1467,6 +1475,8 @@ class Logger(object):
         # set last logged message
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
+        # always return logged message
+        return message
 
     def flush(self):
         """Flush all streams."""
@@ -1491,31 +1501,31 @@ class Logger(object):
 
     def info(self, message, *args, **kwargs):
         """alias to message at information level"""
-        self.log("info", message, *args, **kwargs)
+        return self.log("info", message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
         """alias to message at information level"""
-        self.log("info", message, *args, **kwargs)
+        return self.log("info", message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
         """alias to message at warning level"""
-        self.log("warn", message, *args, **kwargs)
+        return self.log("warn", message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
         """alias to message at warning level"""
-        self.log("warn", message, *args, **kwargs)
+        return self.log("warn", message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
         """alias to message at error level"""
-        self.log("error", message, *args, **kwargs)
+        return self.log("error", message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
         """alias to message at critical level"""
-        self.log("critical", message, *args, **kwargs)
+        return self.log("critical", message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
         """alias to message at debug level"""
-        self.log("debug", message, *args, **kwargs)
+        return self.log("debug", message, *args, **kwargs)
 
 
 
