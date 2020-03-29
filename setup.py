@@ -69,11 +69,12 @@ LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
                     "In addition, pysimplelog is text colouring and attributes enabled when the stream allows it.",]
 DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
-# get package info
+## get package info
 PACKAGE_INFO={}
-ver_path = convert_path('__pkginfo__.py')
-with open(ver_path) as ver_file:
-    exec(ver_file.read(), PACKAGE_INFO)
+infoPath = convert_path('__pkginfo__.py')
+with open(infoPath) as fd:
+    exec(fd.read(), PACKAGE_INFO)
+
 
 # create meta data
 metadata = dict(name = PACKAGE_NAME,
