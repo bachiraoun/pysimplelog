@@ -847,6 +847,8 @@ class Logger(object):
 
     def __set_log_file_basename(self, logFileBasename):
         assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
+        if os.sep == '\\':
+            logFileBasename = re.sub(r'([\\])\1+', r'\1', logFileBasename).replace('\\','\\\\')
         self.__logFileBasename = logFileBasename
 
     def __set_log_file_name(self):
