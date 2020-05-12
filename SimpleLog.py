@@ -274,6 +274,9 @@ class Logger(object):
           (new or existing) and values can be None or a dictionary of kwargs
           to call update_log_type upon. This argument will be called after
           custom_init
+       #. timezone (None, str): Logging time timezone. If provided
+          pytz must be installed and it must be the timezone name. If not
+          provided, the machine default timezone will be used.
        #. \*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -288,11 +291,13 @@ class Logger(object):
                        logFileMaxSize=10, logFileFirstNumber=0, logFileRoll=None,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None,
-                       logTypes=None, *args, **kwargs):
+                       logTypes=None, timezone=None,*args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
         # instanciate file stream
         self.__logFileStream = None
+        # set timezone
+        self.set_timezone(timezone)
         # set name
         self.set_name(name)
         # set flush
@@ -612,6 +617,29 @@ class Logger(object):
     def logFileFirstNumber(self):
         """log file first number"""
         return self.__logFileFirstNumber
+
+    @property
+    def timezone(self):
+        """The timezone if given"""
+        timezone = self.__timezone
+        if timezone is not None:
+            timezone = timezone.zone
+        return timezone
+
+    def set_timezone(self, timezone):
+        """
+        Set logging timezone
+
+        :Parameters:
+            #. timezone (None, str): Logging time timezone. If provided
+               pytz must be installed and it must be the timezone name. If not
+               provided, the machine default timezone will be used
+        """
+        if timezone is not None:
+            assert isinstance(timezone, basestring), "timezone must be None or a string"
+            import pytz
+            timezone = pytz.timezone(timezone)
+        self.__timezone = timezone
 
     def is_logType(self, logType):
         """
@@ -1328,7 +1356,7 @@ class Logger(object):
         return "%s%s%s%s%s" %(header, message, footer, dataStr, tbackStr)
 
     def _get_header(self, logType, message):
-        dateTime = datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
+        dateTime = datetime.strftime(datetime.now(self.__timezone), '%Y-%m-%d %H:%M:%S')
         return "%s - %s <%s> "%(dateTime, self.__name, self.__logTypeNames[logType])
 
     def _get_footer(self, logType, message):
@@ -1563,6 +1591,6 @@ if __name__ == "__main__":
     print(l, '\n')
     # print available logs and logging time.
     for logType in l.logTypes:
-        tic = time.clock()
+        tic = time.time()
         l.log(logType, "this is '%s' level log message."%logType)
-        print("%s seconds\n"%str(time.clock()-tic))
+        print("%s seconds\n"%str(time.time()-tic))
