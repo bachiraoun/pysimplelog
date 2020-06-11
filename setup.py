@@ -1,5 +1,10 @@
 """
 This script will work from within the main package directory.
+
+python setup.py sdist bdist_wheel
+twine upload dist/pysimplelog-... 
+
+
 """
 try:
     from setuptools import setup
