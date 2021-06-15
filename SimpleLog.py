@@ -1444,10 +1444,10 @@ class Logger(object):
         :Returns:
             #. message (string): the logged message
         """
-        if maxNumber is not None:
+        if countConstraint is not None:
             self.__logMessagesCounter.setdefault(message, -1)
             self.__logMessagesCounter[message] += 1
-            if maxNumber<=self.__logMessagesCounter[message]:
+            if countConstraint<=self.__logMessagesCounter[message]:
                 return message
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
