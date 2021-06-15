@@ -337,6 +337,8 @@ class Logger(object):
         self.__stdoutMaxLevel = None
         self.__fileMinLevel   = None
         self.__fileMaxLevel   = None
+        # create log messages counter
+        self.__logMessagesCounter = {}
         self.set_minimum_level(stdoutMinLevel, stdoutFlag=True, fileFlag=False)
         self.set_maximum_level(stdoutMaxLevel, stdoutFlag=True, fileFlag=False)
         self.set_minimum_level(fileMinLevel, stdoutFlag=False, fileFlag=True)
@@ -625,6 +627,12 @@ class Logger(object):
         if timezone is not None:
             timezone = timezone.zone
         return timezone
+
+    @property
+    def logMessagesCounter(self):
+        """Counter look up table for all logged messages that were
+        count constrainted"""
+        return self.__logMessagesCounter
 
     def set_timezone(self, timezone):
         """
@@ -1419,13 +1427,15 @@ class Logger(object):
         return self.__logToFile and self.__logTypeFileFlags[logType]
 
 
-    def log(self, logType, message, data=None, tback=None):
+    def log(self, logType, message, data=None, tback=None, countConstraint=None):
         """
         log a message of a certain logtype.
 
         :Parameters:
            #. logType (string): A defined logging type.
            #. message (string): Any message to log.
+           #. countConstraint (None, number): maximum number of time to log
+              the given message
            #. data (None,  object): Any type of data to print and/or write to log file
               after log message
            #. tback (None, str, list): Stack traceback to print and/or write to
@@ -1434,6 +1444,11 @@ class Logger(object):
         :Returns:
             #. message (string): the logged message
         """
+        if maxNumber is not None:
+            self.__logMessagesCounter.setdefault(message, -1)
+            self.__logMessagesCounter[message] += 1
+            if maxNumber<=self.__logMessagesCounter[message]:
+                return message
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
         if self.__logToStdout and self.__logTypeStdoutFlags[logType]:
