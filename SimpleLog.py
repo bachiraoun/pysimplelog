@@ -1363,6 +1363,9 @@ class Logger(object):
                     tbackStr = '\n%s'%(str(tback),)
         return "%s%s%s%s%s" %(header, message, footer, dataStr, tbackStr)
 
+    def _get_datetimestamp(self, format='%Y-%m-%d %H:%M:%S'):
+        return datetime.strftime(datetime.now(self.__timezone), format)
+
     def _get_header(self, logType, message):
         dateTime = datetime.strftime(datetime.now(self.__timezone), '%Y-%m-%d %H:%M:%S')
         return "%s - %s <%s> "%(dateTime, self.__name, self.__logTypeNames[logType])
