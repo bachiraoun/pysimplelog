@@ -629,6 +629,10 @@ class Logger(object):
         return timezone
 
     @property
+    def _timezone(self):
+        return self.__timezone
+
+    @property
     def logMessagesCounter(self):
         """Counter look up table for all logged messages that were
         count constrainted"""
