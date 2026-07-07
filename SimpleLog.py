@@ -459,14 +459,7 @@ class Logger(object):
 
     def _flush_atexit_logfile(self):
         if self.__logFileStream is not None:
-            try:
-                self.__logFileStream.flush()
-            except OSError:
-                pass
-            try:
-                os.fsync(self.__logFileStream.fileno())
-            except OSError:
-                pass
+            self.__flush_stream(self.__logFileStream)
             self.__logFileStream.close()
 
     @property
@@ -1381,6 +1374,24 @@ class Logger(object):
             # overhead unless when an error occurs.
             pass
 
+    def __flush_stream(self, stream):
+        """
+        Flush and fsync a stream, silently ignoring I/O errors.
+        Safe to call from any thread; errors are swallowed so the
+        logger never raises on a flush failure.
+
+        :Parameters:
+            #. stream (file-like): The stream to flush and fsync.
+        """
+        try:
+            stream.flush()
+        except OSError:
+            pass
+        try:
+            os.fsync(stream.fileno())
+        except OSError:
+            pass
+
     def is_enabled_for_stdout(self, logType):
         """Get whether given logtype is enabled for standard output logging.
         When a logType is not enabled, calling for log will return without
@@ -1442,26 +1453,12 @@ class Logger(object):
             #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
             self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
             if self.__flush:
-                try:
-                    self.__stdout.flush()
-                except OSError:
-                    pass
-                try:
-                    os.fsync(self.__stdout.fileno())
-                except OSError:
-                    pass
+                self.__flush_stream(self.__stdout)
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[logType]:
             self.__log_to_file("%s\n"%log)
             if self.__flush:
-                try:
-                    self.__logFileStream.flush()
-                except OSError:
-                    pass
-                try:
-                    os.fsync(self.__logFileStream.fileno())
-                except OSError:
-                    pass
+                self.__flush_stream(self.__logFileStream)
         # set last logged message
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
@@ -1488,25 +1485,11 @@ class Logger(object):
         if stdout:
             #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
             self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
-            try:
-                self.__stdout.flush()
-            except OSError:
-                pass
-            try:
-                os.fsync(self.__stdout.fileno())
-            except OSError:
-                pass
+            self.__flush_stream(self.__stdout)
         if file:
             # log to file
             self.__log_to_file("%s\n"%log)
-            try:
-                self.__logFileStream.flush()
-            except OSError:
-                pass
-            try:
-                os.fsync(self.__logFileStream.fileno())
-            except OSError:
-                pass
+            self.__flush_stream(self.__logFileStream)
         # set last logged message
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
@@ -1516,23 +1499,9 @@ class Logger(object):
     def flush(self):
         """Flush all streams."""
         if self.__logFileStream is not None:
-            try:
-                self.__logFileStream.flush()
-            except OSError:
-                pass
-            try:
-                os.fsync(self.__logFileStream.fileno())
-            except OSError:
-                pass
+            self.__flush_stream(self.__logFileStream)
         if self.__stdout is not None:
-            try:
-                self.__stdout.flush()
-            except OSError:
-                pass
-            try:
-                os.fsync(self.__stdout.fileno())
-            except OSError:
-                pass
+            self.__flush_stream(self.__stdout)
 
     def info(self, message, *args, **kwargs):
         """alias to message at information level"""
