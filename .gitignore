@@ -5,4 +5,23 @@ MANIFEST.in
 dist/
 docs/.DS_Store
 docs/build/
-pysimplelog.egg-info/
+pysimplelog.egg-info/i
+*.pyc
+*.pyd
+*.so
+*.o
+*.c
+*.cpp
+*.log
+*.DS_Store
+*__pycache__
+MANIFEST.in
+*.stc
+*.dft
+*.rmc
+*.log
+
+# sub packages
+/docs/build
+/docs/_build
+.idea
