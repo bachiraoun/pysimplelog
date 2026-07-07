@@ -129,7 +129,7 @@ output
 
 """
 # python standard distribution imports
-import os, sys, copy, re, atexit
+import os, sys, copy, re, atexit, threading
 from datetime import datetime
 
 # python version dependant imports
@@ -296,6 +296,8 @@ class Logger(object):
         self.__lastLogged    = {}
         # instanciate file stream
         self.__logFileStream = None
+        # rotation lock — guards the multi-step check/rotate/open sequence
+        self.__rotationLock = threading.RLock()
         # set timezone
         self.set_timezone(timezone)
         # set name
@@ -894,65 +896,66 @@ class Logger(object):
 
     def __set_log_file_name(self):
         """Automatically set logFileName attribute"""
-        # ensure directory exists
-        logDir, _ = os.path.split(self.__logFileBasename)
-        if len(logDir) and not os.path.exists(logDir):
-            os.makedirs(logDir)
-        # get existing logfiles
-        numsLUT  = {}
-        filesLUT = {}
-        ordered  = []
-        if not len(logDir) or os.path.isdir(logDir):
-            listDir = os.listdir(logDir) if len(logDir) else os.listdir('.')
-            for f in listDir:
-                p = os.path.join(logDir,f)
-                if not os.path.isfile(p):
-                    continue
-                if re.match(r"^{bsn}(_\d+)?\.{ext}$".format(bsn=re.escape(self.__logFileBasename), ext=re.escape(self.__logFileExtension)), p) is None:
-                    continue
-                n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
-                n = int(n[1:]) if len(n) else ''
-                assert n not in numsLUT , "filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG"
-                numsLUT[n]  = p
-                filesLUT[p] = n
-            ordered = ([''] if '' in numsLUT else []) + sorted([n for n in numsLUT if isinstance(n, int)])
-            ordered = [numsLUT[n] for n in ordered]
-        # get last file number
-        if len(ordered):
-            number = filesLUT[ordered[-1]]
-        else:
-            number = self.__logFileFirstNumber
-        # limit number of log files to logFileRoll
-        if self.__logFileRoll is not None:
-            while len(ordered)>self.__logFileRoll:
-                os.remove(ordered.pop(0))
-            if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
-                if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
-                #if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
+        with self.__rotationLock:
+            # ensure directory exists
+            logDir, _ = os.path.split(self.__logFileBasename)
+            if len(logDir) and not os.path.exists(logDir):
+                os.makedirs(logDir)
+            # get existing logfiles
+            numsLUT  = {}
+            filesLUT = {}
+            ordered  = []
+            if not len(logDir) or os.path.isdir(logDir):
+                listDir = os.listdir(logDir) if len(logDir) else os.listdir('.')
+                for f in listDir:
+                    p = os.path.join(logDir,f)
+                    if not os.path.isfile(p):
+                        continue
+                    if re.match(r"^{bsn}(_\d+)?\.{ext}$".format(bsn=re.escape(self.__logFileBasename), ext=re.escape(self.__logFileExtension)), p) is None:
+                        continue
+                    n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
+                    n = int(n[1:]) if len(n) else ''
+                    assert n not in numsLUT , "filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG"
+                    numsLUT[n]  = p
+                    filesLUT[p] = n
+                ordered = ([''] if '' in numsLUT else []) + sorted([n for n in numsLUT if isinstance(n, int)])
+                ordered = [numsLUT[n] for n in ordered]
+            # get last file number
+            if len(ordered):
+                number = filesLUT[ordered[-1]]
+            else:
+                number = self.__logFileFirstNumber
+            # limit number of log files to logFileRoll
+            if self.__logFileRoll is not None:
+                while len(ordered)>self.__logFileRoll:
                     os.remove(ordered.pop(0))
-                    if isinstance(number, int):
-                        number = number + 1
-        # temporarily set self.__logFileName
-        if not isinstance(number, int):
-            self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
-            number = -1
-        else:
-            self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
-        # check temporarily set logFileName file size
-        if self.__logFileMaxSize is not None:
-            while os.path.isfile(self.__logFileName):
-                if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
-                #if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
-                    break
-                number += 1
+                if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
+                    if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
+                    #if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
+                        os.remove(ordered.pop(0))
+                        if isinstance(number, int):
+                            number = number + 1
+            # temporarily set self.__logFileName
+            if not isinstance(number, int):
+                self.__logFileName = self.__logFileBasename+"."+self.__logFileExtension
+                number = -1
+            else:
                 self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
-        # create log file stream
-        if self.__logFileStream is not None:
-            try:
-                self.__logFileStream.close()
-            except OSError:
-                pass
-        self.__logFileStream = None
+            # check temporarily set logFileName file size
+            if self.__logFileMaxSize is not None:
+                while os.path.isfile(self.__logFileName):
+                    if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
+                    #if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
+                        break
+                    number += 1
+                    self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
+            # create log file stream
+            if self.__logFileStream is not None:
+                try:
+                    self.__logFileStream.close()
+                except OSError:
+                    pass
+            self.__logFileStream = None
 
     def set_log_file_maximum_size(self, logFileMaxSize):
         """
@@ -1354,18 +1357,19 @@ class Logger(object):
         return ""
 
     def __log_to_file(self, message):
-        # create log file stream
-        if self.__logFileStream is None:
-            self.__logFileStream = open(self.__logFileName, 'a')
-        elif self.__logFileMaxSize is not None:
-            if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
-            #if self.__logFileStream.tell()/1e6 >= self.__logFileMaxSize:
-                self.__set_log_file_name()
+        # guard the multi-step check/rotate/open sequence with the rotation lock;
+        # capture a stable stream reference before releasing so the write (which
+        # is GIL-safe on its own) happens outside the lock — zero overhead on the
+        # hot write path when no rotation is needed.
+        with self.__rotationLock:
+            if self.__logFileStream is None:
                 self.__logFileStream = open(self.__logFileName, 'a')
-        # log to file
-        # no need to try and catch. even when main thread dies a file handler
-        # shouldn't close
-        self.__logFileStream.write(message)
+            elif self.__logFileMaxSize is not None:
+                if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
+                    self.__set_log_file_name()   # re-entrant: RLock allows this
+                    self.__logFileStream = open(self.__logFileName, 'a')
+            stream = self.__logFileStream   # stable reference under lock
+        stream.write(message)
 
     def __log_to_stdout(self, message):
         try:
