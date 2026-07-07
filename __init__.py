@@ -7,7 +7,7 @@ and attributes enabled when the stream allows it.
 
 Installation guide:
 ===================
-pysimplelog is a pure python 2.7.x module that needs no particular installation. 
+pysimplelog is compatible with Python 2.7 and Python 3 and needs no particular installation. 
 One can either fork pysimplelog's `github repository 
 <https://github.com/bachiraoun/pysimplelog/>`_ and copy the 
 package to python's site-packages or use pip as the following:

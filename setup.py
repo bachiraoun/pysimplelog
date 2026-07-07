@@ -10,7 +10,13 @@ try:
     from setuptools import setup
 except ImportError:
     from distutils.core import setup
-from distutils.util import convert_path
+try:
+    from distutils.util import convert_path
+except ImportError:
+    # distutils removed in Python 3.12+; for single-component paths
+    # (no directory separators) the conversion is a no-op on all platforms
+    def convert_path(pathname):
+        return pathname
 import os, sys
 
 # set package path and name
@@ -18,8 +24,8 @@ PACKAGE_PATH = '.'
 PACKAGE_NAME = 'pysimplelog'
 
 # check python version
-if sys.version_info[:2] < (2, 6):
-    raise RuntimeError("Python version 2.6.x and above is required.")
+if sys.version_info[:2] < (2, 7):
+    raise RuntimeError("Python version 2.7 and above is required.")
 
 # automatically create MANIFEST.in
 commands = [# include MANIFEST.in
@@ -59,6 +65,13 @@ License :: OSI Approved :: GNU Affero General Public License v3
 Programming Language :: Python
 Programming Language :: Python :: 2.7
 Programming Language :: Python :: 3
+Programming Language :: Python :: 3.6
+Programming Language :: Python :: 3.7
+Programming Language :: Python :: 3.8
+Programming Language :: Python :: 3.9
+Programming Language :: Python :: 3.10
+Programming Language :: Python :: 3.11
+Programming Language :: Python :: 3.12
 Topic :: Software Development
 Topic :: Software Development :: Build Tools
 Topic :: Scientific/Engineering
