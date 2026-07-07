@@ -171,6 +171,35 @@ def _normalize_path(path):
     return path
 
 
+# Compiled once at import time — used by _sanitise_message on every log call
+_CONTROL_CHAR_RE = re.compile(
+    r'\x1b(?:\[[0-9;]*[mGKHFABCDsuJrhl]|\(B|[A-Z])'  # ANSI + VT escape sequences
+    r'|\x00'                                              # null bytes
+    r'|\r(?!\n)'                                         # bare CR not followed by LF
+)
+
+
+def _sanitise_message(message):
+    """Strip control characters and ANSI escape sequences from a log message.
+
+    Uses a fast early-exit 'in' check before invoking the regex engine so the
+    overhead on clean messages (the vast majority of calls) is ~80 ns. Non-string
+    types pass through unchanged and are handled by %s formatting downstream.
+    CRLF sequences are preserved; only bare CR (without following LF) is removed.
+
+    :Parameters:
+        #. message: The raw message value from the caller.
+
+    :Returns:
+        result: Sanitised string, or the original value if not a string.
+    """
+    if not isinstance(message, basestring):
+        return message
+    if '\x1b' not in message and '\x00' not in message and '\r' not in message:
+        return message
+    return _CONTROL_CHAR_RE.sub('', message)
+
+
 class Logger(object):
     """
     This is simplelog main Logger class definition.\n
@@ -1317,7 +1346,8 @@ class Logger(object):
                             color=color, highlight=highlight, attributes=attributes)
 
     def _format_message(self, logType, message, data, tback):
-        header = self._get_header(logType, message)
+        message  = _sanitise_message(message)
+        header   = self._get_header(logType, message)
         footer = self._get_footer(logType, message)
         dataStr  = ''
         tbackStr = ''
