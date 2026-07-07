@@ -150,7 +150,7 @@ else:
 # import pysimplelog version
 try:
     from __pkginfo__ import __version__
-except:
+except ImportError:
     from .__pkginfo__ import __version__
 
 
@@ -160,7 +160,7 @@ def _is_number(number):
         return True
     try:
         float(number)
-    except:
+    except Exception:
         return False
     else:
         return True
@@ -277,10 +277,10 @@ class Logger(object):
        #. timezone (None, str): Logging time timezone. If provided
           pytz must be installed and it must be the timezone name. If not
           provided, the machine default timezone will be used.
-       #. \*args: This is used to send non-keyworded variable length argument
+       #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
-       #. \**kwargs: This allows passing keyworded variable length of
+       #. \\**kwargs: This allows passing keyworded variable length of
            arguments to custom_init method. kwargs can be anything other
            than __init__ arguments.
     """
@@ -421,12 +421,12 @@ class Logger(object):
         # curses isn't available on all platforms
         try:
             import curses as CURSES
-        except:
+        except ImportError:
             return False
         try:
             CURSES.setupterm()
             return CURSES.tigetnum("colors") >= 2
-        except:
+        except Exception:
             return False
 
     def __get_stream_fonts_attributes(self, stream):
@@ -459,11 +459,11 @@ class Logger(object):
         if self.__logFileStream is not None:
             try:
                 self.__logFileStream.flush()
-            except:
+            except OSError:
                 pass
             try:
                 os.fsync(self.__logFileStream.fileno())
-            except:
+            except OSError:
                 pass
             self.__logFileStream.close()
 
@@ -571,9 +571,9 @@ class Logger(object):
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
-    def logTypeFormats(self):
+    def logTypeFormat(self):
         """dictionary copy of all defined log types format showing when logging."""
-        return copy.deepcopy(self.__logTypeFormats)
+        return copy.deepcopy(self.__logTypeFormat)
 
     @property
     def name(self):
@@ -664,11 +664,9 @@ class Logger(object):
            #. result (boolean): Whether given logType is defined or not
         """
         try:
-            result = logType in self.__logTypeNames
-        except:
-            result = False
-        finally:
-            return result
+            return logType in self.__logTypeNames
+        except Exception:
+            return False
 
     def update(self, **kwargs):
         """Update logger general parameters using key value pairs.
@@ -743,9 +741,9 @@ class Logger(object):
         Logger instances.
 
         :Parameters:
-            #. \*args (): This is used to send non-keyworded variable length argument
+            #. \\*args (): This is used to send non-keyworded variable length argument
                list to custom initialize.
-            #. \**kwargs (): This is keyworded variable length of arguments.
+            #. \\**kwargs (): This is keyworded variable length of arguments.
                kwargs can be anything other than __init__ arguments.
         """
         pass
@@ -897,20 +895,20 @@ class Logger(object):
     def __set_log_file_name(self):
         """Automatically set logFileName attribute"""
         # ensure directory exists
-        dir, _ = os.path.split(self.__logFileBasename)
-        if len(dir) and not os.path.exists(dir):
-            os.makedirs(dir)
+        logDir, _ = os.path.split(self.__logFileBasename)
+        if len(logDir) and not os.path.exists(logDir):
+            os.makedirs(logDir)
         # get existing logfiles
         numsLUT  = {}
         filesLUT = {}
         ordered  = []
-        if not len(dir) or os.path.isdir(dir):
-            listDir = os.listdir(dir) if len(dir) else os.listdir('.')
+        if not len(logDir) or os.path.isdir(logDir):
+            listDir = os.listdir(logDir) if len(logDir) else os.listdir('.')
             for f in listDir:
-                p = os.path.join(dir,f)
+                p = os.path.join(logDir,f)
                 if not os.path.isfile(p):
                     continue
-                if re.match("^{bsn}(_\\d+)?.{ext}$".format(bsn=self.__logFileBasename, ext=self.__logFileExtension), p) is None:
+                if re.match(r"^{bsn}(_\d+)?\.{ext}$".format(bsn=re.escape(self.__logFileBasename), ext=re.escape(self.__logFileExtension)), p) is None:
                     continue
                 n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
                 n = int(n[1:]) if len(n) else ''
@@ -952,7 +950,7 @@ class Logger(object):
         if self.__logFileStream is not None:
             try:
                 self.__logFileStream.close()
-            except:
+            except OSError:
                 pass
         self.__logFileStream = None
 
@@ -1074,40 +1072,20 @@ class Logger(object):
         self.__update_file_flags()
 
     def __update_stdout_flags(self):
-        # set stdoutMinLevel
         stdoutkeys = list(self.__forcedStdoutLevels)
-        if self.__stdoutMinLevel is not None:
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in stdoutkeys:
-                    self.__logTypeStdoutFlags[logType] = l>=self.__stdoutMinLevel
-        # set stdoutMaxLevel
-        if self.__stdoutMaxLevel is not None:
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in stdoutkeys:
-                    self.__logTypeStdoutFlags[logType] = l<=self.__stdoutMaxLevel
-        # when stdout min and max are None
-        if (self.__stdoutMinLevel is None) and (self.__stdoutMaxLevel is None):
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in stdoutkeys:
-                    self.__logTypeStdoutFlags[logType] = True
+        for logType, l in self.__logTypeLevels.items():
+            if logType not in stdoutkeys:
+                minOk = (self.__stdoutMinLevel is None) or (l >= self.__stdoutMinLevel)
+                maxOk = (self.__stdoutMaxLevel is None) or (l <= self.__stdoutMaxLevel)
+                self.__logTypeStdoutFlags[logType] = minOk and maxOk
 
     def __update_file_flags(self):
-        # set fileMinLevel
         filekeys = list(self.__forcedFileLevels)
-        if self.__fileMinLevel is not None:
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in filekeys:
-                    self.__logTypeFileFlags[logType] = l>=self.__fileMinLevel
-        # set fileMaxLevel
-        if self.__fileMaxLevel is not None:
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in filekeys:
-                    self.__logTypeFileFlags[logType] = l<=self.__fileMaxLevel
-        # when file min and max are None
-        if (self.__fileMinLevel is None) and (self.__fileMaxLevel is None):
-            for logType, l in self.__logTypeLevels.items():
-                if logType not in filekeys:
-                    self.__logTypeFileFlags[logType] = True
+        for logType, l in self.__logTypeLevels.items():
+            if logType not in filekeys:
+                minOk = (self.__fileMinLevel is None) or (l >= self.__fileMinLevel)
+                maxOk = (self.__fileMaxLevel is None) or (l <= self.__fileMaxLevel)
+                self.__logTypeFileFlags[logType] = minOk and maxOk
 
     def force_log_type_stdout_flag(self, logType, flag):
         """
@@ -1181,9 +1159,7 @@ class Logger(object):
            #. level (number): The level of logging.
         """
         assert _is_number(level), "level must be a number"
-        level = float(level)
-        name = str(name)
-        self.__logTypeLevels[logType] = level
+        self.__logTypeLevels[logType] = float(level)
 
     def remove_log_type(self, logType, _assert=False):
         """
@@ -1197,14 +1173,14 @@ class Logger(object):
         if _assert:
             assert logType in self.__logTypeStdoutFlags, "logType '%s' is not defined" %logType
         # remove logType
-        self.__logTypeColor.pop(logType)
-        self.__logTypeHighlight.pop(logType)
-        self.__logTypeAttributes.pop(logType)
-        self.__logTypeNames.pop(logType)
-        self.__logTypeLevels.pop(logType)
-        self.__logTypeFormat.pop(logType)
-        self.__logTypeStdoutFlags.pop(logType)
-        self.__logTypeFileFlags.pop(logType)
+        self.__logTypeColor.pop(logType, None)
+        self.__logTypeHighlight.pop(logType, None)
+        self.__logTypeAttributes.pop(logType, None)
+        self.__logTypeNames.pop(logType, None)
+        self.__logTypeLevels.pop(logType, None)
+        self.__logTypeFormat.pop(logType, None)
+        self.__logTypeStdoutFlags.pop(logType, None)
+        self.__logTypeFileFlags.pop(logType, None)
         self.__forcedStdoutLevels.pop(logType, None)
         self.__forcedFileLevels.pop(logType, None)
 
@@ -1363,7 +1339,7 @@ class Logger(object):
                         if line:
                             tbackStr.append( '\n    %s'%(line.strip(),) )
                     tbackStr = ''.join(tbackStr)
-                except:
+                except Exception:
                     tbackStr = '\n%s'%(str(tback),)
         return "%s%s%s%s%s" %(header, message, footer, dataStr, tbackStr)
 
@@ -1394,7 +1370,7 @@ class Logger(object):
     def __log_to_stdout(self, message):
         try:
             self.__stdout.write(message)
-        except:
+        except OSError:
             # for the rare case when stdout buffer no more exits.
             # this can happen when main thread dies and all remaining threads
             # turn to daemon threads. Try and catch add absolutely no
@@ -1464,11 +1440,11 @@ class Logger(object):
             if self.__flush:
                 try:
                     self.__stdout.flush()
-                except:
+                except OSError:
                     pass
                 try:
                     os.fsync(self.__stdout.fileno())
-                except:
+                except OSError:
                     pass
         # log to file
         if self.__logToFile and self.__logTypeFileFlags[logType]:
@@ -1476,11 +1452,11 @@ class Logger(object):
             if self.__flush:
                 try:
                     self.__logFileStream.flush()
-                except:
+                except OSError:
                     pass
                 try:
                     os.fsync(self.__logFileStream.fileno())
-                except:
+                except OSError:
                     pass
         # set last logged message
         self.__lastLogged[logType] = log
@@ -1510,22 +1486,22 @@ class Logger(object):
             self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
             try:
                 self.__stdout.flush()
-            except:
+            except OSError:
                 pass
             try:
                 os.fsync(self.__stdout.fileno())
-            except:
+            except OSError:
                 pass
         if file:
             # log to file
             self.__log_to_file("%s\n"%log)
             try:
                 self.__logFileStream.flush()
-            except:
+            except OSError:
                 pass
             try:
                 os.fsync(self.__logFileStream.fileno())
-            except:
+            except OSError:
                 pass
         # set last logged message
         self.__lastLogged[logType] = log
@@ -1538,20 +1514,20 @@ class Logger(object):
         if self.__logFileStream is not None:
             try:
                 self.__logFileStream.flush()
-            except:
+            except OSError:
                 pass
             try:
                 os.fsync(self.__logFileStream.fileno())
-            except:
+            except OSError:
                 pass
         if self.__stdout is not None:
             try:
                 self.__stdout.flush()
-            except:
+            except OSError:
                 pass
             try:
                 os.fsync(self.__stdout.fileno())
-            except:
+            except OSError:
                 pass
 
     def info(self, message, *args, **kwargs):

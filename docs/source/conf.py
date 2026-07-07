@@ -66,7 +66,7 @@ try:
     from pysimplelog import __version__ as VER
     from pysimplelog import SimpleLog
     SimpleLog.__doc__ = SimpleLog.__doc__.replace("%AUTO_VERSION", VER)
-except:
+except Exception:
     VER = "unknown"
 version = VER
 # The full version, including alpha/beta/rc tags.

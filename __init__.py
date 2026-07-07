@@ -22,7 +22,7 @@ package to python's site-packages or use pip as the following:
 try:
     from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from .SimpleLog import Logger, SingleLogger 
-except:
+except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from SimpleLog import Logger, SingleLogger 
 

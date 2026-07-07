@@ -8,7 +8,7 @@ twine upload dist/pysimplelog-...
 """
 try:
     from setuptools import setup
-except:
+except ImportError:
     from distutils.core import setup
 from distutils.util import convert_path
 import os, sys
@@ -75,10 +75,13 @@ LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
 DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
 ## get package info
-PACKAGE_INFO={}
+import re as _re
+PACKAGE_INFO = {}
 infoPath = convert_path('__pkginfo__.py')
 with open(infoPath) as fd:
-    exec(fd.read(), PACKAGE_INFO)
+    _src = fd.read()
+for _m in _re.finditer(r"^(__\w+__)\s*=\s*['\"]([^'\"]*)['\"]" , _src, _re.MULTILINE):
+    PACKAGE_INFO[_m.group(1)] = _m.group(2)
 
 
 # create meta data
