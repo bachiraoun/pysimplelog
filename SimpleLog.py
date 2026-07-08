@@ -171,7 +171,7 @@ def _normalize_path(path):
     return path
 
 
-# Compiled once at import time — used by _sanitise_message on every log call
+# Compiled once at import time — used by _sanitize_message on every log call
 _CONTROL_CHAR_RE = re.compile(
     r'\x1b(?:\[[0-9;]*[mGKHFABCDsuJrhl]|\(B|[A-Z])'  # ANSI + VT escape sequences
     r'|\x00'                                              # null bytes
@@ -179,7 +179,7 @@ _CONTROL_CHAR_RE = re.compile(
 )
 
 
-def _sanitise_message(message):
+def _sanitize_message(message):
     """Strip control characters and ANSI escape sequences from a log message.
 
     Uses a fast early-exit 'in' check before invoking the regex engine so the
@@ -191,10 +191,11 @@ def _sanitise_message(message):
         #. message: The raw message value from the caller.
 
     :Returns:
-        result: Sanitised string, or the original value if not a string.
+        result (str): Sanitized string. Non-strings are coerced via '%s'
+        formatting before control-character stripping, so a str is always returned.
     """
     if not isinstance(message, basestring):
-        return message
+        message = '%s' % (message,)
     if '\x1b' not in message and '\x00' not in message and '\r' not in message:
         return message
     return _CONTROL_CHAR_RE.sub('', message)
@@ -306,6 +307,13 @@ class Logger(object):
        #. timezone (None, str): Logging time timezone. If provided
           pytz must be installed and it must be the timezone name. If not
           provided, the machine default timezone will be used.
+       #. maxMessageSize (None, integer): Maximum number of characters allowed
+          in a single log message string. If None, no limit is applied. Messages
+          exceeding the limit are truncated and '[truncated]' is appended.
+       #. maxDataSize (None, integer): Maximum number of characters allowed in
+          the string representation of the data argument. If None, no limit is
+          applied. Data strings exceeding the limit are truncated and
+          '[truncated]' is appended.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -320,7 +328,9 @@ class Logger(object):
                        logFileMaxSize=10, logFileFirstNumber=0, logFileRoll=None,
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None,
-                       logTypes=None, timezone=None,*args, **kwargs):
+                       logTypes=None, timezone=None,
+                       maxMessageSize=None, maxDataSize=None,
+                       *args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
         # instanciate file stream
@@ -343,6 +353,9 @@ class Logger(object):
         self.set_log_to_file_flag(logToFile)
         # set maximum logFile size
         self.set_log_file_maximum_size(logFileMaxSize)
+        # set maximum message and data sizes
+        self.set_maximum_message_size(maxMessageSize)
+        self.set_maximum_data_size(maxDataSize)
         # set logFile first number
         self.set_log_file_first_number(logFileFirstNumber)
         # set logFile basename and extension
@@ -411,6 +424,7 @@ class Logger(object):
         string += "\n - Log To Stdout: Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToStdout,self.__stdoutMinLevel,self.__stdoutMaxLevel)
         string += "\n - Log To File:   Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToFile,self.__fileMinLevel,self.__fileMaxLevel)
         string += "\n                  File Size (%s) - First Number (%s) - Roll (%s)"%(self.__logFileMaxSize,self.__logFileFirstNumber,self.__logFileRoll)
+        string += "\n                  Message Max Size (%s) - Data Max Size (%s)"%(self.__maxMessageSize,self.__maxDataSize)
         string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
@@ -640,6 +654,16 @@ class Logger(object):
         return self.__logFileMaxSize
 
     @property
+    def logMessageMaxSize(self):
+        """maximum allowed message character count. None means no limit."""
+        return self.__maxMessageSize
+
+    @property
+    def logDataMaxSize(self):
+        """maximum allowed data string character count. None means no limit."""
+        return self.__maxDataSize
+
+    @property
     def logFileFirstNumber(self):
         """log file first number"""
         return self.__logFileFirstNumber
@@ -734,6 +758,12 @@ class Logger(object):
         # update fileMaxLevel
         if "fileMaxLevel" in kwargs:
             self.set_maximum_level(kwargs["fileMaxLevel"], stdoutFlag=False, fileFlag=True)
+        # update maxMessageSize
+        if "maxMessageSize" in kwargs:
+            self.set_maximum_message_size(kwargs["maxMessageSize"])
+        # update maxDataSize
+        if "maxDataSize" in kwargs:
+            self.set_maximum_data_size(kwargs["maxDataSize"])
         # update logfile
         if "logFile" in kwargs:
             self.set_log_file(kwargs["logFile"])
@@ -755,6 +785,8 @@ class Logger(object):
                 "stdoutMaxLevel":self.__stdoutMaxLevel,
                 "fileMinLevel":self.__fileMinLevel,
                 "fileMaxLevel":self.__fileMaxLevel,
+                "maxMessageSize":self.__maxMessageSize,
+                "maxDataSize":self.__maxDataSize,
                 "logFile":self.__logFileBasename+"."+self.__logFileExtension}
 
 
@@ -998,6 +1030,35 @@ class Logger(object):
                 logFileMaxSize = None
         #assert logFileMaxSize>=1, "logFileMaxSize minimum size is 1 megabytes"
         self.__logFileMaxSize = logFileMaxSize
+
+    def set_maximum_message_size(self, maxMessageSize):
+        """Set the maximum number of characters allowed in a single log message.
+
+        :Parameters:
+            #. maxMessageSize (None, integer): Maximum character count for the
+               message string. If None, no limit is applied. Messages exceeding
+               this limit are truncated and '[truncated]' is appended. Must be
+               a positive integer when given.
+        """
+        if maxMessageSize is not None:
+            if not isinstance(maxMessageSize, int) or maxMessageSize <= 0:
+                raise TypeError("maxMessageSize must be None or a positive integer")
+        self.__maxMessageSize = maxMessageSize
+
+    def set_maximum_data_size(self, maxDataSize):
+        """Set the maximum number of characters allowed in the string
+        representation of the data argument passed to log() or force_log().
+
+        :Parameters:
+            #. maxDataSize (None, integer): Maximum character count for the
+               string representation of data. If None, no limit is applied.
+               Data strings exceeding this limit are truncated and '[truncated]'
+               is appended. Must be a positive integer when given.
+        """
+        if maxDataSize is not None:
+            if not isinstance(maxDataSize, int) or maxDataSize <= 0:
+                raise TypeError("maxDataSize must be None or a positive integer")
+        self.__maxDataSize = maxDataSize
 
     def set_log_file_first_number(self, logFileFirstNumber):
         """
@@ -1346,7 +1407,9 @@ class Logger(object):
                             color=color, highlight=highlight, attributes=attributes)
 
     def _format_message(self, logType, message, data, tback):
-        message  = _sanitise_message(message)
+        message  = _sanitize_message(message)
+        if self.__maxMessageSize is not None and len(message) > self.__maxMessageSize:
+            message = message[:self.__maxMessageSize] + '[truncated]'
         header   = self._get_header(logType, message)
         footer = self._get_footer(logType, message)
         dataStr  = ''
@@ -1354,6 +1417,8 @@ class Logger(object):
         if data is not None:
             #dataStr = '\n%s'%(repr(data))
             dataStr = '\n%s'%(data,)
+            if self.__maxDataSize is not None and len(dataStr) > self.__maxDataSize:
+                dataStr = dataStr[:self.__maxDataSize] + '[truncated]'
         if tback is not None:
             if isinstance(tback, str):
                 tbackStr = '\n%s'%(tback,)
