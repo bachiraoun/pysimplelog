@@ -397,9 +397,12 @@ class Logger(object):
         self.custom_init( *args, **kwargs )
         # add logTypes
         if logTypes is not None:
-            assert isinstance(logTypes, dict),"logTypes must be None or a dictionary"
-            assert all([isinstance(lt, basestring) for lt in logTypes]), "logTypes dictionary keys must be strings"
-            assert all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]), "logTypes dictionary values must be all None or dictionaries"
+            if not isinstance(logTypes, dict):
+                raise TypeError("logTypes must be None or a dictionary")
+            if not all([isinstance(lt, basestring) for lt in logTypes]):
+                raise TypeError("logTypes dictionary keys must be strings")
+            if not all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]):
+                raise TypeError("logTypes dictionary values must be all None or dictionaries")
             for lt in logTypes:
                 ltv = logTypes[lt]
                 if ltv is None:
@@ -414,13 +417,6 @@ class Logger(object):
     def __str__(self):
         # create version
         string  = self.__class__.__name__+" (Version "+str(__version__)+")"
-        # add general properties
-        #string += "\n - Log To Standard Output General Flag:  %s"%(self.__logToStdout)
-        #string += "\n - Log To Standard Output Minimum Level: %s"%(self.__stdoutMinLevel)
-        #string += "\n - Log To Standard Output Maximum Level: %s"%(self.__stdoutMaxLevel)
-        #string += "\n - Log To File General Flag:  %s"%(self.__logToFile)
-        #string += "\n - Log To File Minimum Level: %s"%(self.__fileMinLevel)
-        #string += "\n - Log To File Maximum Level: %s"%(self.__fileMaxLevel)
         string += "\n - Log To Stdout: Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToStdout,self.__stdoutMinLevel,self.__stdoutMaxLevel)
         string += "\n - Log To File:   Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToFile,self.__fileMinLevel,self.__fileMaxLevel)
         string += "\n                  File Size (%s) - First Number (%s) - Roll (%s)"%(self.__logFileMaxSize,self.__logFileFirstNumber,self.__logFileRoll)
@@ -696,7 +692,8 @@ class Logger(object):
                provided, the machine default timezone will be used
         """
         if timezone is not None:
-            assert isinstance(timezone, basestring), "timezone must be None or a string"
+            if not isinstance(timezone, basestring):
+                raise TypeError("timezone must be None or a string")
             import pytz
             timezone = pytz.timezone(timezone)
         self.__timezone = timezone
@@ -811,7 +808,8 @@ class Logger(object):
         :Parameters:
            #. name (string): The logger name.
         """
-        assert isinstance(name, basestring), "name must be a string"
+        if not isinstance(name, basestring):
+            raise TypeError("name must be a string")
         self.__name = name
 
     def set_flush(self, flush):
@@ -821,7 +819,8 @@ class Logger(object):
         :Parameters:
            #. flush (boolean): Whether to always flush the logging streams.
         """
-        assert isinstance(flush, bool), "flush must be boolean"
+        if not isinstance(flush, bool):
+            raise TypeError("flush must be boolean")
         self.__flush = flush
 
     def set_stdout(self, stream=None):
@@ -836,7 +835,8 @@ class Logger(object):
         if stream is None:
             self.__stdout = sys.stdout
         else:
-            assert hasattr(stream, 'read') and hasattr(stream, 'write'), "stdout stream is not valid"
+            if not (hasattr(stream, 'read') and hasattr(stream, 'write')):
+                raise TypeError("stdout stream is not valid")
             self.__stdout = stream
         # set stdout colors
         self.__stdoutFontFormat = self.__get_stream_fonts_attributes(stream)
@@ -850,7 +850,8 @@ class Logger(object):
         :Parameters:
            #. logToStdout (boolean): Whether to log to the standard output stream.
         """
-        assert isinstance(logToStdout, bool), "logToStdout must be boolean"
+        if not isinstance(logToStdout, bool):
+            raise TypeError("logToStdout must be boolean")
         self.__logToStdout = logToStdout
 
     def set_log_to_file_flag(self, logToFile):
@@ -861,7 +862,8 @@ class Logger(object):
         :Parameters:
            #. logToFile (boolean): Whether to log to to file.
         """
-        assert isinstance(logToFile, bool), "logToFile must be boolean"
+        if not isinstance(logToFile, bool):
+            raise TypeError("logToFile must be boolean")
         self.__logToFile = logToFile
 
     def set_log_type_flags(self, logType, stdoutFlag, fileFlag):
@@ -873,9 +875,12 @@ class Logger(object):
            #. stdoutFlag (boolean): Whether to log to the standard output stream.
            #. fileFlag (boolean): Whether to log to to file.
         """
-        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
-        assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
-        assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        if logType not in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' not defined" %logType)
+        if not isinstance(stdoutFlag, bool):
+            raise TypeError("stdoutFlag must be boolean")
+        if not isinstance(fileFlag, bool):
+            raise TypeError("fileFlag must be boolean")
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         self.__logTypeFileFlags[logType]   = fileFlag
 
@@ -885,7 +890,7 @@ class Logger(object):
         Beyond the maximum, older will be removed.
 
         :Parameters:
-            #. logFileRoll (None, intger): If given, it sets the maximum number of
+            #. logFileRoll (None, integer): If given, it sets the maximum number of
                log files to write. Exceeding the number will result in deleting
                older files. This also insures always increasing files numbering.
                Log files will be identified in increasing N order of
@@ -894,8 +899,10 @@ class Logger(object):
                the number of files exceeds the value of logFileRoll
         """
         if logFileRoll is not None:
-            assert isinstance(logFileRoll, int), "logFileRoll must be None or integer"
-            assert logFileRoll>0, "integer logFileRoll must be >0"
+            if not isinstance(logFileRoll, int):
+                raise TypeError("logFileRoll must be None or integer")
+            if logFileRoll<=0:
+                raise ValueError("integer logFileRoll must be >0")
         self.__logFileRoll = logFileRoll
 
     def set_log_file(self, logfile):
@@ -907,7 +914,8 @@ class Logger(object):
               extension. If this is given, all of logFileBasename and logFileExtension
               will be discarded. logfile is equivalent to logFileBasename.logFileExtension
         """
-        assert isinstance(logfile, basestring), "logfile must be a string"
+        if not isinstance(logfile, basestring):
+            raise TypeError("logfile must be a string")
         basename, extension = os.path.splitext(logfile)
         self.__set_log_file_basename(logFileBasename=basename)
         self.set_log_file_extension(logFileExtension=extension)
@@ -920,14 +928,18 @@ class Logger(object):
            #. logFileExtension (string): Logging file extension. A logging file full name is
               set as logFileBasename.logFileExtension
         """
-        assert isinstance(logFileExtension, basestring), "logFileExtension must be a basestring"
-        assert len(logFileExtension), "logFileExtension can't be empty"
+        if not isinstance(logFileExtension, basestring):
+            raise TypeError("logFileExtension must be a basestring")
+        if not len(logFileExtension):
+            raise ValueError("logFileExtension can't be empty")
         if logFileExtension[0] == ".":
             logFileExtension = logFileExtension[1:]
-        assert len(logFileExtension), "logFileExtension is not allowed to be single dot"
+        if not len(logFileExtension):
+            raise ValueError("logFileExtension is not allowed to be single dot")
         if logFileExtension[-1] == ".":
             logFileExtension = logFileExtension[:-1]
-        assert len(logFileExtension), "logFileExtension is not allowed to be double dots"
+        if not len(logFileExtension):
+            raise ValueError("logFileExtension is not allowed to be double dots")
         self.__logFileExtension = logFileExtension
         # set log file name
         self.__set_log_file_name()
@@ -945,7 +957,8 @@ class Logger(object):
         self.__set_log_file_name()
 
     def __set_log_file_basename(self, logFileBasename):
-        assert isinstance(logFileBasename, basestring), "logFileBasename must be a basestring"
+        if not isinstance(logFileBasename, basestring):
+            raise TypeError("logFileBasename must be a basestring")
         self.__logFileBasename = _normalize_path(logFileBasename)#logFileBasename
 
     def __set_log_file_name(self):
@@ -969,7 +982,8 @@ class Logger(object):
                         continue
                     n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
                     n = int(n[1:]) if len(n) else ''
-                    assert n not in numsLUT , "filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG"
+                    if n in numsLUT:
+                        raise RuntimeError("filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG")
                     numsLUT[n]  = p
                     filesLUT[p] = n
                 ordered = ([''] if '' in numsLUT else []) + sorted([n for n in numsLUT if isinstance(n, int)])
@@ -985,7 +999,6 @@ class Logger(object):
                     os.remove(ordered.pop(0))
                 if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
                     if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
-                    #if os.stat(ordered[-1]).st_size/1e6 >= self.__logFileMaxSize:
                         os.remove(ordered.pop(0))
                         if isinstance(number, int):
                             number = number + 1
@@ -999,7 +1012,6 @@ class Logger(object):
             if self.__logFileMaxSize is not None:
                 while os.path.isfile(self.__logFileName):
                     if os.stat(self.__logFileName).st_size/(1024.**2) < self.__logFileMaxSize:
-                    #if os.stat(self.__logFileName).st_size/1e6 < self.__logFileMaxSize:
                         break
                     number += 1
                     self.__logFileName = self.__logFileBasename+"_"+str(number)+"."+self.__logFileExtension
@@ -1024,7 +1036,8 @@ class Logger(object):
               indefinitely
         """
         if logFileMaxSize is not None:
-            assert _is_number(logFileMaxSize), "logFileMaxSize must be a number"
+            if not _is_number(logFileMaxSize):
+                raise TypeError("logFileMaxSize must be a number")
             logFileMaxSize = float(logFileMaxSize)
             if logFileMaxSize <=0:
                 logFileMaxSize = None
@@ -1073,8 +1086,10 @@ class Logger(object):
                If number is given it must be an integer >=0
         """
         if logFileFirstNumber is not None:
-            assert isinstance(logFileFirstNumber, int), "logFileFirstNumber must be None or an integer"
-            assert logFileFirstNumber>=0, "logFileFirstNumber integer must be >=0"
+            if not isinstance(logFileFirstNumber, int):
+                raise TypeError("logFileFirstNumber must be None or an integer")
+            if logFileFirstNumber<0:
+                raise ValueError("logFileFirstNumber integer must be >=0")
         self.__logFileFirstNumber = logFileFirstNumber
 
     def set_minimum_level(self, level=0, stdoutFlag=True, fileFlag=True):
@@ -1089,24 +1104,30 @@ class Logger(object):
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
         """
         # check flags
-        assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
-        assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        if not isinstance(stdoutFlag, bool):
+            raise TypeError("stdoutFlag must be boolean")
+        if not isinstance(fileFlag, bool):
+            raise TypeError("fileFlag must be boolean")
         if not (stdoutFlag or fileFlag):
             return
         # check level
         if level is not None:
             if isinstance(level, basestring):
                 level = str(level)
-                assert level in self.__logTypeStdoutFlags, "level '%s' given as string, is not defined logType" %level
+                if level not in self.__logTypeStdoutFlags:
+                    raise ValueError("level '%s' given as string, is not defined logType" %level)
                 level = self.__logTypeLevels[level]
-            assert _is_number(level), "level must be a number"
+            if not _is_number(level):
+                raise TypeError("level must be a number")
             level = float(level)
             if stdoutFlag:
                 if self.__stdoutMaxLevel is not None:
-                    assert level<=self.__stdoutMaxLevel, "stdoutMinLevel must be smaller or equal to stdoutMaxLevel %s"%self.__stdoutMaxLevel
+                    if level>self.__stdoutMaxLevel:
+                        raise ValueError("stdoutMinLevel must be smaller or equal to stdoutMaxLevel %s"%self.__stdoutMaxLevel)
             if fileFlag:
                 if self.__fileMaxLevel is not None:
-                    assert level<=self.__fileMaxLevel, "fileMinLevel must be smaller or equal to fileMaxLevel %s"%self.__fileMaxLevel
+                    if level>self.__fileMaxLevel:
+                        raise ValueError("fileMinLevel must be smaller or equal to fileMaxLevel %s"%self.__fileMaxLevel)
         # set flags
         if stdoutFlag:
             self.__stdoutMinLevel = level
@@ -1127,24 +1148,30 @@ class Logger(object):
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
         """
         # check flags
-        assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
-        assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+        if not isinstance(stdoutFlag, bool):
+            raise TypeError("stdoutFlag must be boolean")
+        if not isinstance(fileFlag, bool):
+            raise TypeError("fileFlag must be boolean")
         if not (stdoutFlag or fileFlag):
             return
         # check level
         if level is not None:
             if isinstance(level, basestring):
                 level = str(level)
-                assert level in self.__logTypeStdoutFlags, "level '%s' given as string, is not defined logType"%level
+                if level not in self.__logTypeStdoutFlags:
+                    raise ValueError("level '%s' given as string, is not defined logType"%level)
                 level = self.__logTypeLevels[level]
-            assert _is_number(level), "level must be a number"
+            if not _is_number(level):
+                raise TypeError("level must be a number")
             level = float(level)
             if stdoutFlag:
                 if self.__stdoutMinLevel is not None:
-                    assert level>=self.__stdoutMinLevel, "stdoutMaxLevel must be bigger or equal to stdoutMinLevel %s"%self.__stdoutMinLevel
+                    if level<self.__stdoutMinLevel:
+                        raise ValueError("stdoutMaxLevel must be bigger or equal to stdoutMinLevel %s"%self.__stdoutMinLevel)
             if fileFlag:
                 if self.__fileMinLevel is not None:
-                    assert level>=self.__fileMinLevel, "fileMaxLevel must be bigger or equal to fileMinLevel %s"%self.__fileMinLevel
+                    if level<self.__fileMinLevel:
+                        raise ValueError("fileMaxLevel must be bigger or equal to fileMinLevel %s"%self.__fileMinLevel)
         # set flags
         if stdoutFlag:
             self.__stdoutMaxLevel = level
@@ -1182,12 +1209,14 @@ class Logger(object):
            #. flag (None boolean): The standard output logging flag.
               If None, logtype existing forced flag is released.
         """
-        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
+        if logType not in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' not defined" %logType)
         if flag is None:
             self.__forcedStdoutLevels.pop(logType, None)
             self.__update_stdout_flags()
         else:
-            assert isinstance(flag, bool), "flag must be boolean"
+            if not isinstance(flag, bool):
+                raise TypeError("flag must be boolean")
             self.__logTypeStdoutFlags[logType] = flag
             self.__forcedStdoutLevels[logType] = flag
 
@@ -1200,12 +1229,14 @@ class Logger(object):
            #. flag (None, boolean): The file logging flag.
               If None, logtype existing forced flag is released.
         """
-        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
+        if logType not in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' not defined" %logType)
         if flag is None:
             self.__forcedFileLevels.pop(logType, None)
             self.__update_file_flags()
         else:
-            assert isinstance(flag, bool), "flag must be boolean"
+            if not isinstance(flag, bool):
+                raise TypeError("flag must be boolean")
             self.__logTypeFileFlags[logType] = flag
             self.__forcedFileLevels[logType] = flag
 
@@ -1231,8 +1262,10 @@ class Logger(object):
            #. logType (string): A defined logging type.
            #. name (string): The logtype new name.
         """
-        assert logType in self.__logTypeStdoutFlags, "logType '%s' not defined" %logType
-        assert isinstance(name, basestring), "name must be a string"
+        if logType not in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' not defined" %logType)
+        if not isinstance(name, basestring):
+            raise TypeError("name must be a string")
         name = str(name)
         self.__logTypeNames[logType] = name
 
@@ -1244,7 +1277,8 @@ class Logger(object):
            #. logType (string): A defined logging type.
            #. level (number): The level of logging.
         """
-        assert _is_number(level), "level must be a number"
+        if not _is_number(level):
+            raise TypeError("level must be a number")
         self.__logTypeLevels[logType] = float(level)
 
     def remove_log_type(self, logType, _assert=False):
@@ -1253,11 +1287,12 @@ class Logger(object):
 
         :Parameters:
            #. logType (string): The logtype.
-           #. _assert (boolean): Raise an assertion error if logType is not defined.
+           #. _assert (boolean): Raise a ValueError if logType is not defined.
         """
         # check logType
         if _assert:
-            assert logType in self.__logTypeStdoutFlags, "logType '%s' is not defined" %logType
+            if logType not in self.__logTypeStdoutFlags:
+                raise ValueError("logType '%s' is not defined" %logType)
         # remove logType
         self.__logTypeColor.pop(logType, None)
         self.__logTypeHighlight.pop(logType, None)
@@ -1293,8 +1328,10 @@ class Logger(object):
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
         """
         # check logType
-        assert logType not in self.__logTypeStdoutFlags, "logType '%s' already defined" %logType
-        assert isinstance(logType, basestring), "logType must be a string"
+        if not isinstance(logType, basestring):
+            raise TypeError("logType must be a string")
+        if logType in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' already defined" %logType)
         logType = str(logType)
         # set log type
         self.__set_log_type(logType=logType, name=name, level=level,
@@ -1306,26 +1343,33 @@ class Logger(object):
         # check name
         if name is None:
             name = logType
-        assert isinstance(name, basestring), "name must be a string"
+        if not isinstance(name, basestring):
+            raise TypeError("name must be a string")
         name = str(name)
         # check level
-        assert _is_number(level), "level must be a number"
+        if not _is_number(level):
+            raise TypeError("level must be a number")
         level = float(level)
         # check color
         if color is not None:
-            assert color in self.__stdoutFontFormat["color"], "color %s not known"%str(color)
+            if color not in self.__stdoutFontFormat["color"]:
+                raise ValueError("color %s not known"%str(color))
         # check highlight
         if highlight is not None:
-            assert highlight in self.__stdoutFontFormat["highlight"], "highlight %s not known"%str(highlight)
+            if highlight not in self.__stdoutFontFormat["highlight"]:
+                raise ValueError("highlight %s not known"%str(highlight))
         # check attributes
         if attributes is not None:
             for attr in attributes:
-                assert attr in self.__stdoutFontFormat["attributes"], "attribute %s not known"%str(attr)
+                if attr not in self.__stdoutFontFormat["attributes"]:
+                    raise ValueError("attribute %s not known"%str(attr))
         # check flags
         if stdoutFlag is not None:
-            assert isinstance(stdoutFlag, bool), "stdoutFlag must be boolean"
+            if not isinstance(stdoutFlag, bool):
+                raise TypeError("stdoutFlag must be boolean")
         if fileFlag is not None:
-            assert isinstance(fileFlag, bool), "fileFlag must be boolean"
+            if not isinstance(fileFlag, bool):
+                raise TypeError("fileFlag must be boolean")
         # set wrapFancy
         wrapFancy=["",""]
         if color is not None:
@@ -1392,7 +1436,8 @@ class Logger(object):
         **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
         """
         # check logType
-        assert logType in self.__logTypeStdoutFlags, "logType '%s' is not defined" %logType
+        if logType not in self.__logTypeStdoutFlags:
+            raise ValueError("logType '%s' is not defined" %logType)
         # get None updates
         if name is None:       name       = self.__logTypeNames[logType]
         if level is None:      level      = self.__logTypeLevels[logType]
@@ -1415,7 +1460,6 @@ class Logger(object):
         dataStr  = ''
         tbackStr = ''
         if data is not None:
-            #dataStr = '\n%s'%(repr(data))
             dataStr = '\n%s'%(data,)
             if self.__maxDataSize is not None and len(dataStr) > self.__maxDataSize:
                 dataStr = dataStr[:self.__maxDataSize] + '[truncated]'
@@ -1438,7 +1482,7 @@ class Logger(object):
         return datetime.strftime(datetime.now(self.__timezone), format)
 
     def _get_header(self, logType, message):
-        dateTime = datetime.strftime(datetime.now(self.__timezone), '%Y-%m-%d %H:%M:%S')
+        dateTime = self._get_datetimestamp()
         return "%s - %s <%s> "%(dateTime, self.__name, self.__logTypeNames[logType])
 
     def _get_footer(self, logType, message):
@@ -1486,6 +1530,19 @@ class Logger(object):
             os.fsync(stream.fileno())
         except OSError:
             pass
+
+    def __format_stdout_line(self, logType, log):
+        """Format a log line for stdout with ANSI wrap codes applied.
+
+        :Parameters:
+            #. logType (string): A defined logging type.
+            #. log (string): The already-formatted log message body.
+
+        :Returns:
+            result (str): The line ready to write to the stdout stream.
+        """
+        fmt = self.__logTypeFormat[logType]
+        return "%s%s%s\n" % (fmt[0], log, fmt[1])
 
     def is_enabled_for_stdout(self, logType):
         """Get whether given logtype is enabled for standard output logging.
@@ -1545,8 +1602,7 @@ class Logger(object):
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
         if self.__logToStdout and self.__logTypeStdoutFlags[logType]:
-            #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
-            self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
+            self.__log_to_stdout(self.__format_stdout_line(logType, log))
             if self.__flush:
                 self.__flush_stream(self.__stdout)
         # log to file
@@ -1578,13 +1634,14 @@ class Logger(object):
         # log to stdout
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
         if stdout:
-            #self.__log_to_stdout(self.__logTypeFormat[logType][0] + log + self.__logTypeFormat[logType][1] + "\n")
-            self.__log_to_stdout("%s%s%s\n"%(self.__logTypeFormat[logType][0],log,self.__logTypeFormat[logType][1]))
-            self.__flush_stream(self.__stdout)
+            self.__log_to_stdout(self.__format_stdout_line(logType, log))
+            if self.__flush:
+                self.__flush_stream(self.__stdout)
         if file:
             # log to file
             self.__log_to_file("%s\n"%log)
-            self.__flush_stream(self.__logFileStream)
+            if self.__flush:
+                self.__flush_stream(self.__logFileStream)
         # set last logged message
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
