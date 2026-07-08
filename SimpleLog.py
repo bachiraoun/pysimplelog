@@ -2604,9 +2604,10 @@ class Logger(object):
             self.__logQueue.put_nowait(item)
 
     def __log_to_file(self, message):
-        # the rotation lock guards the full check/rotate/open/write sequence;
-        # write is kept inside the lock so a rotation on another thread cannot
-        # close the stream between the stream-capture and the write call.
+        # __rotationLock is always acquired on every call to this method, so
+        # keeping write() inside the lock adds no extra acquisition cost.
+        # It eliminates the race where another thread could close the stream
+        # between the stream-capture and the write on a shared Logger instance.
         with self.__rotationLock:
             if self.__logFileStream is None:
                 self.__logFileStream = open(self.__logFileName, 'a')
