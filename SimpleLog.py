@@ -129,7 +129,7 @@ output
 
 """
 # python standard distribution imports
-import os, sys, copy, re, atexit, threading, traceback, functools
+import os, sys, copy, re, atexit, threading, traceback, functools, inspect
 from datetime import datetime
 
 # python 2/3 queue compatibility
@@ -163,6 +163,12 @@ except ImportError:
 # sentinel object used to signal the enqueue worker thread to stop
 _QUEUE_STOP = object()
 
+# sentinel keys for the two built-in sinks inside Logger.__sinks.
+# Integer type guarantees they can never clash with user-supplied
+# string sink names — different types, different hash buckets.
+_SINK_STDOUT = -1   # key for the built-in stdout sink
+_SINK_FILE   =  0   # key for the built-in file sink
+
 # useful definitions
 def _is_number(number):
     if isinstance(number, (int, long, float, complex)):
@@ -178,6 +184,36 @@ def _normalize_path(path):
     if os.sep=='\\':
         path = re.sub(r'([\\])\1+', r'\1', path).replace('\\','\\\\')
     return path
+
+
+# Resolved once at import time so frame-walking comparisons skip string work.
+_THIS_FILE = os.path.abspath(__file__)
+
+
+def _get_caller_str():
+    """Walk the call stack and return a formatted caller string.
+
+    Finds the first frame whose file is not SimpleLog.py -- that is the
+    line in user code that triggered the log call. Uses inspect.stack()
+    with context=0 (no source lines read from disk) for efficiency.
+    Only called when Logger.callerInfo is True.
+
+    :Returns:
+        result (str): e.g. '[routes.py:142 in handle_request] ' including
+        trailing space so it sits neatly before the message. Returns an
+        empty string if the frame cannot be determined.
+    """
+    try:
+        for frameInfo in inspect.stack(context=0):
+            # frameInfo[1] is filename, [2] is lineno, [3] is function name
+            if os.path.abspath(frameInfo[1]) != _THIS_FILE:
+                fName = os.path.basename(frameInfo[1])
+                fLine = frameInfo[2]
+                fFunc = frameInfo[3]
+                return '[%s:%d in %s] ' % (fName, fLine, fFunc)
+    except Exception:
+        pass
+    return ''
 
 
 # Compiled once at import time — used by _sanitize_message on every log call
@@ -209,6 +245,60 @@ def _sanitize_message(message):
         return message
     return _CONTROL_CHAR_RE.sub('', message)
 
+
+
+class _Sink(object):
+    """Internal descriptor for a single log output target.
+
+    Not part of the public API. Created and managed exclusively by
+    Logger. Every writable destination — stdout, file, or any
+    user-supplied handler — is represented as a _Sink instance stored
+    under a key in Logger.__sinks:
+
+      _SINK_STDOUT (-1) : the built-in stdout sink
+      _SINK_FILE   ( 0) : the built-in rotating file sink
+      str               : any user-added sink (unique string name)
+
+    :Parameters:
+        #. handler (file-like): Object implementing write(str) and
+           flush(). The logger calls both after every record that
+           passes the level and flag filters.
+        #. enabled (bool): Master switch. When False the sink is
+           skipped entirely during dispatch without inspecting any
+           other field.
+        #. logTypeFlags (dict): Mapping of {logType (str): bool}.
+           Controls per-type enable/disable for this sink only.
+           Missing keys default to True (enabled).
+        #. minLevel (int or None): Minimum level integer for this
+           sink. Records whose level is below this value are not
+           dispatched. None means no floor.
+        #. maxLevel (int or None): Maximum level integer for this
+           sink. Records whose level is above this value are not
+           dispatched. None means no ceiling.
+        #. isFileSink (bool): True only for _SINK_FILE. Signals the
+           dispatch loop to run rotation checks after each write.
+           Always False for stdout and user-added sinks.
+    """
+
+    def __init__(self, handler, enabled, logTypeFlags,
+                 minLevel=None, maxLevel=None, sinkType='stdout'):
+        self.handler      = handler
+        self.enabled      = enabled
+        self.logTypeFlags = logTypeFlags
+        self.minLevel     = minLevel
+        self.maxLevel     = maxLevel
+        self.sinkType     = sinkType   # 'stdout' | 'file' | 'user'
+
+    @property
+    def isFileSink(self):
+        """Backward-compatible read-only property. True when sinkType is 'file'."""
+        return self.sinkType == 'file'
+
+    def __repr__(self):
+        return (
+            '_Sink(sinkType=%r, enabled=%r, minLevel=%r, maxLevel=%r)'
+            % (self.sinkType, self.enabled, self.minLevel, self.maxLevel)
+        )
 
 
 class _CatchContext(object):
@@ -248,6 +338,240 @@ class _CatchContext(object):
                                self._reraise, self._message):
                 return func(*args, **kwargs)
         return wrapper
+
+
+class _BoundLogger(object):
+    """Lightweight context-aware wrapper returned by Logger.bind().
+
+    Prepends a fixed set of key=value pairs to every message before
+    delegating to the parent Logger. The wrapper holds no queue, no
+    file handle, and no configuration state of its own -- all I/O is
+    performed by the parent Logger unchanged.
+
+    Instances are immutable after construction and therefore inherently
+    thread-safe. Nested bind() calls produce a new _BoundLogger with a
+    merged context dict; the originals are never modified.
+
+    Do not instantiate directly -- use Logger.bind() or _BoundLogger.bind().
+    """
+
+    def __init__(self, parent, context):
+        """Initialise a bound logger wrapping a parent Logger.
+
+        :Parameters:
+            #. parent (Logger or _BoundLogger): The logger that will
+               perform all actual I/O. Always store the root Logger so
+               the delegation chain stays one hop deep regardless of
+               how many bind() calls are chained.
+            #. context (dict): Key-value pairs to prepend to every
+               message. Values are converted to strings at prefix-build
+               time via str().
+
+        :Returns:
+            result (None): Nothing.
+        """
+        self.__parent  = parent
+        self.__context = dict(context)   # defensive copy -- never mutate
+
+    # ── internal helpers ────────────────────────────────────────────
+
+    def __build_prefix(self):
+        """Build the bracketed context prefix string.
+
+        :Returns:
+            result (str): e.g. '[requestId=abc user=mike] '.
+            Empty string when context is empty.
+        """
+        if not self.__context:
+            return ''
+        pairs = ' '.join('%s=%s' % (k, v) for k, v in self.__context.items())
+        return '[' + pairs + '] '
+
+    def __prefixed(self, message):
+        """Prepend the context prefix to a message.
+
+        :Parameters:
+            #. message (object): The raw message. Non-string types are
+               coerced via str() so the prefix concatenation is safe.
+
+        :Returns:
+            result (str): Prefix + message as a single string, or the
+            original message unchanged when context is empty.
+        """
+        prefix = self.__build_prefix()
+        if not prefix:
+            return message
+        return prefix + str(message)
+
+    # ── context nesting ──────────────────────────────────────────────
+
+    def bind(self, **extra):
+        """Return a new _BoundLogger with additional context key-value pairs.
+
+        The new wrapper shares the same parent Logger. Existing context
+        keys are preserved; any key present in both dicts takes the value
+        from the extra kwargs (right-hand side wins).
+
+        :Parameters:
+            #. **extra: Arbitrary key-value pairs to add or override.
+
+        :Returns:
+            result (_BoundLogger): A new wrapper with merged context.
+        """
+        merged = dict(self.__context)
+        merged.update(extra)
+        return _BoundLogger(self.__parent, merged)
+
+    # ── core logging ─────────────────────────────────────────────────
+
+    def log(self, logType, message, data=None, tback=None, countConstraint=None):
+        """Log a prefixed message at the given logType.
+
+        Prepends the context prefix then delegates entirely to
+        parent.log(). All level filtering, count constraints,
+        backpressure, and I/O are handled by the parent unchanged.
+
+        :Parameters:
+            #. logType (string): A defined log type.
+            #. message (string): The message to log.
+            #. data (None, object): Optional data payload.
+            #. tback (None, str, list): Optional traceback string.
+            #. countConstraint (None, number): Max times to log this message.
+
+        :Returns:
+            result (string): The logged message returned by parent.log().
+        """
+        return self.__parent.log(
+            logType,
+            self.__prefixed(message),
+            data=data,
+            tback=tback,
+            countConstraint=countConstraint,
+        )
+
+    def force_log(self, logType, message, data=None, tback=None,
+                  stdout=True, file=True):
+        """Force-log a prefixed message, bypassing level checks.
+
+        Prepends the context prefix then delegates to parent.force_log().
+
+        :Parameters:
+            #. logType (string): A defined log type.
+            #. message (string): The message to log.
+            #. data (None, object): Optional data payload.
+            #. tback (None, str, list): Optional traceback string.
+            #. stdout (boolean): Whether to force stdout output.
+            #. file (boolean): Whether to force file output.
+
+        :Returns:
+            result (string): The logged message returned by parent.force_log().
+        """
+        return self.__parent.force_log(
+            logType,
+            self.__prefixed(message),
+            data=data,
+            tback=tback,
+            stdout=stdout,
+            file=file,
+        )
+
+    # ── shortcut methods (mirrors Logger shortcuts) ──────────────────
+
+    def info(self, message, *args, **kwargs):
+        """Log at info level with context prefix."""
+        return self.log('info', message, *args, **kwargs)
+
+    def information(self, message, *args, **kwargs):
+        """Log at info level with context prefix (alias for info)."""
+        return self.log('info', message, *args, **kwargs)
+
+    def warn(self, message, *args, **kwargs):
+        """Log at warn level with context prefix."""
+        return self.log('warn', message, *args, **kwargs)
+
+    def warning(self, message, *args, **kwargs):
+        """Log at warn level with context prefix (alias for warn)."""
+        return self.log('warn', message, *args, **kwargs)
+
+    def error(self, message, *args, **kwargs):
+        """Log at error level with context prefix."""
+        return self.log('error', message, *args, **kwargs)
+
+    def critical(self, message, *args, **kwargs):
+        """Log at critical level with context prefix."""
+        return self.log('critical', message, *args, **kwargs)
+
+    def debug(self, message, *args, **kwargs):
+        """Log at debug level with context prefix."""
+        return self.log('debug', message, *args, **kwargs)
+
+    # ── exception capture ────────────────────────────────────────────
+
+    def catch(self, func=None, logType='error', reraise=False,
+              message='An exception was caught'):
+        """Decorator and context manager that catches and logs exceptions.
+
+        Identical to Logger.catch() but the logged exception line
+        carries the bound context prefix automatically, because
+        _CatchContext calls self.log() on this _BoundLogger rather
+        than on the parent Logger directly.
+
+        :Parameters:
+            #. func (None, callable): Decorated function for bare-decorator use.
+            #. logType (string): Log type for the caught exception entry.
+            #. reraise (boolean): Whether to re-raise after logging.
+            #. message (string): Prefix text for the exception log line.
+
+        :Returns:
+            result: A _CatchContext usable as decorator or context manager.
+        """
+        ctx = _CatchContext(self, logType=logType,
+                            reraise=reraise, message=message)
+        if func is not None:
+            return ctx(func)
+        return ctx
+
+    # ── delegation — query / control methods ─────────────────────────
+
+    def is_enabled(self, logType):
+        """Delegate to parent.is_enabled(). See Logger.is_enabled()."""
+        return self.__parent.is_enabled(logType)
+
+    def is_enabled_for_stdout(self, logType):
+        """Delegate to parent.is_enabled_for_stdout()."""
+        return self.__parent.is_enabled_for_stdout(logType)
+
+    def is_enabled_for_file(self, logType):
+        """Delegate to parent.is_enabled_for_file()."""
+        return self.__parent.is_enabled_for_file(logType)
+
+    def flush(self):
+        """Delegate to parent.flush(). See Logger.flush()."""
+        return self.__parent.flush()
+
+    # ── read-only properties ─────────────────────────────────────────
+
+    @property
+    def name(self):
+        """Parent logger name."""
+        return self.__parent.name
+
+    @property
+    def enqueue(self):
+        """Whether the parent logger is in non-blocking enqueue mode."""
+        return self.__parent.enqueue
+
+    @property
+    def context(self):
+        """A copy of this wrapper's context dictionary.
+
+        Returns a fresh copy so callers cannot accidentally mutate the
+        internal state of this _BoundLogger.
+
+        :Returns:
+            result (dict): Copy of the current context key-value pairs.
+        """
+        return dict(self.__context)
 
 
 class Logger(object):
@@ -398,6 +722,15 @@ class Logger(object):
           and a single warning line is written to stderr. Has no effect
           when queueFullPolicy is not ``'block'``. Can be updated at runtime
           via set_queue_block_timeout().
+       #. callerInfo (boolean): When True, every log line is prefixed
+          with the file name, line number and function name of the call
+          site that triggered the log call, e.g.:
+          ``[routes.py:142 in handle_request]``.
+          Uses inspect.stack() with context=0 (no source lines read)
+          which adds roughly 10-30 us per call. Default is False so
+          existing callers pay zero overhead. Can be toggled at runtime
+          via set_caller_info(). Does not apply to bound loggers
+          created with bind() — those inherit the parent setting.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -418,9 +751,16 @@ class Logger(object):
                        maxQueueSize=None,
                        queueFullPolicy='block',
                        queueBlockTimeout=None,
+                       callerInfo=False,
                        *args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
+        # sink registry and cache — pre-created empty so every setter
+        # called during __init__ can safely guard with
+        # "if _SINK_STDOUT in self.__sinks". The real _Sink objects are
+        # inserted at the END of __init__ (Phase 3 block).
+        self.__sinks       = {}
+        self.__activeSinks = {}
         # instanciate file stream
         self.__logFileStream = None
         # rotation lock — guards the multi-step check/rotate/open sequence
@@ -525,6 +865,38 @@ class Logger(object):
             )
             self.__logWorker.daemon = True
             self.__logWorker.start()
+        # callerInfo — validate and store
+        if not isinstance(callerInfo, bool):
+            raise TypeError("callerInfo must be a boolean")
+        self.__callerInfo = callerInfo
+        # ── unified sink registry ─────────────────────────────────────────
+        # Both built-in sinks are always created. The logTypeFlags dicts
+        # are the SAME objects as __logTypeStdoutFlags/__logTypeFileFlags
+        # so __update_stdout_flags() and __update_file_flags() keep them
+        # current automatically — no extra code required.
+        # Scalar fields (enabled, minLevel, maxLevel) are Phase-3 snapshots;
+        # Phase 4 setters will write to both old attributes and sink fields
+        # simultaneously so the cache stays accurate after config changes.
+        self.__sinks = {
+            _SINK_STDOUT: _Sink(
+                handler      = self.__stdout,
+                enabled      = self.__logToStdout,
+                logTypeFlags = self.__logTypeStdoutFlags,  # shared dict
+                minLevel     = self.__stdoutMinLevel,
+                maxLevel     = self.__stdoutMaxLevel,
+                sinkType     = 'stdout',
+            ),
+            _SINK_FILE: _Sink(
+                handler      = self.__logFileStream,       # None until first write
+                enabled      = self.__logToFile,
+                logTypeFlags = self.__logTypeFileFlags,    # shared dict
+                minLevel     = self.__fileMinLevel,
+                maxLevel     = self.__fileMaxLevel,
+                sinkType     = 'file',
+            ),
+        }
+        self.__activeSinks = {}
+        self.__rebuild_active_sinks()
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)
 
@@ -537,6 +909,7 @@ class Logger(object):
         string += "\n                  Message Max Size (%s) - Data Max Size (%s)"%(self.__maxMessageSize,self.__maxDataSize)
         string += "\n - Enqueue mode: %s  Queue max size: %s  Policy: %s  Block timeout: %s  Dropped: %s"%(self.__enqueue, self.__maxQueueSize, self.__queueFullPolicy,
           self.__queueBlockTimeout, self.__droppedMessages)
+        string += "\n - Caller info: %s"%(self.__callerInfo,)
         string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
@@ -568,6 +941,18 @@ class Logger(object):
                             str(self.__logTypeLevels[k]).ljust(maxLogLevel) + "|" +\
                             str(self.__logTypeStdoutFlags[k]).ljust(10) + "|" +\
                             str(self.logTypeFileFlags[k]).ljust(10) + "|"
+        # user sinks section
+        userSinkItems = [(k, s) for k, s in self.__sinks.items() if s.sinkType == 'user']
+        if userSinkItems:
+            string += "\n - User sinks (%d):"%len(userSinkItems)
+            for sinkName, s in userSinkItems:
+                levelStr = ""
+                if s.minLevel is not None:
+                    levelStr += " minLevel=%s"%s.minLevel
+                if s.maxLevel is not None:
+                    levelStr += " maxLevel=%s"%s.maxLevel
+                string += ("\n     [%s] enabled=%s%s"
+                           % (sinkName, s.enabled, levelStr))
         return string
 
     def __stream_format_allowed(self, stream):
@@ -619,6 +1004,10 @@ class Logger(object):
         if self.__logFileStream is not None:
             self.__flush_stream(self.__logFileStream)
             self.__logFileStream.close()
+        # flush user sinks at exit — we never close them (caller owns lifecycle)
+        for sink in self.__sinks.values():
+            if sink.sinkType == 'user' and sink.handler is not None:
+                self.__flush_stream(sink.handler)
 
     @property
     def lastLogged(self):
@@ -667,6 +1056,17 @@ class Logger(object):
     def enqueue(self):
         """Whether non-blocking enqueue mode is active."""
         return self.__enqueue
+
+    @property
+    def callerInfo(self):
+        """Whether caller file/line/function is prepended to each log line.
+
+        When True every log() and force_log() call walks the call stack
+        to find the first frame outside SimpleLog.py and prepends a
+        ``[file:line in func]`` tag before the message. The overhead is
+        roughly 10-30 us per call. Default is False.
+        """
+        return self.__callerInfo
 
     @property
     def maxQueueSize(self):
@@ -788,7 +1188,13 @@ class Logger(object):
 
     @property
     def logToStdout(self):
-        """log to stdout flag."""
+        """Whether logging to standard output is enabled.
+
+        Reads from the unified sink registry when available so the
+        value always reflects the live routing state.
+        """
+        if _SINK_STDOUT in self.__sinks:
+            return self.__sinks[_SINK_STDOUT].enabled
         return self.__logToStdout
 
     @property
@@ -798,8 +1204,47 @@ class Logger(object):
 
     @property
     def logToFile(self):
-        """log to file flag."""
+        """Whether logging to file is enabled.
+
+        Reads from the unified sink registry when available so the
+        value always reflects the live routing state.
+        """
+        if _SINK_FILE in self.__sinks:
+            return self.__sinks[_SINK_FILE].enabled
         return self.__logToFile
+
+    @property
+    def stdout(self):
+        """The current standard output stream.
+
+        Returns the live stream object (never None — returns sys.stdout when
+        no custom stream has been set). Compare with ``parameters['stdout']``
+        which returns None in that case for historical reasons.
+        """
+        if _SINK_STDOUT in self.__sinks:
+            return self.__sinks[_SINK_STDOUT].handler
+        return self.__stdout
+
+    @property
+    def sinks(self):
+        """Shallow-copy snapshot of the unified sink registry.
+
+        Keys: ``_SINK_STDOUT`` (-1) and ``_SINK_FILE`` (0) for the two
+        built-in sinks; string keys for any user-added sinks (Phase 9).
+        Values are live ``_Sink`` instances — do not mutate them directly;
+        use the public setter API to change routing configuration.
+        """
+        return dict(self.__sinks)
+
+    @property
+    def activeSinks(self):
+        """Read-only snapshot of the active-sink cache.
+
+        Returns a dict mapping each log-type name to the list of ``_Sink``
+        instances that will receive messages of that type. The cache is
+        rebuilt automatically whenever routing configuration changes.
+        """
+        return {lt: list(sinks) for lt, sinks in self.__activeSinks.items()}
 
     @property
     def logFileName(self):
@@ -853,6 +1298,24 @@ class Logger(object):
         """Counter look up table for all logged messages that were
         count constrainted"""
         return self.__logMessagesCounter
+
+    def set_caller_info(self, callerInfo):
+        """Enable or disable automatic caller file/line/function tagging.
+
+        Safe to call at any time. Takes effect on the very next log()
+        or force_log() call. When disabled the overhead drops to a single
+        boolean read (~5 ns) per log call.
+
+        :Parameters:
+            #. callerInfo (boolean): True to prepend
+               ``[file:line in func]`` to each message, False to disable.
+
+        :Returns:
+            result (None): Nothing.
+        """
+        if not isinstance(callerInfo, bool):
+            raise TypeError("callerInfo must be a boolean")
+        self.__callerInfo = callerInfo
 
     def set_max_queue_size(self, maxQueueSize):
         """Set the maximum number of records the internal queue may hold.
@@ -1032,12 +1495,29 @@ class Logger(object):
             self.set_queue_full_policy(kwargs["queueFullPolicy"])
         if "queueBlockTimeout" in kwargs:
             self.set_queue_block_timeout(kwargs["queueBlockTimeout"])
+        if "callerInfo" in kwargs:
+            self.set_caller_info(kwargs["callerInfo"])
 
 
     @property
     def parameters(self):
         """get a dictionary of logger general parameters. The same dictionary
-        can be used to update another logger instance using update method"""
+        can be used to update another logger instance using update method.
+
+        The returned dict includes a ``userSinks`` key whose value is a dict
+        mapping each user-added sink name to its current configuration snapshot
+        (enabled, minLevel, maxLevel, logTypeFlags). Built-in sinks are not
+        included there; they are described by the surrounding keys.
+        """
+        userSinks = {}
+        for k, s in self.__sinks.items():
+            if s.sinkType == 'user':
+                userSinks[k] = {
+                    'enabled':      s.enabled,
+                    'minLevel':     s.minLevel,
+                    'maxLevel':     s.maxLevel,
+                    'logTypeFlags': dict(s.logTypeFlags),
+                }
         return {"name":self.__name,
                 "flush":self.__flush,
                 "stdout":None if self.__stdout is sys.stdout else self.__stdout,
@@ -1056,7 +1536,9 @@ class Logger(object):
                 "enqueue":self.__enqueue,
                 "maxQueueSize":self.__maxQueueSize,
                 "queueFullPolicy":self.__queueFullPolicy,
-                "queueBlockTimeout":self.__queueBlockTimeout}
+                "queueBlockTimeout":self.__queueBlockTimeout,
+                "callerInfo":self.__callerInfo,
+                "userSinks":userSinks}
 
 
     def custom_init(self, *args, **kwargs):
@@ -1112,6 +1594,9 @@ class Logger(object):
             self.__stdout = stream
         # set stdout colors
         self.__stdoutFontFormat = self.__get_stream_fonts_attributes(stream)
+        # sync handler into unified sink registry if already built
+        if _SINK_STDOUT in self.__sinks:
+            self.__sinks[_SINK_STDOUT].handler = self.__stdout
 
     def set_log_to_stdout_flag(self, logToStdout):
         """
@@ -1125,6 +1610,9 @@ class Logger(object):
         if not isinstance(logToStdout, bool):
             raise TypeError("logToStdout must be boolean")
         self.__logToStdout = logToStdout
+        if _SINK_STDOUT in self.__sinks:
+            self.__sinks[_SINK_STDOUT].enabled = logToStdout
+            self.__rebuild_active_sinks()
 
     def set_log_to_file_flag(self, logToFile):
         """
@@ -1137,6 +1625,9 @@ class Logger(object):
         if not isinstance(logToFile, bool):
             raise TypeError("logToFile must be boolean")
         self.__logToFile = logToFile
+        if _SINK_FILE in self.__sinks:
+            self.__sinks[_SINK_FILE].enabled = logToFile
+            self.__rebuild_active_sinks()
 
     def set_log_type_flags(self, logType, stdoutFlag, fileFlag):
         """
@@ -1155,6 +1646,8 @@ class Logger(object):
             raise TypeError("fileFlag must be boolean")
         self.__logTypeStdoutFlags[logType] = stdoutFlag
         self.__logTypeFileFlags[logType]   = fileFlag
+        if _SINK_STDOUT in self.__sinks:
+            self.__rebuild_active_sinks()
 
     def set_log_file_roll(self, logFileRoll):
         """
@@ -1268,10 +1761,22 @@ class Logger(object):
             # limit number of log files to logFileRoll
             if self.__logFileRoll is not None:
                 while len(ordered)>self.__logFileRoll:
-                    os.remove(ordered.pop(0))
+                    path = ordered.pop(0)
+                    try:
+                        os.remove(path)
+                    except (FileNotFoundError, OSError):
+                        pass
                 if len(ordered) == self.__logFileRoll and self.__logFileMaxSize is not None:
-                    if os.stat(ordered[-1]).st_size/(1024.**2) >= self.__logFileMaxSize:
-                        os.remove(ordered.pop(0))
+                    try:
+                        fileSizeMB = os.stat(ordered[-1]).st_size / (1024.**2)
+                    except (FileNotFoundError, OSError):
+                        fileSizeMB = 0.0
+                    if fileSizeMB >= self.__logFileMaxSize:
+                        path = ordered.pop(0)
+                        try:
+                            os.remove(path)
+                        except (FileNotFoundError, OSError):
+                            pass
                         if isinstance(number, int):
                             number = number + 1
             # temporarily set self.__logFileName
@@ -1364,7 +1869,7 @@ class Logger(object):
                 raise ValueError("logFileFirstNumber integer must be >=0")
         self.__logFileFirstNumber = logFileFirstNumber
 
-    def set_minimum_level(self, level=0, stdoutFlag=True, fileFlag=True):
+    def set_minimum_level(self, level=0, stdoutFlag=True, fileFlag=True, sinks=None):
         """
         Set the minimum logging level. All levels below the minimum will be ignored at logging.
 
@@ -1374,13 +1879,28 @@ class Logger(object):
               If str, it must be a defined logtype and therefore the minimum level would be the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
+           #. sinks (None, list): Optional list of user sink names to update.
+              Each name must have been registered via add_sink(). When None
+              (default) user sinks are left unchanged.
         """
         # check flags
         if not isinstance(stdoutFlag, bool):
             raise TypeError("stdoutFlag must be boolean")
         if not isinstance(fileFlag, bool):
             raise TypeError("fileFlag must be boolean")
-        if not (stdoutFlag or fileFlag):
+        # validate sinks list
+        if sinks is not None:
+            if not hasattr(sinks, '__iter__'):
+                raise TypeError("sinks must be None or a list of sink names")
+            sinks = list(sinks)
+            for sinkName in sinks:
+                if not isinstance(sinkName, basestring):
+                    raise TypeError("each entry in sinks must be a string sink name")
+                if sinkName not in self.__sinks:
+                    raise ValueError("sink '%s' is not registered" % sinkName)
+                if self.__sinks[sinkName].sinkType != 'user':
+                    raise ValueError("sink '%s' is a built-in sink; use stdoutFlag/fileFlag for built-ins" % sinkName)
+        if not (stdoutFlag or fileFlag or sinks):
             return
         # check level
         if level is not None:
@@ -1400,15 +1920,28 @@ class Logger(object):
                 if self.__fileMaxLevel is not None:
                     if level>self.__fileMaxLevel:
                         raise ValueError("fileMinLevel must be smaller or equal to fileMaxLevel %s"%self.__fileMaxLevel)
+            if sinks:
+                for sinkName in sinks:
+                    sinkObj = self.__sinks[sinkName]
+                    if sinkObj.maxLevel is not None and level > sinkObj.maxLevel:
+                        raise ValueError(
+                            "minLevel %s exceeds maxLevel %s for sink '%s'"
+                            % (level, sinkObj.maxLevel, sinkName))
         # set flags
         if stdoutFlag:
             self.__stdoutMinLevel = level
-            self.__update_stdout_flags()
+            self.__update_stdout_flags()   # triggers rebuild internally
         if fileFlag:
             self.__fileMinLevel = level
-            self.__update_file_flags()
+            self.__update_file_flags()     # triggers rebuild internally
+        if sinks:
+            for sinkName in sinks:
+                self.__sinks[sinkName].minLevel = level
+            # always rebuild after user-sink mutation so the active-sink
+            # cache reflects the new level even when built-ins also rebuilt
+            self.__rebuild_active_sinks()
 
-    def set_maximum_level(self, level=0, stdoutFlag=True, fileFlag=True):
+    def set_maximum_level(self, level=0, stdoutFlag=True, fileFlag=True, sinks=None):
         """
         Set the maximum logging level. All levels above the maximum will be ignored at logging.
 
@@ -1418,13 +1951,28 @@ class Logger(object):
               If str, it must be a defined logtype and therefore the maximum level would be the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
+           #. sinks (None, list): Optional list of user sink names to update.
+              Each name must have been registered via add_sink(). When None
+              (default) user sinks are left unchanged.
         """
         # check flags
         if not isinstance(stdoutFlag, bool):
             raise TypeError("stdoutFlag must be boolean")
         if not isinstance(fileFlag, bool):
             raise TypeError("fileFlag must be boolean")
-        if not (stdoutFlag or fileFlag):
+        # validate sinks list
+        if sinks is not None:
+            if not hasattr(sinks, '__iter__'):
+                raise TypeError("sinks must be None or a list of sink names")
+            sinks = list(sinks)
+            for sinkName in sinks:
+                if not isinstance(sinkName, basestring):
+                    raise TypeError("each entry in sinks must be a string sink name")
+                if sinkName not in self.__sinks:
+                    raise ValueError("sink '%s' is not registered" % sinkName)
+                if self.__sinks[sinkName].sinkType != 'user':
+                    raise ValueError("sink '%s' is a built-in sink; use stdoutFlag/fileFlag for built-ins" % sinkName)
+        if not (stdoutFlag or fileFlag or sinks):
             return
         # check level
         if level is not None:
@@ -1444,13 +1992,24 @@ class Logger(object):
                 if self.__fileMinLevel is not None:
                     if level<self.__fileMinLevel:
                         raise ValueError("fileMaxLevel must be bigger or equal to fileMinLevel %s"%self.__fileMinLevel)
+            if sinks:
+                for sinkName in sinks:
+                    sinkObj = self.__sinks[sinkName]
+                    if sinkObj.minLevel is not None and level < sinkObj.minLevel:
+                        raise ValueError(
+                            "maxLevel %s is below minLevel %s for sink '%s'"
+                            % (level, sinkObj.minLevel, sinkName))
         # set flags
         if stdoutFlag:
             self.__stdoutMaxLevel = level
-            self.__update_stdout_flags()
+            self.__update_stdout_flags()   # triggers rebuild internally
         if fileFlag:
             self.__fileMaxLevel = level
-            self.__update_file_flags()
+            self.__update_file_flags()     # triggers rebuild internally
+        if sinks:
+            for sinkName in sinks:
+                self.__sinks[sinkName].maxLevel = level
+            self.__rebuild_active_sinks()
 
     def __update_flags(self):
         self.__update_stdout_flags()
@@ -1463,6 +2022,8 @@ class Logger(object):
                 minOk = (self.__stdoutMinLevel is None) or (l >= self.__stdoutMinLevel)
                 maxOk = (self.__stdoutMaxLevel is None) or (l <= self.__stdoutMaxLevel)
                 self.__logTypeStdoutFlags[logType] = minOk and maxOk
+        if _SINK_STDOUT in self.__sinks:
+            self.__rebuild_active_sinks()
 
     def __update_file_flags(self):
         filekeys = list(self.__forcedFileLevels)
@@ -1471,6 +2032,146 @@ class Logger(object):
                 minOk = (self.__fileMinLevel is None) or (l >= self.__fileMinLevel)
                 maxOk = (self.__fileMaxLevel is None) or (l <= self.__fileMaxLevel)
                 self.__logTypeFileFlags[logType] = minOk and maxOk
+        if _SINK_FILE in self.__sinks:
+            self.__rebuild_active_sinks()
+
+    def __rebuild_active_sinks(self):
+        """Rebuild the per-logType active sink cache.
+
+        Called once after any configuration change that affects routing:
+        add_sink(), remove_sink(), set_log_to_stdout_flag(),
+        set_minimum_level(), set_log_type_stdout_flag(), and so on.
+
+        After this runs, ``__activeSinks[logType]`` holds exactly the
+        _Sink objects that will receive a message of that type. The
+        dispatch loop in log() and force_log() reads this list directly
+        -- no per-call filtering is needed.
+
+        Key invariant: for the built-in sinks (_SINK_STDOUT and
+        _SINK_FILE) the sink.logTypeFlags dict is kept current by
+        __update_stdout_flags() and __update_file_flags() respectively.
+        Those methods already fold minLevel/maxLevel constraints into
+        the flags, so this method only needs to read enabled + flags.
+        For user-added sinks the same invariant is maintained by
+        add_sink() and set_log_type_sink_flag().
+
+        :Returns:
+            result (None): Writes self.__activeSinks. No return value.
+        """
+        result = {}
+        for logType in self.__logTypeNames:
+            activeSinks = []
+            level = self.__logTypeLevels.get(logType)
+            for sink in self.__sinks.values():
+                if not sink.enabled:
+                    continue
+                if not sink.logTypeFlags.get(logType, True):
+                    continue
+                # user sinks carry their own minLevel/maxLevel that are
+                # not pre-baked into logTypeFlags — apply them here
+                if sink.sinkType == 'user' and level is not None:
+                    if sink.minLevel is not None and level < sink.minLevel:
+                        continue
+                    if sink.maxLevel is not None and level > sink.maxLevel:
+                        continue
+                activeSinks.append(sink)
+            result[logType] = activeSinks
+        self.__activeSinks = result
+
+    def add_sink(self, name, handler, enabled=True,
+                 minLevel=None, maxLevel=None, logTypeFlags=None):
+        """Add a user-supplied output sink to the logger.
+
+        The sink receives every log record whose type passes the routing
+        rules (enabled flag, per-type flags, and optional level bounds).
+        The handler is called as ``handler.write(record + "\\n")`` where
+        *record* is the fully-formatted log line (same plain text that
+        goes to the log file, without ANSI colour codes). The caller
+        owns the handler's lifecycle -- the logger never closes it.
+
+        :Parameters:
+            #. name (str): Unique string key for this sink. Must not
+               clash with any existing name or reserved integer keys.
+            #. handler (file-like): Any object with a write(str) method.
+               An optional flush() method is called when Logger.flush
+               is True.
+            #. enabled (bool): Master switch for this sink. Default True.
+            #. minLevel (number, None): Records whose level is strictly
+               below this value are suppressed. None means no floor.
+            #. maxLevel (number, None): Records whose level is strictly
+               above this value are suppressed. None means no ceiling.
+            #. logTypeFlags (dict, None): Per-type override map
+               {logType (str): bool}. Missing keys default to True.
+               None means all types enabled.
+
+        :Returns:
+            result (None): Nothing.
+        """
+        if not isinstance(name, basestring):
+            raise TypeError("sink name must be a non-empty string")
+        if not len(name):
+            raise ValueError("sink name must be non-empty")
+        if name in self.__sinks:
+            raise ValueError("sink '%s' is already registered -- "
+                             "call remove_sink() first" % name)
+        if not hasattr(handler, 'write'):
+            raise TypeError("handler must expose a write() method")
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a boolean")
+        if minLevel is not None and not _is_number(minLevel):
+            raise TypeError("minLevel must be a number or None")
+        if maxLevel is not None and not _is_number(maxLevel):
+            raise TypeError("maxLevel must be a number or None")
+        if logTypeFlags is not None:
+            if not isinstance(logTypeFlags, dict):
+                raise TypeError("logTypeFlags must be a dict or None")
+            for k, v in logTypeFlags.items():
+                if not isinstance(k, basestring):
+                    raise TypeError("logTypeFlags keys must be strings")
+                if not isinstance(v, bool):
+                    raise TypeError("logTypeFlags values must be booleans")
+        self.__sinks[name] = _Sink(
+            handler      = handler,
+            enabled      = enabled,
+            logTypeFlags = dict(logTypeFlags) if logTypeFlags is not None else {},
+            minLevel     = float(minLevel) if minLevel is not None else None,
+            maxLevel     = float(maxLevel) if maxLevel is not None else None,
+            sinkType     = 'user',
+        )
+        self.__rebuild_active_sinks()
+
+    def remove_sink(self, name):
+        """Remove a user-added sink by its registered name.
+
+        :Parameters:
+            #. name (str): The key used when the sink was registered
+               with add_sink().
+
+        :Returns:
+            result (None): Nothing.
+        """
+        if not isinstance(name, basestring):
+            raise TypeError("sink name must be a string")
+        if name not in self.__sinks:
+            raise ValueError("sink '%s' is not registered" % name)
+        del self.__sinks[name]
+        self.__rebuild_active_sinks()
+
+    def clear_sinks(self):
+        """Remove all user-added sinks.
+
+        The two built-in sinks (_SINK_STDOUT and _SINK_FILE) are
+        always preserved. This is a no-op if no user sinks are
+        registered.
+
+        :Returns:
+            result (None): Nothing.
+        """
+        userKeys = [k for k in self.__sinks if isinstance(k, basestring)]
+        for k in userKeys:
+            del self.__sinks[k]
+        if userKeys:
+            self.__rebuild_active_sinks()
 
     def force_log_type_stdout_flag(self, logType, flag):
         """
@@ -1491,6 +2192,8 @@ class Logger(object):
                 raise TypeError("flag must be boolean")
             self.__logTypeStdoutFlags[logType] = flag
             self.__forcedStdoutLevels[logType] = flag
+            if _SINK_STDOUT in self.__sinks:
+                self.__rebuild_active_sinks()
 
     def force_log_type_file_flag(self, logType, flag):
         """
@@ -1511,6 +2214,8 @@ class Logger(object):
                 raise TypeError("flag must be boolean")
             self.__logTypeFileFlags[logType] = flag
             self.__forcedFileLevels[logType] = flag
+            if _SINK_FILE in self.__sinks:
+                self.__rebuild_active_sinks()
 
     def force_log_type_flags(self, logType, stdoutFlag, fileFlag):
         """
@@ -1576,6 +2281,8 @@ class Logger(object):
         self.__logTypeFileFlags.pop(logType, None)
         self.__forcedStdoutLevels.pop(logType, None)
         self.__forcedFileLevels.pop(logType, None)
+        if _SINK_STDOUT in self.__sinks:
+            self.__rebuild_active_sinks()
 
     def add_log_type(self, logType, name=None, level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """
@@ -1684,6 +2391,9 @@ class Logger(object):
         else:
             self.__forcedFileLevels.pop(logType, None)
             self.__update_file_flags()
+        # ensure cache is fresh for forced-flag paths that skip __update_*
+        if _SINK_STDOUT in self.__sinks:
+            self.__rebuild_active_sinks()
 
     def update_log_type(self, logType, name=None, level=None, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """
@@ -1723,7 +2433,7 @@ class Logger(object):
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag,
                             color=color, highlight=highlight, attributes=attributes)
 
-    def _format_message(self, logType, message, data, tback):
+    def _format_message(self, logType, message, data, tback, callerStr=''):
         message  = _sanitize_message(message)
         if self.__maxMessageSize is not None and len(message) > self.__maxMessageSize:
             message = message[:self.__maxMessageSize] + '[truncated]'
@@ -1748,7 +2458,7 @@ class Logger(object):
                     tbackStr = ''.join(tbackStr)
                 except Exception:
                     tbackStr = '\n%s'%(str(tback),)
-        return "%s%s%s%s%s" %(header, message, footer, dataStr, tbackStr)
+        return "%s%s%s%s%s%s" %(header, callerStr, message, footer, dataStr, tbackStr)
 
     def _get_datetimestamp(self, format='%Y-%m-%d %H:%M:%S'):
         return datetime.strftime(datetime.now(self.__timezone), format)
@@ -1763,7 +2473,11 @@ class Logger(object):
     def __enqueue_worker(self):
         """Background thread: drain the log queue and perform all I/O.
 
-        Each item is a tuple (log, logType, toStdout, toFile).
+        Items are one of two formats:
+          - 3-tuple (log, logType, sinks) from normal log() calls;
+            sinks is a snapshot list of _Sink objects from __activeSinks.
+          - 4-tuple (log, logType, toStdout, toFile) from force_log();
+            toStdout/toFile are caller-supplied booleans that bypass routing.
         The sentinel _QUEUE_STOP signals clean shutdown.
         task_done() is called after every item so flush() can join().
         """
@@ -1772,15 +2486,39 @@ class Logger(object):
             try:
                 if item is _QUEUE_STOP:
                     return
-                log, logType, toStdout, toFile = item
-                if toStdout:
-                    self.__log_to_stdout(self.__format_stdout_line(logType, log))
-                    if self.__flush:
-                        self.__flush_stream(self.__stdout)
-                if toFile:
-                    self.__log_to_file("%s\n" % log)
-                    if self.__flush:
-                        self.__flush_stream(self.__logFileStream)
+                if len(item) == 3:
+                    # normal log() path — 3-tuple (log, logType, sinks)
+                    log, logType, sinks = item
+                    for sink in sinks:
+                        if sink.sinkType == 'file':
+                            self.__log_to_file("%s\n" % log)
+                            if self.__flush:
+                                self.__flush_stream(self.__logFileStream)
+                        elif sink.sinkType == 'user':
+                            try:
+                                sink.handler.write("%s\n" % log)
+                                if self.__flush:
+                                    self.__flush_stream(sink.handler)
+                            except Exception:
+                                # catch any error a user-supplied handler raises:
+                                # we must never let a custom sink crash the worker
+                                pass
+                        else:  # stdout
+                            self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                            if self.__flush:
+                                self.__flush_stream(sink.handler)
+                else:
+                    # force_log() path — 4-tuple (log, logType, toStdout, toFile)
+                    # bypasses routing; toStdout/toFile are caller-supplied booleans
+                    log, logType, toStdout, toFile = item
+                    if toStdout:
+                        self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                        if self.__flush:
+                            self.__flush_stream(self.__stdout)
+                    if toFile:
+                        self.__log_to_file("%s\n" % log)
+                        if self.__flush:
+                            self.__flush_stream(self.__logFileStream)
             finally:
                 self.__logQueue.task_done()
 
@@ -1813,9 +2551,9 @@ class Logger(object):
         the caller. The caller is responsible for handling it.
 
         :Parameters:
-            #. item (tuple): The log record tuple
-               (log, logType, toStdout, toFile) as assembled by log()
-               or force_log().
+            #. item (tuple): The log record tuple — either a 3-tuple
+               (log, logType, sinks) from log() or a 4-tuple
+               (log, logType, toStdout, toFile) from force_log().
 
         :Returns:
             result (None): Nothing.
@@ -1866,10 +2604,9 @@ class Logger(object):
             self.__logQueue.put_nowait(item)
 
     def __log_to_file(self, message):
-        # guard the multi-step check/rotate/open sequence with the rotation lock;
-        # capture a stable stream reference before releasing so the write (which
-        # is GIL-safe on its own) happens outside the lock — zero overhead on the
-        # hot write path when no rotation is needed.
+        # the rotation lock guards the full check/rotate/open/write sequence;
+        # write is kept inside the lock so a rotation on another thread cannot
+        # close the stream between the stream-capture and the write call.
         with self.__rotationLock:
             if self.__logFileStream is None:
                 self.__logFileStream = open(self.__logFileName, 'a')
@@ -1877,8 +2614,7 @@ class Logger(object):
                 if self.__logFileStream.tell()/(1024.**2) >= self.__logFileMaxSize:
                     self.__set_log_file_name()   # re-entrant: RLock allows this
                     self.__logFileStream = open(self.__logFileName, 'a')
-            stream = self.__logFileStream   # stable reference under lock
-        stream.write(message)
+            self.__logFileStream.write(message)
 
     def __log_to_stdout(self, message):
         try:
@@ -1896,16 +2632,22 @@ class Logger(object):
         Safe to call from any thread; errors are swallowed so the
         logger never raises on a flush failure.
 
+        Custom handler objects (user sinks) may not implement fileno() at
+        all — AttributeError is caught alongside OSError so that the worker
+        thread never crashes on such objects.
+
         :Parameters:
             #. stream (file-like): The stream to flush and fsync.
         """
         try:
             stream.flush()
-        except OSError:
+        except (OSError, AttributeError):
             pass
         try:
+            # fileno() may raise AttributeError (missing method) or
+            # io.UnsupportedOperation (in-memory streams) — both are benign
             os.fsync(stream.fileno())
-        except OSError:
+        except (OSError, AttributeError):
             pass
 
     def __format_stdout_line(self, logType, log):
@@ -1953,6 +2695,31 @@ class Logger(object):
         """
         return self.__logToFile and self.__logTypeFileFlags[logType]
 
+    def is_enabled(self, logType):
+        """Return True if logType would write to at least one output stream.
+
+        Combines the stdout and file checks into one call so callers can
+        guard expensive message construction without repeating the two-flag
+        check themselves::
+
+            if logger.is_enabled('debug'):
+                logger.debug(json.dumps(large_object))
+
+        This is the recommended pattern for deferring costly work -- it keeps
+        the logger's role purely passive (no callables, no execution) while
+        still avoiding unnecessary computation when the level is filtered.
+
+        :Parameters:
+            #. logType (string): A defined logging type.
+
+        :Returns:
+            #. result (bool): True if at least stdout or file would receive
+               a message of this logType, False otherwise.
+        """
+        # use the pre-computed active-sink cache: covers stdout, file,
+        # AND any user-added sinks — a non-empty list means dispatch happens
+        return bool(self.__activeSinks.get(logType))
+
 
     def log(self, logType, message, data=None, tback=None, countConstraint=None):
         """
@@ -1971,26 +2738,50 @@ class Logger(object):
         :Returns:
             #. message (string): the logged message
         """
+        # reject callables -- the logger is a passive recorder, not an executor.
+        # to defer expensive message construction use is_enabled(logType) instead:
+        #   if logger.is_enabled('debug'): logger.debug(expensive_fn())
+        if callable(message):
+            raise TypeError(
+                "log() message must be a string or string-coercible value, "
+                "not a callable. To defer expensive message construction "
+                "guard the call with is_enabled('%s') instead." % logType
+            )
         if countConstraint is not None:
             self.__logMessagesCounter.setdefault(message, -1)
             self.__logMessagesCounter[message] += 1
             if countConstraint<=self.__logMessagesCounter[message]:
                 return message
         # format on caller thread so timestamp is captured at call time
-        log      = self._format_message(logType=logType, message=message, data=data, tback=tback)
-        toStdout = self.__logToStdout and self.__logTypeStdoutFlags[logType]
-        toFile   = self.__logToFile   and self.__logTypeFileFlags[logType]
+        # capture caller frame BEFORE any internal calls so the stack depth
+        # is minimal and the user frame is as close to the top as possible
+        callerStr = _get_caller_str() if self.__callerInfo else ''
+        log = self._format_message(logType=logType, message=message, data=data, tback=tback, callerStr=callerStr)
+        # routing: read from the pre-computed active-sink cache (O(1) lookup)
+        # the list contains only sinks whose enabled flag and logTypeFlags
+        # both pass for this logType — no per-call boolean arithmetic needed
+        activeSinks = self.__activeSinks.get(logType, [])
         if self.__enqueue:
-            self.__put_to_queue((log, logType, toStdout, toFile))
+            # snapshot so the worker sees a stable list even if config
+            # changes between put() and the item being processed
+            self.__put_to_queue((log, logType, list(activeSinks)))
         else:
-            if toStdout:
-                self.__log_to_stdout(self.__format_stdout_line(logType, log))
-                if self.__flush:
-                    self.__flush_stream(self.__stdout)
-            if toFile:
-                self.__log_to_file("%s\n" % log)
-                if self.__flush:
-                    self.__flush_stream(self.__logFileStream)
+            for sink in activeSinks:
+                if sink.sinkType == 'file':
+                    self.__log_to_file("%s\n" % log)
+                    if self.__flush:
+                        self.__flush_stream(self.__logFileStream)
+                elif sink.sinkType == 'user':
+                    try:
+                        sink.handler.write("%s\n" % log)
+                        if self.__flush:
+                            self.__flush_stream(sink.handler)
+                    except OSError:
+                        pass
+                else:  # stdout
+                    self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                    if self.__flush:
+                        self.__flush_stream(sink.handler)
         # set last logged message (on caller thread for immediate visibility)
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
@@ -2012,8 +2803,16 @@ class Logger(object):
         :Returns:
             #. message (string): the logged message
         """
+        # reject callables — same policy as log()
+        if callable(message):
+            raise TypeError(
+                "force_log() message must be a string or string-coercible value, "
+                "not a callable. To defer expensive message construction "
+                "guard the call with is_enabled('%s') instead." % logType
+            )
         # format on caller thread so timestamp is captured at call time
-        log = self._format_message(logType=logType, message=message, data=data, tback=tback)
+        callerStr = _get_caller_str() if self.__callerInfo else ''
+        log = self._format_message(logType=logType, message=message, data=data, tback=tback, callerStr=callerStr)
         if self.__enqueue:
             self.__put_to_queue((log, logType, stdout, file))
         else:
@@ -2070,6 +2869,39 @@ class Logger(object):
             return ctx(func)
         return ctx
 
+    def bind(self, **context):
+        """Return a _BoundLogger that prepends context to every message.
+
+        The bound logger delegates all I/O to this Logger unchanged.
+        It holds no state of its own beyond the context dict and the
+        reference to this parent. It is immutable and thread-safe.
+
+        Typical usage in a web request handler::
+
+            def handle(requestId, user):
+                L = logger.bind(requestId=requestId, user=user)
+                L.info('started')    # [requestId=x user=y] started
+                L.error('failed')    # [requestId=x user=y] failed
+
+        Nested bind() calls merge contexts (right-hand key wins)::
+
+            L2 = L.bind(table='orders')  # adds table to existing context
+            L3 = L.bind(requestId='new')  # overrides requestId only
+
+        This Logger is never modified. All bind() calls are additive
+        and return new _BoundLogger instances.
+
+        :Parameters:
+            #. **context: Arbitrary key-value pairs. Keys should be
+               valid Python identifiers for readability, but any string
+               key is accepted. Values are coerced to str at log time.
+
+        :Returns:
+            result (_BoundLogger): An immutable context-aware wrapper
+            around this Logger.
+        """
+        return _BoundLogger(self, context)
+
     def flush(self):
         """Flush all streams.
 
@@ -2078,10 +2910,18 @@ class Logger(object):
         """
         if self.__enqueue and self.__logQueue is not None:
             self.__logQueue.join()
-        if self.__logFileStream is not None:
-            self.__flush_stream(self.__logFileStream)
-        if self.__stdout is not None:
-            self.__flush_stream(self.__stdout)
+        # flush every registered sink — track ids to avoid double-flush
+        # when two sinks share the same handler object
+        seen = set()
+        for sink in self.__sinks.values():
+            if sink.sinkType == 'file':
+                if self.__logFileStream is not None:
+                    self.__flush_stream(self.__logFileStream)
+            elif sink.handler is not None:
+                sid = id(sink.handler)
+                if sid not in seen:
+                    seen.add(sid)
+                    self.__flush_stream(sink.handler)
 
     def info(self, message, *args, **kwargs):
         """alias to message at information level"""
