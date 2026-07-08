@@ -129,8 +129,14 @@ output
 
 """
 # python standard distribution imports
-import os, sys, copy, re, atexit, threading
+import os, sys, copy, re, atexit, threading, traceback, functools
 from datetime import datetime
+
+# python 2/3 queue compatibility
+if sys.version_info >= (3, 0):
+    import queue as _queue_module
+else:
+    import Queue as _queue_module
 
 # python version dependant imports
 if sys.version_info >= (3, 0):
@@ -153,6 +159,9 @@ try:
 except ImportError:
     from .__pkginfo__ import __version__
 
+
+# sentinel object used to signal the enqueue worker thread to stop
+_QUEUE_STOP = object()
 
 # useful definitions
 def _is_number(number):
@@ -199,6 +208,46 @@ def _sanitize_message(message):
     if '\x1b' not in message and '\x00' not in message and '\r' not in message:
         return message
     return _CONTROL_CHAR_RE.sub('', message)
+
+
+
+class _CatchContext(object):
+    """Context manager and decorator returned by Logger.catch().
+
+    Catches any exception escaping the wrapped callable or the ``with``
+    block, logs it through the parent Logger, and optionally re-raises.
+
+    Do not instantiate directly -- use ``Logger.catch()``.
+    """
+
+    def __init__(self, logger, logType, reraise, message):
+        self._logger  = logger
+        self._logType = logType
+        self._reraise = reraise
+        self._message = message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            tbackStr = traceback.format_exc()
+            self._logger.log(
+                self._logType,
+                '%s: %s' % (self._message, exc_val),
+                tback=tbackStr,
+            )
+            return not self._reraise   # True suppresses; False re-raises
+        return False
+
+    def __call__(self, func):
+        """Allow the context manager instance to be used as a decorator."""
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with _CatchContext(self._logger, self._logType,
+                               self._reraise, self._message):
+                return func(*args, **kwargs)
+        return wrapper
 
 
 class Logger(object):
@@ -314,6 +363,41 @@ class Logger(object):
           the string representation of the data argument. If None, no limit is
           applied. Data strings exceeding the limit are truncated and
           '[truncated]' is appended.
+       #. enqueue (boolean): When True, log() and force_log() push records
+          onto an internal queue and return immediately. A background daemon
+          thread performs all I/O. Useful for high-throughput or latency-
+          sensitive callers. Call flush() to block until the queue drains.
+          Cannot be changed after construction.
+       #. maxQueueSize (None, integer): Maximum number of records the internal
+          queue may hold at once. Only meaningful when enqueue=True.
+          None (default) means unbounded -- the queue grows without limit,
+          which is safe but can exhaust memory under extreme load.
+          When set to a positive integer the queueFullPolicy controls what
+          happens when that limit is reached. Can be updated at runtime via
+          set_max_queue_size().
+       #. queueFullPolicy (string): Determines caller behaviour when the
+          queue is full (only applies when maxQueueSize is not None).
+          Four values are accepted:
+          ``'block'``  -- the calling thread parks until space opens.
+          If queueBlockTimeout is set, the park is bounded; after that
+          many seconds the message is dropped and a warning is written
+          to stderr. If queueBlockTimeout is None the thread parks forever
+          (safe but dangerous if the worker dies).
+          ``'drop'``   -- the record is silently discarded and the
+          droppedMessages counter is incremented. Zero latency impact.
+          ``'warn'``   -- same as drop but also writes one line to stderr
+          so the loss is visible without being fatal.
+          ``'raise'``  -- raises queue.Full to the caller so it can decide
+          what to do. The caller must handle the exception.
+          Default is ``'block'``. Can be updated at runtime via
+          set_queue_full_policy().
+       #. queueBlockTimeout (None, number): Seconds to wait before giving
+          up when queueFullPolicy is ``'block'``. None (default) means wait
+          indefinitely. When a positive number is given and the timeout
+          expires the message is dropped, droppedMessages is incremented,
+          and a single warning line is written to stderr. Has no effect
+          when queueFullPolicy is not ``'block'``. Can be updated at runtime
+          via set_queue_block_timeout().
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -330,6 +414,10 @@ class Logger(object):
                        fileMinLevel=None, fileMaxLevel=None,
                        logTypes=None, timezone=None,
                        maxMessageSize=None, maxDataSize=None,
+                       enqueue=False,
+                       maxQueueSize=None,
+                       queueFullPolicy='block',
+                       queueBlockTimeout=None,
                        *args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
@@ -411,6 +499,32 @@ class Logger(object):
                     self.add_log_type(lt, **ltv)
                 elif len(ltv):
                     self.update_log_type(lt, **ltv)
+        # enqueue mode — validate policy params first so errors surface early
+        if not isinstance(enqueue, bool):
+            raise TypeError("enqueue must be a boolean")
+        self.__enqueue          = enqueue
+        self.__logQueue         = None
+        self.__logWorker        = None
+        self.__droppedMessages  = 0
+        self.__droppedLock      = threading.Lock()
+        # validate and store queue policy settings via setters so all
+        # validation logic lives in one place
+        self.__maxQueueSize      = None   # set by setter below
+        self.__queueFullPolicy   = None   # set by setter below
+        self.__queueBlockTimeout = None   # set by setter below
+        self.set_queue_full_policy(queueFullPolicy)
+        self.set_queue_block_timeout(queueBlockTimeout)
+        self.set_max_queue_size(maxQueueSize)   # must come after policy set
+        if self.__enqueue:
+            self.__logQueue  = _queue_module.Queue(
+                maxsize=self.__maxQueueSize if self.__maxQueueSize is not None else 0
+            )
+            self.__logWorker = threading.Thread(
+                target=self.__enqueue_worker,
+                name="pysimplelog-writer",
+            )
+            self.__logWorker.daemon = True
+            self.__logWorker.start()
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)
 
@@ -421,6 +535,8 @@ class Logger(object):
         string += "\n - Log To File:   Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToFile,self.__fileMinLevel,self.__fileMaxLevel)
         string += "\n                  File Size (%s) - First Number (%s) - Roll (%s)"%(self.__logFileMaxSize,self.__logFileFirstNumber,self.__logFileRoll)
         string += "\n                  Message Max Size (%s) - Data Max Size (%s)"%(self.__maxMessageSize,self.__maxDataSize)
+        string += "\n - Enqueue mode: %s  Queue max size: %s  Policy: %s  Block timeout: %s  Dropped: %s"%(self.__enqueue, self.__maxQueueSize, self.__queueFullPolicy,
+          self.__queueBlockTimeout, self.__droppedMessages)
         string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
@@ -497,6 +613,9 @@ class Logger(object):
         return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
 
     def _flush_atexit_logfile(self):
+        if self.__enqueue and self.__logQueue is not None:
+            self.__logQueue.put(_QUEUE_STOP)
+            self.__logWorker.join(timeout=5)
         if self.__logFileStream is not None:
             self.__flush_stream(self.__logFileStream)
             self.__logFileStream.close()
@@ -543,6 +662,59 @@ class Logger(object):
     def flush(self):
         """Flush flag."""
         return self.__flush
+
+    @property
+    def enqueue(self):
+        """Whether non-blocking enqueue mode is active."""
+        return self.__enqueue
+
+    @property
+    def maxQueueSize(self):
+        """Maximum number of records the queue may hold, or None if unbounded.
+
+        Returns None when enqueue mode is not active.
+        """
+        return self.__maxQueueSize
+
+    @property
+    def queueFullPolicy(self):
+        """Active policy when the queue is full.
+
+        One of ``'block'``, ``'drop'``, ``'warn'``, ``'raise'``.
+        Returns None when enqueue mode is not active.
+        """
+        return self.__queueFullPolicy
+
+    @property
+    def queueBlockTimeout(self):
+        """Seconds to wait before giving up when policy is ``'block'``.
+
+        None means block indefinitely. Returns None when enqueue mode
+        is not active or policy is not ``'block'``.
+        """
+        return self.__queueBlockTimeout
+
+    @property
+    def queueSize(self):
+        """Current number of log records waiting in the queue.
+
+        Returns 0 when enqueue mode is not active.
+        Note: qsize() is an approximation on some platforms -- use
+        flush() to guarantee the queue is empty before reading results.
+        """
+        if self.__logQueue is None:
+            return 0
+        return self.__logQueue.qsize()
+
+    @property
+    def droppedMessages(self):
+        """Cumulative count of log records dropped due to a full queue.
+
+        Accumulates for the lifetime of the logger and is never reset.
+        Always 0 when enqueue mode is not active or maxQueueSize is None.
+        """
+        with self.__droppedLock:
+            return self.__droppedMessages
 
     @property
     def logTypes(self):
@@ -682,6 +854,95 @@ class Logger(object):
         count constrainted"""
         return self.__logMessagesCounter
 
+    def set_max_queue_size(self, maxQueueSize):
+        """Set the maximum number of records the internal queue may hold.
+
+        Can be called at any time -- takes effect on the very next log()
+        call because Python's queue.Queue checks maxsize dynamically on
+        every put(). Setting to None removes the cap entirely.
+
+        :Parameters:
+            #. maxQueueSize (None, integer): Maximum queue depth. Must be
+               a positive integer or None. Zero is not accepted because it
+               is ambiguous (CPython treats Queue(maxsize=0) as unbounded).
+
+        :Returns:
+            result (None): Nothing.
+        """
+        if maxQueueSize is not None:
+            if not isinstance(maxQueueSize, int) or isinstance(maxQueueSize, bool):
+                raise TypeError("maxQueueSize must be a positive integer or None")
+            if maxQueueSize <= 0:
+                raise ValueError("maxQueueSize must be a positive integer, got %d" % maxQueueSize)
+        self.__maxQueueSize = maxQueueSize
+        # sync the live queue object if one already exists
+        if self.__logQueue is not None:
+            self.__logQueue.maxsize = maxQueueSize if maxQueueSize is not None else 0
+
+    def set_queue_full_policy(self, queueFullPolicy):
+        """Set the backpressure policy applied when the queue is full.
+
+        Can be changed at runtime -- takes effect on the very next log()
+        call that finds the queue at capacity.
+
+        :Parameters:
+            #. queueFullPolicy (string): One of four values:
+
+               ``'block'``  -- the calling thread parks until a slot opens.
+               If queueBlockTimeout is set, parking is bounded; after that
+               many seconds the record is dropped and one warning line is
+               written to stderr. If queueBlockTimeout is None the thread
+               parks indefinitely -- safe against message loss but risky if
+               the worker thread dies.
+
+               ``'drop'``   -- the record is silently discarded. The
+               droppedMessages counter is incremented so you can detect
+               loss after the fact via the droppedMessages property.
+
+               ``'warn'``   -- same as ``'drop'`` but also writes a single
+               line to sys.stderr so the loss is immediately visible in
+               terminal output without being fatal to the caller.
+
+               ``'raise'``  -- raises queue.Full to the caller. The caller
+               must handle the exception. Useful when the caller has its
+               own retry or circuit-breaker logic.
+
+        :Returns:
+            result (None): Nothing.
+        """
+        validPolicies = ('block', 'drop', 'warn', 'raise')
+        if not isinstance(queueFullPolicy, basestring):
+            raise TypeError("queueFullPolicy must be a string, one of %s" % str(validPolicies))
+        if queueFullPolicy not in validPolicies:
+            raise ValueError("queueFullPolicy must be one of %s, got '%s'"
+                             % (str(validPolicies), queueFullPolicy))
+        self.__queueFullPolicy = queueFullPolicy
+
+    def set_queue_block_timeout(self, queueBlockTimeout):
+        """Set the maximum seconds to wait when queueFullPolicy is ``'block'``.
+
+        Can be changed at runtime -- takes effect on the very next log()
+        call that blocks on a full queue.
+
+        :Parameters:
+            #. queueBlockTimeout (None, number): Seconds to wait before
+               giving up. None means wait indefinitely -- the thread parks
+               until the worker drains a slot, no matter how long that
+               takes. A positive number caps the wait; after expiry the
+               record is dropped, droppedMessages is incremented, and one
+               warning line is written to stderr. Has no effect when
+               queueFullPolicy is not ``'block'``.
+
+        :Returns:
+            result (None): Nothing.
+        """
+        if queueBlockTimeout is not None:
+            if not _is_number(queueBlockTimeout):
+                raise TypeError("queueBlockTimeout must be a positive number or None")
+            if float(queueBlockTimeout) <= 0:
+                raise ValueError("queueBlockTimeout must be positive, got %s" % queueBlockTimeout)
+        self.__queueBlockTimeout = queueBlockTimeout
+
     def set_timezone(self, timezone):
         """
         Set logging timezone
@@ -764,6 +1025,13 @@ class Logger(object):
         # update logfile
         if "logFile" in kwargs:
             self.set_log_file(kwargs["logFile"])
+        # update queue settings (all runtime-safe)
+        if "maxQueueSize" in kwargs:
+            self.set_max_queue_size(kwargs["maxQueueSize"])
+        if "queueFullPolicy" in kwargs:
+            self.set_queue_full_policy(kwargs["queueFullPolicy"])
+        if "queueBlockTimeout" in kwargs:
+            self.set_queue_block_timeout(kwargs["queueBlockTimeout"])
 
 
     @property
@@ -784,7 +1052,11 @@ class Logger(object):
                 "fileMaxLevel":self.__fileMaxLevel,
                 "maxMessageSize":self.__maxMessageSize,
                 "maxDataSize":self.__maxDataSize,
-                "logFile":self.__logFileBasename+"."+self.__logFileExtension}
+                "logFile":self.__logFileBasename+"."+self.__logFileExtension,
+                "enqueue":self.__enqueue,
+                "maxQueueSize":self.__maxQueueSize,
+                "queueFullPolicy":self.__queueFullPolicy,
+                "queueBlockTimeout":self.__queueBlockTimeout}
 
 
     def custom_init(self, *args, **kwargs):
@@ -1488,6 +1760,111 @@ class Logger(object):
     def _get_footer(self, logType, message):
         return ""
 
+    def __enqueue_worker(self):
+        """Background thread: drain the log queue and perform all I/O.
+
+        Each item is a tuple (log, logType, toStdout, toFile).
+        The sentinel _QUEUE_STOP signals clean shutdown.
+        task_done() is called after every item so flush() can join().
+        """
+        while True:
+            item = self.__logQueue.get()
+            try:
+                if item is _QUEUE_STOP:
+                    return
+                log, logType, toStdout, toFile = item
+                if toStdout:
+                    self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                    if self.__flush:
+                        self.__flush_stream(self.__stdout)
+                if toFile:
+                    self.__log_to_file("%s\n" % log)
+                    if self.__flush:
+                        self.__flush_stream(self.__logFileStream)
+            finally:
+                self.__logQueue.task_done()
+
+    def __put_to_queue(self, item):
+        """Put one log record onto the queue, honouring the backpressure policy.
+
+        Called by log() and force_log() whenever enqueue mode is active.
+        The policy is read fresh on every call so runtime changes via
+        set_queue_full_policy() take effect immediately.
+
+        When maxQueueSize is None the queue is unbounded and put() always
+        succeeds instantly -- no policy check is needed.
+
+        Backpressure policies when the queue is at capacity:
+
+        ``block``  -- park the calling thread on the queue's internal
+        condition variable (zero CPU while waiting). If queueBlockTimeout
+        is None the park has no deadline -- the thread waits until the
+        worker drains a slot, however long that takes. If queueBlockTimeout
+        is set and expires, the record is dropped, droppedMessages is
+        incremented, and one warning is emitted to stderr.
+
+        ``drop``   -- discard the record silently and increment
+        droppedMessages. Zero latency impact on the caller.
+
+        ``warn``   -- same as drop but also writes a one-line warning to
+        sys.stderr so the loss is visible in terminal output.
+
+        ``raise``  -- call put_nowait() and let queue.Full propagate to
+        the caller. The caller is responsible for handling it.
+
+        :Parameters:
+            #. item (tuple): The log record tuple
+               (log, logType, toStdout, toFile) as assembled by log()
+               or force_log().
+
+        :Returns:
+            result (None): Nothing.
+        """
+        # unbounded queue — fast path, no policy needed
+        if self.__maxQueueSize is None:
+            self.__logQueue.put(item)
+            return
+        policy = self.__queueFullPolicy
+        if policy == 'block':
+            timeout = self.__queueBlockTimeout
+            if timeout is None:
+                # park indefinitely — true backpressure, never drops
+                self.__logQueue.put(item)
+            else:
+                # bounded park — drop + warn if deadline expires
+                try:
+                    self.__logQueue.put(item, timeout=timeout)
+                except _queue_module.Full:
+                    with self.__droppedLock:
+                        self.__droppedMessages += 1
+                        dropped = self.__droppedMessages
+                    sys.stderr.write(
+                        'pysimplelog WARNING: queue still full after %.1fs, '
+                        'record dropped (%d total dropped)\n'
+                        % (timeout, dropped)
+                    )
+        elif policy == 'drop':
+            try:
+                self.__logQueue.put_nowait(item)
+            except _queue_module.Full:
+                with self.__droppedLock:
+                    self.__droppedMessages += 1
+        elif policy == 'warn':
+            try:
+                self.__logQueue.put_nowait(item)
+            except _queue_module.Full:
+                with self.__droppedLock:
+                    self.__droppedMessages += 1
+                    dropped = self.__droppedMessages
+                sys.stderr.write(
+                    'pysimplelog WARNING: queue full, record dropped '
+                    '(%d total dropped)\n' % dropped
+                )
+        elif policy == 'raise':
+            # put_nowait raises queue.Full immediately if full —
+            # caller is responsible for catching it
+            self.__logQueue.put_nowait(item)
+
     def __log_to_file(self, message):
         # guard the multi-step check/rotate/open sequence with the rotation lock;
         # capture a stable stream reference before releasing so the write (which
@@ -1599,18 +1976,22 @@ class Logger(object):
             self.__logMessagesCounter[message] += 1
             if countConstraint<=self.__logMessagesCounter[message]:
                 return message
-        # log to stdout
-        log = self._format_message(logType=logType, message=message, data=data, tback=tback)
-        if self.__logToStdout and self.__logTypeStdoutFlags[logType]:
-            self.__log_to_stdout(self.__format_stdout_line(logType, log))
-            if self.__flush:
-                self.__flush_stream(self.__stdout)
-        # log to file
-        if self.__logToFile and self.__logTypeFileFlags[logType]:
-            self.__log_to_file("%s\n"%log)
-            if self.__flush:
-                self.__flush_stream(self.__logFileStream)
-        # set last logged message
+        # format on caller thread so timestamp is captured at call time
+        log      = self._format_message(logType=logType, message=message, data=data, tback=tback)
+        toStdout = self.__logToStdout and self.__logTypeStdoutFlags[logType]
+        toFile   = self.__logToFile   and self.__logTypeFileFlags[logType]
+        if self.__enqueue:
+            self.__put_to_queue((log, logType, toStdout, toFile))
+        else:
+            if toStdout:
+                self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                if self.__flush:
+                    self.__flush_stream(self.__stdout)
+            if toFile:
+                self.__log_to_file("%s\n" % log)
+                if self.__flush:
+                    self.__flush_stream(self.__logFileStream)
+        # set last logged message (on caller thread for immediate visibility)
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
         # always return logged message
@@ -1631,25 +2012,72 @@ class Logger(object):
         :Returns:
             #. message (string): the logged message
         """
-        # log to stdout
+        # format on caller thread so timestamp is captured at call time
         log = self._format_message(logType=logType, message=message, data=data, tback=tback)
-        if stdout:
-            self.__log_to_stdout(self.__format_stdout_line(logType, log))
-            if self.__flush:
-                self.__flush_stream(self.__stdout)
-        if file:
-            # log to file
-            self.__log_to_file("%s\n"%log)
-            if self.__flush:
-                self.__flush_stream(self.__logFileStream)
-        # set last logged message
+        if self.__enqueue:
+            self.__put_to_queue((log, logType, stdout, file))
+        else:
+            if stdout:
+                self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                if self.__flush:
+                    self.__flush_stream(self.__stdout)
+            if file:
+                self.__log_to_file("%s\n" % log)
+                if self.__flush:
+                    self.__flush_stream(self.__logFileStream)
+        # set last logged message (on caller thread for immediate visibility)
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
         # always return logged message
         return message
 
+    def catch(self, func=None, logType='error', reraise=False,
+              message='An exception was caught'):
+        """Decorator and context manager that catches and logs exceptions.
+
+        Can be used in three ways::
+
+            @logger.catch
+            def risky(): ...
+
+            @logger.catch(logType='critical', reraise=True)
+            def risky(): ...
+
+            with logger.catch():
+                risky_code()
+
+        :Parameters:
+            #. func (None, callable): When used as a bare decorator
+               (without parentheses) Python passes the decorated
+               function here. Leave None when calling with options
+               or as a context manager.
+            #. logType (string): The log type used when recording
+               the exception. Must be a defined log type. Default
+               is 'error'.
+            #. reraise (boolean): Whether to re-raise the exception
+               after logging it. When False the exception is
+               suppressed. When True it propagates after logging.
+            #. message (string): Prefix text prepended to the
+               exception description in the log entry.
+
+        :Returns:
+            result: A _CatchContext usable as decorator or context
+            manager, or the wrapped callable for bare-decorator use.
+        """
+        ctx = _CatchContext(self, logType=logType,
+                            reraise=reraise, message=message)
+        if func is not None:
+            return ctx(func)
+        return ctx
+
     def flush(self):
-        """Flush all streams."""
+        """Flush all streams.
+
+        When enqueue mode is active, blocks until all queued log
+        records have been written before flushing the streams.
+        """
+        if self.__enqueue and self.__logQueue is not None:
+            self.__logQueue.join()
         if self.__logFileStream is not None:
             self.__flush_stream(self.__logFileStream)
         if self.__stdout is not None:
