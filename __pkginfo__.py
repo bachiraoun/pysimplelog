@@ -1,10 +1,10 @@
-__version__     = '4.0.0'
+__version__     = '5.0.0'
 
 __author__     = "Bachir Aoun"
 
 __email__      = "bachir.aoun@e-aoun.com"
 
-__onlinedoc__  = "http://bachiraoun.github.io/pysimplelog"
+__onlinedoc__  = "https://bachiraoun.github.io/pysimplelog"
 
 __repository__ = "https://github.com/bachiraoun/pysimplelog"
 

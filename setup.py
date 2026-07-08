@@ -2,7 +2,8 @@
 This script will work from within the main package directory.
 
 python setup.py sdist bdist_wheel
-twine upload dist/pysimplelog-... 
+twine upload dist/pysimplelog-...
+
 
 
 """
@@ -24,8 +25,8 @@ PACKAGE_PATH = '.'
 PACKAGE_NAME = 'pysimplelog'
 
 # check python version
-if sys.version_info[:2] < (2, 7):
-    raise RuntimeError("Python version 2.7 and above is required.")
+if sys.version_info[:2] < (3, 6):
+    raise RuntimeError("Python version 3.6 and above is required.")
 
 # automatically create MANIFEST.in
 commands = [# include MANIFEST.in
@@ -63,7 +64,6 @@ Intended Audience :: Science/Research
 Intended Audience :: Developers
 License :: OSI Approved :: GNU Affero General Public License v3
 Programming Language :: Python
-Programming Language :: Python :: 2.7
 Programming Language :: Python :: 3
 Programming Language :: Python :: 3.6
 Programming Language :: Python :: 3.7
@@ -83,7 +83,7 @@ Operating System :: MacOS
 
 # create descriptions
 LONG_DESCRIPTION = ["This is a pythonic simple yet complete system logger.",
-                    "It allows logging simultaneously to two streams, the first one is the system standard output by default and the second one is designated to be set to a file.",
+                    "It allows logging simultaneously to stdout, a rotating log file, and any number of user-supplied sinks.",
                     "In addition, pysimplelog is text colouring and attributes enabled when the stream allows it.",]
 DESCRIPTION      = [ LONG_DESCRIPTION[0] ]
 
@@ -93,7 +93,7 @@ PACKAGE_INFO = {}
 infoPath = convert_path('__pkginfo__.py')
 with open(infoPath) as fd:
     _src = fd.read()
-for _m in _re.finditer(r"^(__\w+__)\s*=\s*['\"]([^'\"]*)['\"]" , _src, _re.MULTILINE):
+for _m in _re.finditer(r"^(__\w+__)\s*=\s*['\""]([^'\""]*)['\"""]" , _src, _re.MULTILINE):
     PACKAGE_INFO[_m.group(1)] = _m.group(2)
 
 
@@ -106,9 +106,9 @@ metadata = dict(name = PACKAGE_NAME,
                 author_email="bachir.aoun@e-aoun.com",
                 description = "\n".join(DESCRIPTION),
                 long_description = "\n".join(LONG_DESCRIPTION),
-                url = "http://bachiraoun.github.io/pysimplelog/",
-                download_url = "https://github.com/bachiraoun/simplelog",
-                license = 'GNU',
+                url = "https://bachiraoun.github.io/pysimplelog/",
+                download_url = "https://github.com/bachiraoun/pysimplelog",
+                license = 'GNU Affero General Public License v3',
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
                 platforms = ["Windows", "Linux", "Mac OS-X", "Unix"], )
 

@@ -1,10 +1,10 @@
-"""
-Usage
-=====
+"""SimpleLog defines the Logger and SingleLogger classes for multi-sink,
+thread-safe, formatted logging in Python applications.
+
+Usage Examples
+==============
     .. code-block:: python
 
-        # import python 2.7.x 3.x.y compatible print function
-        from __future__ import print_function
         # import Logger
         from pysimplelog import Logger
 
@@ -30,7 +30,7 @@ Usage
 
         # test logging
         l.info("I am info, called using my shortcut method.")
-        l.log("info", "I am  info, called using log method.")
+        l.log("info", "I am info, called using log method.")
 
         l.warn("I am warn, called using my shortcut method.")
         l.log("warn", "I am warn, called using log method.")
@@ -74,8 +74,10 @@ Usage
             l.error('%s (is this python ?)'%err, tback=traceback.extract_stack())
 
 
-output
-======
+
+
+**Output:**
+
 .. raw:: html
 
         <body>
@@ -94,17 +96,17 @@ output
             super critical |SUPER CRITICAL |200.0     |True      |True      |
 
             2018-09-07 16:07:58 - log test &#60INFO&#62 I am info, called using my shortcut method.
-            2018-09-07 16:07:58 - log test &#60INFO&#62 I am  info, called using log method.
+            2018-09-07 16:07:58 - log test &#60INFO&#62 I am info, called using log method.
             2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using my shortcut method.
             2018-09-07 16:07:58 - log test &#60WARNING&#62 I am warn, called using log method.
-            <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></font>
-            <font color="pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></font>
+            <span style="color:pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using my shortcut method.</ins></b></span>
+            <span style="color:pink"><b><ins>2018-09-07 16:07:58 - log test &#60ERROR&#62 I am error, called using log method.</ins></b></span>
             2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I am critical, called using my shortcut method.
-            2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I critical, called using log method.
+            2018-09-07 16:07:58 - log test &#60CRITICAL&#62 I am critical, called using log method.
             2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using my shortcut method.
             2018-09-07 16:07:58 - log test &#60DEBUG&#62 I am debug, called using log method.
-            <font color="red"><b><ins>2018-09-07 16:07:58 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></font>
-            <font color="magenta"><del>2018-09-07 16:07:58 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></font>
+            <span style="color:red"><b><ins>2018-09-07 16:07:58 - log test &#60SUPER CRITICAL&#62 I am super critical, called using log method because I have no shortcut method.</ins></b></span>
+            <span style="color:magenta"><del>2018-09-07 16:07:58 - log test &#60info&#62 I am wrong, called using log method because I have no shortcut method.</del></span>
             <style>mark{background-color: orange}</style><mark><b>2015-11-18 14:25:08 - log test &#60info&#62 I am important, called using log method because I have no shortcut method.</b></mark>
 
             Last logged messages are:
@@ -120,12 +122,270 @@ output
             ====================================
             2018-09-07 16:07:58 - log test <INFO> Check out this data
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-            <font color="pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 unsupported operand type(s) for /: 'int' and 'list' (is this python ?)</ins></b></font>
+            <span style="color:pink"><b><ins>2015-11-18 14:25:08 - log test &#60ERROR&#62 unsupported operand type(s) for /: 'int' and 'list' (is this python ?)</ins></b></span>
             <font color="pink"><b><ins>  File "&#60stdin&#62", line 4, in &#60module&#62</ins></b></font>
 
 
         </pre>
         <body>
+
+
+
+bind() — Structured Context Logging
+=====================================
+    ``bind()`` returns a thin wrapper that prepends key=value context pairs
+    to every message without modifying the underlying logger.  Contexts are
+    immutable and composable — each ``bind()`` call returns a new wrapper.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        l = Logger("api-server", logToFile=False)
+
+        ## attach request-level context once; use the bound logger everywhere
+        def handle_request(requestId, user):
+            log = l.bind(requestId=requestId, user=user)
+            log.info("request received")
+            log.warn("slow query detected")
+
+            ## compose a deeper context for a nested call
+            dbLog = log.bind(table="orders")
+            dbLog.debug("executing query")
+
+        handle_request("abc", "alice")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - api-server <INFO>    [requestId=abc user=alice] request received
+        2024-01-01 12:00:00 - api-server <WARNING>  [requestId=abc user=alice] slow query detected
+        2024-01-01 12:00:00 - api-server <DEBUG>   [requestId=abc user=alice table=orders] executing query
+
+
+catch() — Exception Capture
+=============================
+    ``catch()`` works as a **decorator**, a **parameterised decorator**, or
+    a **context manager**.  It logs the exception and — by default — suppresses
+    it so the application keeps running.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        l = Logger("my-app", logToFile=False)
+
+        ## ── 1. bare decorator — uses defaults (logType='error', reraise=False) ──
+        @l.catch
+        def parse_config(path):
+            with open(path) as fh:
+                return fh.read()
+
+        parse_config("/nonexistent/path")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <ERROR> An exception was caught: [Errno 2] No such file or directory: '/nonexistent/path'
+        Traceback (most recent call last):
+          File "app.py", line 5, in parse_config
+        FileNotFoundError: [Errno 2] No such file or directory: '/nonexistent/path'
+
+    .. code-block:: python
+
+        ## ── 2. parameterised decorator — custom level, re-raise enabled ──────
+        @l.catch(logType="critical", reraise=True)
+        def connect_db(url):
+            raise ConnectionError("timed out")
+
+        try:
+            connect_db("postgres://localhost/mydb")
+        except ConnectionError:
+            l.warn("falling back to read-only replica")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <CRITICAL> An exception was caught: timed out
+        Traceback (most recent call last):
+          File "app.py", line 15, in connect_db
+        ConnectionError: timed out
+
+        2024-01-01 12:00:00 - my-app <WARNING> falling back to read-only replica
+
+    .. code-block:: python
+
+        ## ── 3. context manager — exception suppressed, execution continues ───
+        with l.catch(logType="warn", reraise=False):
+            result = 1 / 0
+
+        l.info("execution continues after suppressed exception")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <WARNING> An exception was caught: division by zero
+        Traceback (most recent call last):
+          File "app.py", line 21, in <module>
+        ZeroDivisionError: division by zero
+
+        2024-01-01 12:00:00 - my-app <INFO> execution continues after suppressed exception
+
+
+add_sink() — Custom Output Sinks
+===================================
+    Any file-like object with a ``write()`` method can be added as a sink.
+    Common uses: capturing logs to an in-memory buffer for testing, writing
+    to a network socket, or tee-ing to a secondary log file.
+
+    .. code-block:: python
+
+        import io
+        from pysimplelog import Logger
+
+        l = Logger("my-app", logToFile=False)
+
+        ## ── in-memory sink (useful in tests) ─────────────────────────────────
+        buffer = io.StringIO()
+        l.add_sink("memory", buffer)
+
+        l.info("hello buffer")
+        l.error("something went wrong")
+
+    **Output (stdout):**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <INFO>  hello buffer
+        2024-01-01 12:00:00 - my-app <ERROR> something went wrong
+
+    .. code-block:: python
+
+        ## buffer captured the same records (no ANSI codes, plain text)
+        print(buffer.getvalue())
+
+    **Output (buffer.getvalue()):**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <INFO>  hello buffer
+        2024-01-01 12:00:00 - my-app <ERROR> something went wrong
+
+    .. code-block:: python
+
+        ## ── secondary log file ────────────────────────────────────────────────
+        audit = open("audit.log", "a")
+        l.add_sink("audit", audit)
+        l.warn("this goes to stdout, buffer, AND audit.log")
+
+        ## ── remove a sink when no longer needed ───────────────────────────────
+        l.remove_sink("memory")
+        l.info("this no longer goes to the in-memory buffer")
+        audit.close()
+
+    **Output (stdout, after remove_sink):**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <WARNING> this goes to stdout, buffer, AND audit.log
+        2024-01-01 12:00:00 - my-app <INFO>    this no longer goes to the in-memory buffer
+
+
+enqueue — Non-blocking Mode
+==============================
+    Set ``enqueue=True`` to route all I/O through a background daemon thread.
+    The calling thread returns immediately after each ``log()`` call.
+    Call ``flush()`` before process exit to drain the queue.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        ## enqueue=True — log calls return in microseconds regardless of I/O load
+        l = Logger("worker", enqueue=True, logToFile=False)
+
+        for i in range(3):
+            l.info("processed item %d" % i)
+            ## returns immediately; I/O happens in the background thread
+
+        ## block until all records have been written
+        l.flush()
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - worker <INFO> processed item 0
+        2024-01-01 12:00:00 - worker <INFO> processed item 1
+        2024-01-01 12:00:00 - worker <INFO> processed item 2
+
+    .. code-block:: python
+
+        ## ── queue backpressure controls ───────────────────────────────────────
+
+        ## drop records silently when queue is full
+        l2 = Logger("bounded", enqueue=True, logToFile=False,
+                    maxQueueSize=500, queueFullPolicy="drop")
+
+        ## warn on stderr when a record is dropped
+        l3 = Logger("noisy", enqueue=True, logToFile=False,
+                    maxQueueSize=100, queueFullPolicy="warn")
+
+        ## block the caller until a slot is free (2-second deadline)
+        l4 = Logger("blocking", enqueue=True, logToFile=False,
+                    maxQueueSize=100, queueFullPolicy="block",
+                    queueBlockTimeout=2.0)
+
+        l2.flush(); l3.flush(); l4.flush()
+
+    **Output (stderr, when queue is full with policy="warn"):**
+
+    .. code-block:: text
+
+        pysimplelog WARNING: queue full, record dropped (1 total dropped)
+
+
+callerInfo — Caller Tagging
+==============================
+    Set ``callerInfo=True`` to prepend the source file, line number, and
+    function name to every log message automatically.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        l = Logger("my-app", callerInfo=True, logToFile=False)
+
+        def process_order(orderId):
+            l.info("processing order %s" % orderId)
+
+        process_order(42)
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <INFO> [orders.py:5 in process_order] processing order 42
+
+    .. code-block:: python
+
+        ## combine with bind() — caller tag and context both appear
+        def handle_request(requestId):
+            log = l.bind(requestId=requestId)
+            log.debug("request started")
+
+        handle_request("req-001")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <DEBUG> [handler.py:3 in handle_request] [requestId=req-001] request started
+
 
 """
 # python standard distribution imports
@@ -171,6 +431,7 @@ _SINK_FILE   =  0   # key for the built-in file sink
 
 # useful definitions
 def _is_number(number):
+    """Return True if value can be interpreted as a Python number."""
     if isinstance(number, (int, long, float, complex)):
         return True
     try:
@@ -181,6 +442,7 @@ def _is_number(number):
         return True
 
 def _normalize_path(path):
+    """Normalise backslash sequences in a file path for Windows compatibility."""
     if os.sep=='\\':
         path = re.sub(r'([\\])\1+', r'\1', path).replace('\\','\\\\')
     return path
@@ -199,7 +461,7 @@ def _get_caller_str():
     Only called when Logger.callerInfo is True.
 
     :Returns:
-        result (str): e.g. '[routes.py:142 in handle_request] ' including
+        #. result (str): e.g. '[routes.py:142 in handle_request] ' including
         trailing space so it sits neatly before the message. Returns an
         empty string if the frame cannot be determined.
     """
@@ -233,7 +495,7 @@ def _sanitize_message(message):
     CRLF sequences are preserved; only bare CR (without following LF) is removed.
 
     :Parameters:
-        #. message: The raw message value from the caller.
+        #. message (str, object): The raw message value from the caller.
 
     :Returns:
         result (str): Sanitized string. Non-strings are coerced via '%s'
@@ -585,16 +847,39 @@ class Logger(object):
     In order to change any of the header or the footer, '_get_header' and '_get_footer'
     methods must be overloaded.
 
-    When used in a python application, it is advisable to use Logger singleton
-    implementation and not Logger itself.
-    if no overloading is needed one can simply import the singleton as the following:
+    When used in a Python application, it is advisable to use the Logger singleton
+    implementation rather than Logger itself. If no subclassing is needed, simply
+    import the singleton:
 
     .. code-block:: python
 
         from pysimplelog import SingleLogger as Logger
 
 
-    A new Logger instanciates with the following logType list (logTypes <NAME>: level)
+    Basic usage example:
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        ## create a logger instance
+        l = Logger("my-app")
+
+        ## log at built-in levels
+        l.info("application started")
+        l.warn("disk usage above 80 percent")
+        l.error("connection refused")
+
+        ## add a custom log type
+        l.add_log_type("trace", name="TRACE", level=5, color="cyan")
+        l.log("trace", "entering request handler")
+
+        ## bind context for structured logging
+        requestLogger = l.bind(requestId="abc123", user="alice")
+        requestLogger.info("request received")
+
+
+    A new Logger instantiates with the following logType list (logTypes <NAME>: level)
 
        * debug <DEBUG>: 0
        * info <INFO>: 10
@@ -612,7 +897,7 @@ class Logger(object):
         class Logger(LOG):
             # *args and **kwargs can be replace by fixed arguments
             def custom_init(self, *args, **kwargs):
-                # hereinafter any further instanciation can be coded
+                # hereinafter any further instantiation can be coded
 
 
 
@@ -627,7 +912,7 @@ class Logger(object):
             def __init__(self, *args, **kwargs):
                 if self._isInitialized: return
                 super(Logger, self).__init__(*args, **kwargs)
-                # hereinafter any further instanciation can be coded
+                # hereinafter any further instantiation can be coded
 
 
     :Parameters:
@@ -655,11 +940,11 @@ class Logger(object):
           indefinitely
        #. logFileFirstNumber (None, integer): first log file number 'N' in
           logFileBasename_N.logFileExtension. If None is given then
-          first log file will be logFileBasename.logFileExtension and ince
+          first log file will be logFileBasename.logFileExtension and once
           logFileMaxSize is reached second log file will be
           logFileBasename_0.logFileExtension and so on and so forth.
           If number is given it must be an integer >=0
-       #. logFileRoll (None, intger): If given, it sets the maximum number of
+       #. logFileRoll (None, integer): If given, it sets the maximum number of
           log files to write. Exceeding the number will result in deleting
           previous ones. This also insures always increasing files numbering.
        #. stdoutMinLevel(None, number): The minimum logging to system standard
@@ -761,7 +1046,7 @@ class Logger(object):
         # inserted at the END of __init__ (Phase 3 block).
         self.__sinks       = {}
         self.__activeSinks = {}
-        # instanciate file stream
+        # instantiate file stream
         self.__logFileStream = None
         # rotation lock — guards the multi-step check/rotate/open sequence
         self.__rotationLock = threading.RLock()
@@ -835,7 +1120,7 @@ class Logger(object):
                 ltv = logTypes[lt]
                 if ltv is None:
                     ltv = {}
-                if not self.is_logType(lt):
+                if not self.is_log_type(lt):
                     self.add_log_type(lt, **ltv)
                 elif len(ltv):
                     self.update_log_type(lt, **ltv)
@@ -957,8 +1242,8 @@ class Logger(object):
 
     def __stream_format_allowed(self, stream):
         """
-        Check whether a stream allows formatting such as coloring.
-        Inspired from Python cookbook, #475186
+        Check whether a stream supports ANSI colour formatting.
+        Approach adapted from the Python Cookbook (recipe 475186).
         """
         # curses isn't available on all platforms
         try:
@@ -972,6 +1257,12 @@ class Logger(object):
             return False
 
     def __get_stream_fonts_attributes(self, stream):
+        """Return a dict of ANSI escape codes for colour, highlight, and text attributes.
+
+        Keys are 'color', 'highlight', 'attributes', and 'reset'. Values are
+        dicts mapping human-readable names to ANSI code strings. All code
+        strings are empty when the stream does not support formatting.
+        """
         # foreground color
         fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
         fgCode  = [str(idx) for idx in range(30,38,1)]
@@ -998,6 +1289,14 @@ class Logger(object):
         return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
 
     def _flush_atexit_logfile(self):
+        """Drain the queue and flush all open streams at Python interpreter shutdown.
+
+        Registered with atexit at the end of __init__. Sends the stop sentinel
+        to the background worker thread (if enqueue mode is active) and waits
+        up to 5 seconds for it to finish. Then flushes and closes the log file
+        stream, and flushes any user-supplied sinks (their lifecycle is owned
+        by the caller, so they are flushed but never closed here).
+        """
         if self.__enqueue and self.__logQueue is not None:
             self.__logQueue.put(_QUEUE_STOP)
             self.__logWorker.join(timeout=5)
@@ -1011,40 +1310,39 @@ class Logger(object):
 
     @property
     def lastLogged(self):
-        """Get a dictionary of last logged messages.
-        Keys are log types and values are the the last messages."""
+        """Return a dictionary of the last logged message for each log type."""
         d = copy.deepcopy(self.__lastLogged)
         d.pop(-1, None)
         return d
 
     @property
     def lastLoggedMessage(self):
-        """Get last logged message of any type. Retuns None if no message was logged."""
+        """Get last logged message of any type. Returns None if no message was logged."""
         return self.__lastLogged.get(-1, None)
 
     @property
     def lastLoggedDebug(self):
-        """Get last logged message of type 'debug'. Retuns None if no message was logged."""
+        """Get last logged message of type 'debug'. Returns None if no message was logged."""
         return self.__lastLogged.get('debug', None)
 
     @property
     def lastLoggedInfo(self):
-        """Get last logged message of type 'info'. Retuns None if no message was logged."""
+        """Get last logged message of type 'info'. Returns None if no message was logged."""
         return self.__lastLogged.get('info', None)
 
     @property
     def lastLoggedWarning(self):
-        """Get last logged message of type 'warn'. Retuns None if no message was logged."""
+        """Get last logged message of type 'warn'. Returns None if no message was logged."""
         return self.__lastLogged.get('warn', None)
 
     @property
     def lastLoggedError(self):
-        """Get last logged message of type 'error'. Retuns None if no message was logged."""
+        """Get last logged message of type 'error'. Returns None if no message was logged."""
         return self.__lastLogged.get('error', None)
 
     @property
     def lastLoggedCritical(self):
-        """Get last logged message of type 'critical'. Retuns None if no message was logged."""
+        """Get last logged message of type 'critical'. Returns None if no message was logged."""
         return self.__lastLogged.get('critical', None)
 
     @property
@@ -1118,7 +1416,7 @@ class Logger(object):
 
     @property
     def logTypes(self):
-        """list of all defined log types."""
+        """List of all defined log types."""
         return list(self.__logTypeNames)
 
     @property
@@ -1148,12 +1446,12 @@ class Logger(object):
 
     @property
     def fileMinLevel(self):
-        """file logging minimum level."""
+        """File logging minimum level."""
         return self.__fileMinLevel
 
     @property
     def fileMaxLevel(self):
-        """file logging maximum level."""
+        """File logging maximum level."""
         return self.__fileMaxLevel
 
     @property
@@ -1283,7 +1581,7 @@ class Logger(object):
 
     @property
     def timezone(self):
-        """The timezone if given"""
+        """The active timezone name as a string, or None if using the machine default."""
         timezone = self.__timezone
         if timezone is not None:
             timezone = timezone.zone
@@ -1291,12 +1589,12 @@ class Logger(object):
 
     @property
     def _timezone(self):
+        """Internal pytz timezone object, or None if using the machine default."""
         return self.__timezone
 
     @property
     def logMessagesCounter(self):
-        """Counter look up table for all logged messages that were
-        count constrainted"""
+        """Counter look-up table for logged messages that have a count constraint applied."""
         return self.__logMessagesCounter
 
     def set_caller_info(self, callerInfo):
@@ -1408,12 +1706,12 @@ class Logger(object):
 
     def set_timezone(self, timezone):
         """
-        Set logging timezone
+        Set the logging timezone.
 
         :Parameters:
-            #. timezone (None, str): Logging time timezone. If provided
+            #. timezone (None, str): Logging time timezone. If provided,
                pytz must be installed and it must be the timezone name. If not
-               provided, the machine default timezone will be used
+               provided, the machine default timezone will be used.
         """
         if timezone is not None:
             if not isinstance(timezone, basestring):
@@ -1422,20 +1720,35 @@ class Logger(object):
             timezone = pytz.timezone(timezone)
         self.__timezone = timezone
 
-    def is_logType(self, logType):
-        """
-        Get whether given logType is defined or not
+    def is_log_type(self, logType):
+        """Return True if the given log type has been defined, False otherwise.
 
         :Parameters:
-           #. logType (string): A defined logging type.
+           #. logType (string): The log type name to check.
 
-        :Result:
-           #. result (boolean): Whether given logType is defined or not
+        :Returns:
+           #. result (boolean): True when logType is a registered log type.
         """
         try:
             return logType in self.__logTypeNames
         except Exception:
             return False
+
+    def is_logType(self, logType):
+        """Deprecated alias for is_log_type().
+
+        .. deprecated::
+            Use ``is_log_type(logType)`` instead. This camelCase alias will
+            be removed in the next major version.
+        """
+        import warnings
+        warnings.warn(
+            "is_logType() is deprecated and will be removed in the next major "
+            "version. Use is_log_type() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.is_log_type(logType)
 
     def update(self, **kwargs):
         """Update logger general parameters using key value pairs.
@@ -1543,8 +1856,8 @@ class Logger(object):
 
     def custom_init(self, *args, **kwargs):
         """
-        Custom initialize abstract method. This method will be called  at the end of
-        initialzation. This method needs to be overloaded to custom initialize
+        Custom initialize abstract method. This method is called at the end of
+        initialization. Override it to perform application-specific setup on
         Logger instances.
 
         :Parameters:
@@ -1582,9 +1895,9 @@ class Logger(object):
         Set the logger standard output stream.
 
         :Parameters:
-           #. stdout (None, stream): The standard output stream. If None, system standard
-              output will be set automatically. Otherwise any stream with read and write
-              methods can be passed
+           #. stream (None, stream): The standard output stream. If None, system standard
+              output will be set automatically. Otherwise any object with read and write
+              methods can be passed.
         """
         if stream is None:
             self.__stdout = sys.stdout
@@ -1857,7 +2170,7 @@ class Logger(object):
         :Parameters:
             #. logFileFirstNumber (None, integer): first log file number 'N' in
                logFileBasename_N.logFileExtension. If None is given then
-               first log file will be logFileBasename.logFileExtension and ince
+               first log file will be logFileBasename.logFileExtension and once
                logFileMaxSize is reached second log file will be
                logFileBasename_0.logFileExtension and so on and so forth.
                If number is given it must be an integer >=0
@@ -2304,7 +2617,7 @@ class Logger(object):
            #. attributes (None, string): The logging text attribute. The defined attributes are:\n
               bold , underline , blink , invisible , strike through
 
-        **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
+        **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
         """
         # check logType
         if not isinstance(logType, basestring):
@@ -2415,7 +2728,7 @@ class Logger(object):
            #. attributes (None, string): The logging text attribute. The defined attributes are:\n
               bold , underline , blink , invisible , strike through
 
-        **N.B** *logging color, highlight and attributes are not allowed on all types of streams.*
+        **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
         """
         # check logType
         if logType not in self.__logTypeStdoutFlags:
@@ -2434,6 +2747,28 @@ class Logger(object):
                             color=color, highlight=highlight, attributes=attributes)
 
     def _format_message(self, logType, message, data, tback, callerStr=''):
+        """Build the complete formatted log record string.
+
+        Called by both log() and force_log() immediately before dispatch.
+        Subclasses may override this method to change the overall record
+        layout while keeping the built-in routing, level filtering, and
+        sink dispatch unchanged.
+
+        :Parameters:
+            #. logType (string): A registered log type name.
+            #. message (string): The sanitized message text.
+            #. data (None, object): Optional data payload; appended after
+               the message on a new line when not None.
+            #. tback (None, str, list): Optional traceback. A string is
+               appended as-is; a list of (filename, lineno, name, line)
+               tuples is formatted like a standard Python traceback.
+            #. callerStr (string): Pre-formatted caller tag produced by
+               _get_caller_str(), or an empty string when callerInfo is False.
+
+        :Returns:
+            #. result (string): The fully formatted log record ready for
+               dispatch to all active sinks.
+        """
         message  = _sanitize_message(message)
         if self.__maxMessageSize is not None and len(message) > self.__maxMessageSize:
             message = message[:self.__maxMessageSize] + '[truncated]'
@@ -2461,13 +2796,50 @@ class Logger(object):
         return "%s%s%s%s%s%s" %(header, callerStr, message, footer, dataStr, tbackStr)
 
     def _get_datetimestamp(self, format='%Y-%m-%d %H:%M:%S'):
+        """Return the current date-time as a formatted string.
+
+        Override this method in a subclass to change the timestamp format
+        or source (e.g. to use UTC regardless of the instance timezone).
+
+        :Parameters:
+            #. format (string): A strftime-compatible format string.
+               Default is '%Y-%m-%d %H:%M:%S'.
+
+        :Returns:
+            #. result (string): The formatted datetime stamp.
+        """
         return datetime.strftime(datetime.now(self.__timezone), format)
 
     def _get_header(self, logType, message):
+        """Return the header string prepended to each log record.
+
+        The default format is ``'YYYY-MM-DD HH:MM:SS - loggerName <LOGTYPE> '``.
+        Override in a subclass to produce a custom header layout.
+
+        :Parameters:
+            #. logType (string): A registered log type name.
+            #. message (string): The message text (available for context
+               but not included in the default header).
+
+        :Returns:
+            #. result (string): The header string including a trailing space.
+        """
         dateTime = self._get_datetimestamp()
         return "%s - %s <%s> "%(dateTime, self.__name, self.__logTypeNames[logType])
 
     def _get_footer(self, logType, message):
+        """Return the footer string appended to each log record.
+
+        Returns an empty string by default. Override in a subclass to append
+        structured metadata, record separators, or any fixed suffix.
+
+        :Parameters:
+            #. logType (string): A registered log type name.
+            #. message (string): The message text.
+
+        :Returns:
+            #. result (string): The footer string, or an empty string for no footer.
+        """
         return ""
 
     def __enqueue_worker(self):
@@ -2665,34 +3037,30 @@ class Logger(object):
         return "%s%s%s\n" % (fmt[0], log, fmt[1])
 
     def is_enabled_for_stdout(self, logType):
-        """Get whether given logtype is enabled for standard output logging.
-        When a logType is not enabled, calling for log will return without
-        logging.
-        This method will check general standard output logging flag and given
-        logType standard output flag. For a logType to log it must have both
-        flags set to True
+        """Return True if the given log type is enabled for standard output logging.
+
+        Both the global stdout flag and the per-type stdout flag must be True
+        for the log type to produce any stdout output.
 
         :Parameters:
            #. logType (string): A defined logging type.
 
         :Returns:
-           #. enabled (bool): whehter enabled or not.
+           #. enabled (bool): Whether stdout output is active for this log type.
         """
         return self.__logToStdout and self.__logTypeStdoutFlags[logType]
 
     def is_enabled_for_file(self, logType):
-        """Get whether given logtype is enabled for file logging.
-        When a logType is not enabled, calling for log will return without
-        logging.
-        This method will check general file logging flag and given
-        logType file flag. For a logType to log it must have both
-        flags set to True
+        """Return True if the given log type is enabled for file logging.
+
+        Both the global file flag and the per-type file flag must be True
+        for the log type to produce any file output.
 
         :Parameters:
            #. logType (string): A defined logging type.
 
         :Returns:
-           #. enabled (bool): whehter enabled or not.
+           #. enabled (bool): Whether file output is active for this log type.
         """
         return self.__logToFile and self.__logTypeFileFlags[logType]
 
@@ -2724,7 +3092,7 @@ class Logger(object):
 
     def log(self, logType, message, data=None, tback=None, countConstraint=None):
         """
-        log a message of a certain logtype.
+        Log a message of the specified log type.
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -2796,8 +3164,10 @@ class Logger(object):
         :Parameters:
            #. logType (string): A defined logging type.
            #. message (string): Any message to log.
+           #. data (None, object): Optional data payload to append after the
+              log message on a new line.
            #. tback (None, str, list): Stack traceback to print and/or write to
-              log file. In general, this should be traceback.extract_stack
+              log file. In general, this should be traceback.extract_stack.
            #. stdout (boolean): Whether to force logging to standard output.
            #. file (boolean): Whether to force logging to file.
 
@@ -2893,12 +3263,12 @@ class Logger(object):
         and return new _BoundLogger instances.
 
         :Parameters:
-            #. **context: Arbitrary key-value pairs. Keys should be
+            #. context (dict): Arbitrary keyword key-value pairs. Keys should be
                valid Python identifiers for readability, but any string
                key is accepted. Values are coerced to str at log time.
 
         :Returns:
-            result (_BoundLogger): An immutable context-aware wrapper
+            #. result (_BoundLogger): An immutable context-aware wrapper
             around this Logger.
         """
         return _BoundLogger(self, context)
@@ -2925,51 +3295,80 @@ class Logger(object):
                     self.__flush_stream(sink.handler)
 
     def info(self, message, *args, **kwargs):
-        """alias to message at information level"""
+        """Log at information level (alias for log('info', ...))."""
         return self.log("info", message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
-        """alias to message at information level"""
+        """Log at information level (alias for log('info', ...))."""
         return self.log("info", message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
-        """alias to message at warning level"""
+        """Log at warning level (alias for log('warn', ...))."""
         return self.log("warn", message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        """alias to message at warning level"""
+        """Log at warning level (alias for log('warn', ...))."""
         return self.log("warn", message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        """alias to message at error level"""
+        """Log at error level (alias for log('error', ...))."""
         return self.log("error", message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        """alias to message at critical level"""
+        """Log at critical level (alias for log('critical', ...))."""
         return self.log("critical", message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        """alias to message at debug level"""
+        """Log at debug level (alias for log('debug', ...))."""
         return self.log("debug", message, *args, **kwargs)
 
 
 
 class SingleLogger(Logger):
-    """
-    This is singleton implementation of Logger class.
+    """Singleton implementation of Logger.
+
+    The first instantiation creates the shared Logger instance and performs
+    full initialisation. Every subsequent instantiation with any arguments
+    returns that same instance without re-initialising it. This guarantees
+    that all modules in an application share one consistent logging
+    configuration without passing a logger object around explicitly.
+
+    To customise the logger, subclass SingleLogger and override custom_init()
+    rather than __init__:
+
+    .. code-block:: python
+
+        from pysimplelog import SingleLogger as LOG
+
+        class AppLogger(LOG):
+            def custom_init(self, *args, **kwargs):
+                ## add application-specific log types here
+                self.add_log_type("trace", name="TRACE", level=5)
+
+        ## First call — creates and initialises the singleton.
+        logger = AppLogger("my-app")
+        logger.info("application started")
+
+        ## Second call — returns the existing instance; arguments are ignored.
+        same_logger = AppLogger()
+        assert same_logger is logger
     """
     __thisInstance = None
+
     def __new__(cls, *args, **kwds):
+        """Return the singleton instance, creating it on the first call."""
         if cls.__thisInstance is None:
-            cls.__thisInstance = super(SingleLogger,cls).__new__(cls)
+            cls.__thisInstance = super(SingleLogger, cls).__new__(cls)
             cls.__thisInstance._isInitialized = False
         return cls.__thisInstance
 
     def __init__(self, *args, **kwargs):
-        if (self._isInitialized): return
-        # initialize
+        """Initialise the singleton on the first call; no-op on subsequent calls."""
+        if self._isInitialized:
+            return
+        ## initialize
         super(SingleLogger, self).__init__(*args, **kwargs)
-        # update flag
+        ## update flag
         self._isInitialized = True
 
 
