@@ -628,9 +628,6 @@ class _BoundLogger(object):
             #. context (dict): Key-value pairs to prepend to every
                message. Values are converted to strings at prefix-build
                time via str().
-
-        :Returns:
-            result (None): Nothing.
         """
         self.__parent  = parent
         self.__context = dict(context)   # defensive copy -- never mutate
@@ -1607,9 +1604,6 @@ class Logger(object):
         :Parameters:
             #. callerInfo (boolean): True to prepend
                ``[file:line in func]`` to each message, False to disable.
-
-        :Returns:
-            result (None): Nothing.
         """
         if not isinstance(callerInfo, bool):
             raise TypeError("callerInfo must be a boolean")
@@ -1626,9 +1620,6 @@ class Logger(object):
             #. maxQueueSize (None, integer): Maximum queue depth. Must be
                a positive integer or None. Zero is not accepted because it
                is ambiguous (CPython treats Queue(maxsize=0) as unbounded).
-
-        :Returns:
-            result (None): Nothing.
         """
         if maxQueueSize is not None:
             if not isinstance(maxQueueSize, int) or isinstance(maxQueueSize, bool):
@@ -1667,9 +1658,6 @@ class Logger(object):
                ``'raise'``  -- raises queue.Full to the caller. The caller
                must handle the exception. Useful when the caller has its
                own retry or circuit-breaker logic.
-
-        :Returns:
-            result (None): Nothing.
         """
         validPolicies = ('block', 'drop', 'warn', 'raise')
         if not isinstance(queueFullPolicy, basestring):
@@ -1693,9 +1681,6 @@ class Logger(object):
                record is dropped, droppedMessages is incremented, and one
                warning line is written to stderr. Has no effect when
                queueFullPolicy is not ``'block'``.
-
-        :Returns:
-            result (None): Nothing.
         """
         if queueBlockTimeout is not None:
             if not _is_number(queueBlockTimeout):
@@ -2367,9 +2352,6 @@ class Logger(object):
         the flags, so this method only needs to read enabled + flags.
         For user-added sinks the same invariant is maintained by
         add_sink() and set_log_type_sink_flag().
-
-        :Returns:
-            result (None): Writes self.__activeSinks. No return value.
         """
         result = {}
         for logType in self.__logTypeNames:
@@ -2416,9 +2398,6 @@ class Logger(object):
             #. logTypeFlags (dict, None): Per-type override map
                {logType (str): bool}. Missing keys default to True.
                None means all types enabled.
-
-        :Returns:
-            result (None): Nothing.
         """
         if not isinstance(name, basestring):
             raise TypeError("sink name must be a non-empty string")
@@ -2459,9 +2438,6 @@ class Logger(object):
         :Parameters:
             #. name (str): The key used when the sink was registered
                with add_sink().
-
-        :Returns:
-            result (None): Nothing.
         """
         if not isinstance(name, basestring):
             raise TypeError("sink name must be a string")
@@ -2476,9 +2452,6 @@ class Logger(object):
         The two built-in sinks (_SINK_STDOUT and _SINK_FILE) are
         always preserved. This is a no-op if no user sinks are
         registered.
-
-        :Returns:
-            result (None): Nothing.
         """
         userKeys = [k for k in self.__sinks if isinstance(k, basestring)]
         for k in userKeys:
@@ -2926,9 +2899,6 @@ class Logger(object):
             #. item (tuple): The log record tuple — either a 3-tuple
                (log, logType, sinks) from log() or a 4-tuple
                (log, logType, toStdout, toFile) from force_log().
-
-        :Returns:
-            result (None): Nothing.
         """
         # unbounded queue — fast path, no policy needed
         if self.__maxQueueSize is None:

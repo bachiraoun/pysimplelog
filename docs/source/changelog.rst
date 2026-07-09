@@ -1,8 +1,8 @@
 Changelog
 =========
 
-4.0.0
------
+5.x
+---
 
 * Added non-blocking enqueue mode (``enqueue=True``).
 * Added ``bind()`` for structured context logging.
