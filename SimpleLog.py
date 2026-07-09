@@ -392,26 +392,13 @@ callerInfo — Caller Tagging
 import os, sys, copy, re, atexit, threading, traceback, functools, inspect
 from datetime import datetime
 
-# python 2/3 queue compatibility
-if sys.version_info >= (3, 0):
-    import queue as _queue_module
-else:
-    import Queue as _queue_module
+import queue as _queue_module
 
-# python version dependant imports
-if sys.version_info >= (3, 0):
-    # This is python 3
-    str        = str
-    long       = int
-    unicode    = str
-    bytes      = bytes
-    basestring = str
-else:
-    str        = str
-    unicode    = unicode
-    bytes      = str
-    long       = long
-    basestring = basestring
+# Python 2 compatibility aliases — kept so that isinstance(x, basestring)
+# and isinstance(x, long) calls continue to work in any subclasses that
+# were written when Python 2 was still supported.
+long       = int
+basestring = str
 
 # import pysimplelog version
 try:
@@ -1191,6 +1178,7 @@ class Logger(object):
         atexit.register(self._flush_atexit_logfile)
 
     def __str__(self):
+        """Return a formatted configuration table for this Logger instance."""
         # create version
         string  = self.__class__.__name__+" (Version "+str(__version__)+")"
         string += "\n - Log To Stdout: Flag (%s) - Min Level (%s) - Max Level (%s)"%(self.__logToStdout,self.__stdoutMinLevel,self.__stdoutMaxLevel)
@@ -1426,17 +1414,17 @@ class Logger(object):
 
     @property
     def logLevels(self):
-        """dictionary copy of all defined log types levels."""
+        """Dictionary copy of all defined log types levels."""
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
     def logTypeFileFlags(self):
-        """dictionary copy of all defined log types logging to a file flags."""
+        """Dictionary copy of all defined log types logging to a file flags."""
         return copy.deepcopy(self.__logTypeFileFlags)
 
     @property
     def logTypeStdoutFlags(self):
-        """dictionary copy of all defined log types logging to Standard output flags."""
+        """Dictionary copy of all defined log types logging to Standard output flags."""
         return copy.deepcopy(self.__logTypeStdoutFlags)
 
     @property
@@ -1461,32 +1449,32 @@ class Logger(object):
 
     @property
     def forcedStdoutLevels(self):
-        """dictionary copy of forced flags of logging to standard output."""
+        """Dictionary copy of forced flags of logging to standard output."""
         return copy.deepcopy(self.__forcedStdoutLevels)
 
     @property
     def forcedFileLevels(self):
-        """dictionary copy of forced flags of logging to file."""
+        """Dictionary copy of forced flags of logging to file."""
         return copy.deepcopy(self.__forcedFileLevels)
 
     @property
     def logTypeNames(self):
-        """dictionary copy of all defined log types logging names."""
+        """Dictionary copy of all defined log types logging names."""
         return copy.deepcopy(self.__logTypeNames)
 
     @property
     def logTypeLevels(self):
-        """dictionary copy of all defined log types levels showing when logging."""
+        """Dictionary copy of all defined log types levels showing when logging."""
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
     def logTypeFormat(self):
-        """dictionary copy of all defined log types format showing when logging."""
+        """Dictionary copy of all defined log types format showing when logging."""
         return copy.deepcopy(self.__logTypeFormat)
 
     @property
     def name(self):
-        """logger name."""
+        """Logger name."""
         return self.__name
 
     @property
@@ -1551,32 +1539,32 @@ class Logger(object):
 
     @property
     def logFileName(self):
-        """currently used log file name."""
+        """Currently used log file name."""
         return self.__logFileName
 
     @property
     def logFileBasename(self):
-        """log file basename."""
+        """Log file basename."""
         return self.__logFileBasename
 
     @property
     def logFileExtension(self):
-        """log file extension."""
+        """Log file extension."""
         return self.__logFileExtension
 
     @property
     def logFileMaxSize(self):
-        """maximum allowed logfile size in megabytes."""
+        """Maximum allowed logfile size in megabytes."""
         return self.__logFileMaxSize
 
     @property
     def logMessageMaxSize(self):
-        """maximum allowed message character count. None means no limit."""
+        """Maximum allowed message character count. None means no limit."""
         return self.__maxMessageSize
 
     @property
     def logDataMaxSize(self):
-        """maximum allowed data string character count. None means no limit."""
+        """Maximum allowed data string character count. None means no limit."""
         return self.__maxDataSize
 
     @property
@@ -1724,6 +1712,8 @@ class Logger(object):
 
         :Raises:
             #. TypeError: If *timezone* is not a string or None.
+            #. pytz.exceptions.UnknownTimeZoneError: If *timezone* is a string
+               that does not match any timezone known to pytz.
         """
         if timezone is not None:
             if not isinstance(timezone, basestring):
@@ -2073,6 +2063,9 @@ class Logger(object):
         :Parameters:
            #. logFileBasename (string): Logging file directory path and file basename.
               A logging file full name is set as logFileBasename.logFileExtension
+
+        :Raises:
+            #. TypeError: If *logFileBasename* is not a string.
         """
         self.__set_log_file_basename(logFileBasename)
         # set log file name
@@ -2403,6 +2396,7 @@ class Logger(object):
         self.__update_file_flags()
 
     def __update_stdout_flags(self):
+        """Recompute per-logType stdout routing flags from current level bounds."""
         stdoutkeys = list(self.__forcedStdoutLevels)
         for logType, l in self.__logTypeLevels.items():
             if logType not in stdoutkeys:
@@ -2413,6 +2407,7 @@ class Logger(object):
             self.__rebuild_active_sinks()
 
     def __update_file_flags(self):
+        """Recompute per-logType file routing flags from current level bounds."""
         filekeys = list(self.__forcedFileLevels)
         for logType, l in self.__logTypeLevels.items():
             if logType not in filekeys:
@@ -2461,6 +2456,44 @@ class Logger(object):
                 activeSinks.append(sink)
             result[logType] = activeSinks
         self.__activeSinks = result
+
+    def __dispatch_sinks_sync(self, sinks, log, logType):
+        """Dispatch a formatted log record to a list of sinks synchronously.
+
+        Called by both log() on the synchronous path and __enqueue_worker()
+        inside the background thread. Each sink type is handled in turn:
+        file sinks write via __log_to_file, user sinks call handler.write(),
+        and stdout sinks call __log_to_stdout. Errors from user-supplied
+        handlers are caught and reported to stderr without stopping dispatch.
+
+        :Parameters:
+            #. sinks (list): List of _Sink objects to dispatch to.
+            #. log (string): The fully formatted log record string.
+            #. logType (string): The log type name, used for stdout colour formatting.
+        """
+        for sink in sinks:
+            if sink.sinkType == 'file':
+                self.__log_to_file("%s\n" % log)
+                if self.__flush:
+                    self.__flush_stream(self.__logFileStream)
+            elif sink.sinkType == 'user':
+                try:
+                    sink.handler.write("%s\n" % log)
+                    if self.__flush:
+                        self.__flush_stream(sink.handler)
+                except Exception as sinkError:
+                    # catch any error a user-supplied handler raises:
+                    # we must never let a custom sink crash the caller or
+                    # worker thread, but we do emit one warning line so the
+                    # caller knows their sink is broken (mirrors the queue-drop pattern)
+                    sys.stderr.write(
+                        'pysimplelog WARNING: user sink write failed'
+                        ', record dropped. Error: %s\n' % sinkError
+                    )
+            else:  # stdout
+                self.__log_to_stdout(self.__format_stdout_line(logType, log))
+                if self.__flush:
+                    self.__flush_stream(sink.handler)
 
     def add_sink(self, name, handler, enabled=True,
                  minLevel=None, maxLevel=None, logTypeFlags=None):
@@ -2565,8 +2598,12 @@ class Logger(object):
 
         :Parameters:
            #. logType (string): A defined logging type.
-           #. flag (None boolean): The standard output logging flag.
+           #. flag (None, boolean): The standard output logging flag.
               If None, logtype existing forced flag is released.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *flag* is not a boolean or None.
         """
         if logType not in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' not defined" %logType)
@@ -2589,6 +2626,10 @@ class Logger(object):
            #. logType (string): A defined logging type.
            #. flag (None, boolean): The file logging flag.
               If None, logtype existing forced flag is released.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *flag* is not a boolean or None.
         """
         if logType not in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' not defined" %logType)
@@ -2613,6 +2654,10 @@ class Logger(object):
               If None, logtype stdoutFlag forcing is released.
            #. fileFlag (None, boolean): The file logging flag.
               If None, logtype fileFlag forcing is released.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *stdoutFlag* or *fileFlag* is not a boolean or None.
         """
         self.force_log_type_stdout_flag(logType, stdoutFlag)
         self.force_log_type_file_flag(logType, fileFlag)
@@ -2624,6 +2669,10 @@ class Logger(object):
         :Parameters:
            #. logType (string): A defined logging type.
            #. name (string): The logtype new name.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *name* is not a string.
         """
         if logType not in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' not defined" %logType)
@@ -2639,7 +2688,13 @@ class Logger(object):
         :Parameters:
            #. logType (string): A defined logging type.
            #. level (number): The level of logging.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *level* is not a number.
         """
+        if logType not in self.__logTypeNames:
+            raise ValueError("logType '%s' not defined" % logType)
         if not _is_number(level):
             raise TypeError("level must be a number")
         self.__logTypeLevels[logType] = float(level)
@@ -2651,6 +2706,9 @@ class Logger(object):
         :Parameters:
            #. logType (string): The logtype.
            #. _assert (boolean): Raise a ValueError if logType is not defined.
+
+        :Raises:
+            #. ValueError: If *_assert* is True and *logType* is not a defined log type.
         """
         # check logType
         if _assert:
@@ -2691,6 +2749,12 @@ class Logger(object):
               bold , underline , blink , invisible , strike through
 
         **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
+
+        :Raises:
+            #. TypeError: If *logType* is not a string, if *level* is not a number,
+               or if *stdoutFlag* or *fileFlag* is not a boolean.
+            #. ValueError: If *logType* is already defined, or if *color*, *highlight*,
+               or an item in *attributes* is not a recognised formatting token.
         """
         # check logType
         if not isinstance(logType, basestring):
@@ -2783,7 +2847,7 @@ class Logger(object):
 
     def update_log_type(self, logType, name=None, level=None, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """
-        update a logtype.
+        Update a logtype.
 
         :Parameters:
            #. logType (string): The logtype.
@@ -2802,6 +2866,12 @@ class Logger(object):
               bold , underline , blink , invisible , strike through
 
         **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
+
+        :Raises:
+            #. TypeError: If *level* is not a number, or if *stdoutFlag* or
+               *fileFlag* is not a boolean.
+            #. ValueError: If *logType* is not a defined log type, or if *color*,
+               *highlight*, or an item in *attributes* is not a recognised formatting token.
         """
         # check logType
         if logType not in self.__logTypeStdoutFlags:
@@ -2934,24 +3004,7 @@ class Logger(object):
                 if len(item) == 3:
                     # normal log() path — 3-tuple (log, logType, sinks)
                     log, logType, sinks = item
-                    for sink in sinks:
-                        if sink.sinkType == 'file':
-                            self.__log_to_file("%s\n" % log)
-                            if self.__flush:
-                                self.__flush_stream(self.__logFileStream)
-                        elif sink.sinkType == 'user':
-                            try:
-                                sink.handler.write("%s\n" % log)
-                                if self.__flush:
-                                    self.__flush_stream(sink.handler)
-                            except Exception:
-                                # catch any error a user-supplied handler raises:
-                                # we must never let a custom sink crash the worker
-                                pass
-                        else:  # stdout
-                            self.__log_to_stdout(self.__format_stdout_line(logType, log))
-                            if self.__flush:
-                                self.__flush_stream(sink.handler)
+                    self.__dispatch_sinks_sync(sinks, log, logType)
                 else:
                     # force_log() path — 4-tuple (log, logType, toStdout, toFile)
                     # bypasses routing; toStdout/toFile are caller-supplied booleans
@@ -3060,6 +3113,7 @@ class Logger(object):
             self.__logFileStream.write(message)
 
     def __log_to_stdout(self, message):
+        """Write a pre-formatted message to the current stdout stream."""
         try:
             self.__stdout.write(message)
         except OSError:
@@ -3209,22 +3263,7 @@ class Logger(object):
             # changes between put() and the item being processed
             self.__put_to_queue((log, logType, list(activeSinks)))
         else:
-            for sink in activeSinks:
-                if sink.sinkType == 'file':
-                    self.__log_to_file("%s\n" % log)
-                    if self.__flush:
-                        self.__flush_stream(self.__logFileStream)
-                elif sink.sinkType == 'user':
-                    try:
-                        sink.handler.write("%s\n" % log)
-                        if self.__flush:
-                            self.__flush_stream(sink.handler)
-                    except OSError:
-                        pass
-                else:  # stdout
-                    self.__log_to_stdout(self.__format_stdout_line(logType, log))
-                    if self.__flush:
-                        self.__flush_stream(sink.handler)
+            self.__dispatch_sinks_sync(activeSinks, log, logType)
         # set last logged message (on caller thread for immediate visibility)
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
