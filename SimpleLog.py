@@ -498,8 +498,8 @@ def _sanitize_message(message):
         #. message (str, object): The raw message value from the caller.
 
     :Returns:
-        result (str): Sanitized string. Non-strings are coerced via '%s'
-        formatting before control-character stripping, so a str is always returned.
+        #. result (str): Sanitized string. Non-strings are coerced via '%s'
+           formatting before control-character stripping, so a str is always returned.
     """
     if not isinstance(message, basestring):
         message = '%s' % (message,)
@@ -638,8 +638,8 @@ class _BoundLogger(object):
         """Build the bracketed context prefix string.
 
         :Returns:
-            result (str): e.g. '[requestId=abc user=mike] '.
-            Empty string when context is empty.
+            #. result (str): e.g. '[requestId=abc user=mike] '.
+               Empty string when context is empty.
         """
         if not self.__context:
             return ''
@@ -654,8 +654,8 @@ class _BoundLogger(object):
                coerced via str() so the prefix concatenation is safe.
 
         :Returns:
-            result (str): Prefix + message as a single string, or the
-            original message unchanged when context is empty.
+            #. result (str): Prefix + message as a single string, or the
+               original message unchanged when context is empty.
         """
         prefix = self.__build_prefix()
         if not prefix:
@@ -675,7 +675,7 @@ class _BoundLogger(object):
             #. **extra: Arbitrary key-value pairs to add or override.
 
         :Returns:
-            result (_BoundLogger): A new wrapper with merged context.
+            #. result (_BoundLogger): A new wrapper with merged context.
         """
         merged = dict(self.__context)
         merged.update(extra)
@@ -698,7 +698,7 @@ class _BoundLogger(object):
             #. countConstraint (None, number): Max times to log this message.
 
         :Returns:
-            result (string): The logged message returned by parent.log().
+            #. result (string): The logged message returned by parent.log().
         """
         return self.__parent.log(
             logType,
@@ -723,7 +723,7 @@ class _BoundLogger(object):
             #. file (boolean): Whether to force file output.
 
         :Returns:
-            result (string): The logged message returned by parent.force_log().
+            #. result (string): The logged message returned by parent.force_log().
         """
         return self.__parent.force_log(
             logType,
@@ -782,7 +782,8 @@ class _BoundLogger(object):
             #. message (string): Prefix text for the exception log line.
 
         :Returns:
-            result: A _CatchContext usable as decorator or context manager.
+            #. result (_CatchContext): A _CatchContext usable as decorator or
+               context manager.
         """
         ctx = _CatchContext(self, logType=logType,
                             reraise=reraise, message=message)
@@ -828,7 +829,7 @@ class _BoundLogger(object):
         internal state of this _BoundLogger.
 
         :Returns:
-            result (dict): Copy of the current context key-value pairs.
+            #. result (dict): Copy of the current context key-value pairs.
         """
         return dict(self.__context)
 
@@ -1019,6 +1020,13 @@ class Logger(object):
        #. \\**kwargs: This allows passing keyworded variable length of
            arguments to custom_init method. kwargs can be anything other
            than __init__ arguments.
+
+    :Raises:
+        #. TypeError: If *logTypes* is not a dict or None, if its keys are not
+           strings, if its values are not dicts or None, if *enqueue* is not a
+           boolean, or if *callerInfo* is not a boolean. Each setter called
+           during construction may also raise ``TypeError`` or ``ValueError``
+           for its own parameter — see the individual setter docstrings.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None,
@@ -1573,7 +1581,7 @@ class Logger(object):
 
     @property
     def logFileFirstNumber(self):
-        """log file first number"""
+        """Log file first number."""
         return self.__logFileFirstNumber
 
     @property
@@ -1604,6 +1612,9 @@ class Logger(object):
         :Parameters:
             #. callerInfo (boolean): True to prepend
                ``[file:line in func]`` to each message, False to disable.
+
+        :Raises:
+            #. TypeError: If *callerInfo* is not a boolean.
         """
         if not isinstance(callerInfo, bool):
             raise TypeError("callerInfo must be a boolean")
@@ -1620,6 +1631,10 @@ class Logger(object):
             #. maxQueueSize (None, integer): Maximum queue depth. Must be
                a positive integer or None. Zero is not accepted because it
                is ambiguous (CPython treats Queue(maxsize=0) as unbounded).
+
+        :Raises:
+            #. TypeError: If *maxQueueSize* is not an integer or None.
+            #. ValueError: If *maxQueueSize* is zero or negative.
         """
         if maxQueueSize is not None:
             if not isinstance(maxQueueSize, int) or isinstance(maxQueueSize, bool):
@@ -1658,6 +1673,11 @@ class Logger(object):
                ``'raise'``  -- raises queue.Full to the caller. The caller
                must handle the exception. Useful when the caller has its
                own retry or circuit-breaker logic.
+
+        :Raises:
+            #. TypeError: If *queueFullPolicy* is not a string.
+            #. ValueError: If *queueFullPolicy* is not one of ``'block'``,
+               ``'drop'``, ``'warn'``, or ``'raise'``.
         """
         validPolicies = ('block', 'drop', 'warn', 'raise')
         if not isinstance(queueFullPolicy, basestring):
@@ -1681,6 +1701,10 @@ class Logger(object):
                record is dropped, droppedMessages is incremented, and one
                warning line is written to stderr. Has no effect when
                queueFullPolicy is not ``'block'``.
+
+        :Raises:
+            #. TypeError: If *queueBlockTimeout* is not a number or None.
+            #. ValueError: If *queueBlockTimeout* is zero or negative.
         """
         if queueBlockTimeout is not None:
             if not _is_number(queueBlockTimeout):
@@ -1697,6 +1721,9 @@ class Logger(object):
             #. timezone (None, str): Logging time timezone. If provided,
                pytz must be installed and it must be the timezone name. If not
                provided, the machine default timezone will be used.
+
+        :Raises:
+            #. TypeError: If *timezone* is not a string or None.
         """
         if timezone is not None:
             if not isinstance(timezone, basestring):
@@ -1799,7 +1826,7 @@ class Logger(object):
 
     @property
     def parameters(self):
-        """get a dictionary of logger general parameters. The same dictionary
+        """Get a dictionary of logger general parameters. The same dictionary
         can be used to update another logger instance using update method.
 
         The returned dict includes a ``userSinks`` key whose value is a dict
@@ -1859,6 +1886,9 @@ class Logger(object):
 
         :Parameters:
            #. name (string): The logger name.
+
+        :Raises:
+            #. TypeError: If *name* is not a string.
         """
         if not isinstance(name, basestring):
             raise TypeError("name must be a string")
@@ -1870,6 +1900,9 @@ class Logger(object):
 
         :Parameters:
            #. flush (boolean): Whether to always flush the logging streams.
+
+        :Raises:
+            #. TypeError: If *flush* is not a boolean.
         """
         if not isinstance(flush, bool):
             raise TypeError("flush must be boolean")
@@ -1883,6 +1916,10 @@ class Logger(object):
            #. stream (None, stream): The standard output stream. If None, system standard
               output will be set automatically. Otherwise any object with read and write
               methods can be passed.
+
+        :Raises:
+            #. TypeError: If *stream* is not None and does not expose both
+               ``read`` and ``write`` methods.
         """
         if stream is None:
             self.__stdout = sys.stdout
@@ -1904,6 +1941,9 @@ class Logger(object):
 
         :Parameters:
            #. logToStdout (boolean): Whether to log to the standard output stream.
+
+        :Raises:
+            #. TypeError: If *logToStdout* is not a boolean.
         """
         if not isinstance(logToStdout, bool):
             raise TypeError("logToStdout must be boolean")
@@ -1919,6 +1959,9 @@ class Logger(object):
 
         :Parameters:
            #. logToFile (boolean): Whether to log to to file.
+
+        :Raises:
+            #. TypeError: If *logToFile* is not a boolean.
         """
         if not isinstance(logToFile, bool):
             raise TypeError("logToFile must be boolean")
@@ -1935,6 +1978,10 @@ class Logger(object):
            #. logType (string): A defined logging type.
            #. stdoutFlag (boolean): Whether to log to the standard output stream.
            #. fileFlag (boolean): Whether to log to to file.
+
+        :Raises:
+            #. ValueError: If *logType* is not a defined log type.
+            #. TypeError: If *stdoutFlag* or *fileFlag* is not a boolean.
         """
         if logType not in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' not defined" %logType)
@@ -1960,6 +2007,10 @@ class Logger(object):
                logFileBasename_N.logFileExtension pattern. Be careful setting
                this parameter as old log files will be permanently deleted if
                the number of files exceeds the value of logFileRoll
+
+        :Raises:
+            #. TypeError: If *logFileRoll* is not an integer or None.
+            #. ValueError: If *logFileRoll* is not greater than zero.
         """
         if logFileRoll is not None:
             if not isinstance(logFileRoll, int):
@@ -1976,6 +2027,9 @@ class Logger(object):
            #. logFile (string): the full log file path including basename and
               extension. If this is given, all of logFileBasename and logFileExtension
               will be discarded. logfile is equivalent to logFileBasename.logFileExtension
+
+        :Raises:
+            #. TypeError: If *logFile* is not a string.
         """
         if not isinstance(logfile, basestring):
             raise TypeError("logfile must be a string")
@@ -1990,6 +2044,11 @@ class Logger(object):
         :Parameters:
            #. logFileExtension (string): Logging file extension. A logging file full name is
               set as logFileBasename.logFileExtension
+
+        :Raises:
+            #. TypeError: If *logFileExtension* is not a string.
+            #. ValueError: If *logFileExtension* resolves to an empty string
+               after stripping leading and trailing dots.
         """
         if not isinstance(logFileExtension, basestring):
             raise TypeError("logFileExtension must be a basestring")
@@ -2025,7 +2084,7 @@ class Logger(object):
         self.__logFileBasename = _normalize_path(logFileBasename)#logFileBasename
 
     def __set_log_file_name(self):
-        """Automatically set logFileName attribute"""
+        """Automatically set logFileName attribute."""
         with self.__rotationLock:
             # ensure directory exists
             logDir, _ = os.path.split(self.__logFileBasename)
@@ -2100,7 +2159,7 @@ class Logger(object):
 
     def set_log_file_maximum_size(self, logFileMaxSize):
         """
-        Set the log file maximum size in megabytes
+        Set the log file maximum size in megabytes.
 
         :Parameters:
            #. logFileMaxSize (None, number): The maximum size in Megabytes
@@ -2109,6 +2168,9 @@ class Logger(object):
               Where N is an automatically incremented number. If None or a
               negative number is given, the logging file will grow
               indefinitely
+
+        :Raises:
+            #. TypeError: If *logFileMaxSize* is not a number or None.
         """
         if logFileMaxSize is not None:
             if not _is_number(logFileMaxSize):
@@ -2127,6 +2189,9 @@ class Logger(object):
                message string. If None, no limit is applied. Messages exceeding
                this limit are truncated and '[truncated]' is appended. Must be
                a positive integer when given.
+
+        :Raises:
+            #. TypeError: If *maxMessageSize* is not a positive integer or None.
         """
         if maxMessageSize is not None:
             if not isinstance(maxMessageSize, int) or maxMessageSize <= 0:
@@ -2142,6 +2207,9 @@ class Logger(object):
                string representation of data. If None, no limit is applied.
                Data strings exceeding this limit are truncated and '[truncated]'
                is appended. Must be a positive integer when given.
+
+        :Raises:
+            #. TypeError: If *maxDataSize* is not a positive integer or None.
         """
         if maxDataSize is not None:
             if not isinstance(maxDataSize, int) or maxDataSize <= 0:
@@ -2150,7 +2218,7 @@ class Logger(object):
 
     def set_log_file_first_number(self, logFileFirstNumber):
         """
-        Set log file first number
+        Set log file first number.
 
         :Parameters:
             #. logFileFirstNumber (None, integer): first log file number 'N' in
@@ -2159,6 +2227,10 @@ class Logger(object):
                logFileMaxSize is reached second log file will be
                logFileBasename_0.logFileExtension and so on and so forth.
                If number is given it must be an integer >=0
+
+        :Raises:
+            #. TypeError: If *logFileFirstNumber* is not an integer or None.
+            #. ValueError: If *logFileFirstNumber* is a negative integer.
         """
         if logFileFirstNumber is not None:
             if not isinstance(logFileFirstNumber, int):
@@ -2180,6 +2252,14 @@ class Logger(object):
            #. sinks (None, list): Optional list of user sink names to update.
               Each name must have been registered via add_sink(). When None
               (default) user sinks are left unchanged.
+
+        :Raises:
+            #. TypeError: If *stdoutFlag* or *fileFlag* is not a boolean, if *sinks*
+               is not iterable or contains non-string entries, or if *level* is not
+               a number when given as a numeric type.
+            #. ValueError: If *level* is given as a string that is not a defined log
+               type, if *level* exceeds the current maximum level for a target stream,
+               or if a named sink in *sinks* is not registered or is a built-in sink.
         """
         # check flags
         if not isinstance(stdoutFlag, bool):
@@ -2252,6 +2332,15 @@ class Logger(object):
            #. sinks (None, list): Optional list of user sink names to update.
               Each name must have been registered via add_sink(). When None
               (default) user sinks are left unchanged.
+
+        :Raises:
+            #. TypeError: If *stdoutFlag* or *fileFlag* is not a boolean, if *sinks*
+               is not iterable or contains non-string entries, or if *level* is not
+               a number when given as a numeric type.
+            #. ValueError: If *level* is given as a string that is not a defined log
+               type, if *level* falls below the current minimum level for a target
+               stream, or if a named sink in *sinks* is not registered or is a
+               built-in sink.
         """
         # check flags
         if not isinstance(stdoutFlag, bool):
@@ -2398,6 +2487,13 @@ class Logger(object):
             #. logTypeFlags (dict, None): Per-type override map
                {logType (str): bool}. Missing keys default to True.
                None means all types enabled.
+
+        :Raises:
+            #. TypeError: If *name* is not a string, if *handler* has no ``write()``
+               method, if *enabled* is not a boolean, if *minLevel* or *maxLevel* is
+               not a number, or if *logTypeFlags* is not a dict with string keys and
+               boolean values.
+            #. ValueError: If *name* is empty or already registered as a sink.
         """
         if not isinstance(name, basestring):
             raise TypeError("sink name must be a non-empty string")
@@ -2438,6 +2534,10 @@ class Logger(object):
         :Parameters:
             #. name (str): The key used when the sink was registered
                with add_sink().
+
+        :Raises:
+            #. TypeError: If *name* is not a string.
+            #. ValueError: If *name* is not currently registered as a sink.
         """
         if not isinstance(name, basestring):
             raise TypeError("sink name must be a string")
@@ -3001,7 +3101,7 @@ class Logger(object):
             #. log (string): The already-formatted log message body.
 
         :Returns:
-            result (str): The line ready to write to the stdout stream.
+            #. result (str): The line ready to write to the stdout stream.
         """
         fmt = self.__logTypeFormat[logType]
         return "%s%s%s\n" % (fmt[0], log, fmt[1])
@@ -3076,6 +3176,10 @@ class Logger(object):
 
         :Returns:
             #. message (string): the logged message
+
+        :Raises:
+            #. TypeError: If *message* is callable. Use ``is_enabled(logType)`` to
+               guard expensive message construction instead of passing a callable.
         """
         # reject callables -- the logger is a passive recorder, not an executor.
         # to defer expensive message construction use is_enabled(logType) instead:
@@ -3143,6 +3247,10 @@ class Logger(object):
 
         :Returns:
             #. message (string): the logged message
+
+        :Raises:
+            #. TypeError: If *message* is callable. Use ``is_enabled(logType)`` to
+               guard expensive message construction instead of passing a callable.
         """
         # reject callables — same policy as log()
         if callable(message):
@@ -3201,8 +3309,8 @@ class Logger(object):
                exception description in the log entry.
 
         :Returns:
-            result: A _CatchContext usable as decorator or context
-            manager, or the wrapped callable for bare-decorator use.
+            #. result (_CatchContext): A _CatchContext usable as decorator or context
+               manager, or the wrapped callable for bare-decorator use.
         """
         ctx = _CatchContext(self, logType=logType,
                             reraise=reraise, message=message)
