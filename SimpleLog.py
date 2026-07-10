@@ -907,7 +907,7 @@ class Logger(object):
        #. stdout (None, stream): The standard output stream. If None, system
           standard output will be set automatically. Otherwise any stream with
           read and write methods can be passed
-       #. logToFile (boolean): Whether to log to to file.
+       #. logToFile (boolean): Whether to enable logging to file.
        #. logFile (None, string): the full log file path including directory
           basename and extension. If this is given, all of logFileBasename and
           logFileExtension will be discarded. logfile is equivalent to
@@ -1414,7 +1414,7 @@ class Logger(object):
 
     @property
     def logLevels(self):
-        """Dictionary copy of all defined log types levels."""
+        """Dictionary copy of all defined log type levels. Alias for logTypeLevels."""
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
@@ -1464,12 +1464,12 @@ class Logger(object):
 
     @property
     def logTypeLevels(self):
-        """Dictionary copy of all defined log types levels showing when logging."""
+        """Dictionary copy of all defined log type levels."""
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
     def logTypeFormat(self):
-        """Dictionary copy of all defined log types format showing when logging."""
+        """Dictionary copy of all defined log type ANSI format strings."""
         return copy.deepcopy(self.__logTypeFormat)
 
     @property
@@ -1816,13 +1816,14 @@ class Logger(object):
 
     @property
     def parameters(self):
-        """Get a dictionary of logger general parameters. The same dictionary
-        can be used to update another logger instance using update method.
+        """Return a dictionary of logger general parameters.
 
-        The returned dict includes a ``userSinks`` key whose value is a dict
-        mapping each user-added sink name to its current configuration snapshot
-        (enabled, minLevel, maxLevel, logTypeFlags). Built-in sinks are not
-        included there; they are described by the surrounding keys.
+        The returned dictionary can be passed directly to another Logger
+        instance's update() method to copy this configuration. It includes
+        a ``userSinks`` key whose value is a dict mapping each user-added
+        sink name to its current configuration snapshot (enabled, minLevel,
+        maxLevel, logTypeFlags). Built-in sinks are not included there;
+        they are described by the surrounding keys.
         """
         userSinks = {}
         for k, s in self.__sinks.items():
@@ -1858,9 +1859,10 @@ class Logger(object):
 
     def custom_init(self, *args, **kwargs):
         """
-        Custom initialize abstract method. This method is called at the end of
-        initialization. Override it to perform application-specific setup on
-        Logger instances.
+        Custom initialize abstract method called at the end of Logger.__init__.
+
+        Override this method to perform application-specific setup on Logger
+        instances without modifying __init__ directly.
 
         :Parameters:
             #. \\*args (): This is used to send non-keyworded variable length argument
@@ -1925,9 +1927,10 @@ class Logger(object):
 
     def set_log_to_stdout_flag(self, logToStdout):
         """
-        Set the logging to the defined standard output flag. When set to False,
-        no logging to  standard output will happen regardless of a logType
-        standard output flag.
+        Set the global flag controlling logging to standard output.
+
+        When set to False, no logging to standard output will happen
+        regardless of any per-logType stdout flag.
 
         :Parameters:
            #. logToStdout (boolean): Whether to log to the standard output stream.
@@ -1944,11 +1947,13 @@ class Logger(object):
 
     def set_log_to_file_flag(self, logToFile):
         """
-        Set the logging to a file general flag. When set to False, no logging
-        to file will happen regardless of a logType file flag.
+        Set the global flag controlling logging to file.
+
+        When set to False, no logging to file will happen regardless of any
+        per-logType file flag.
 
         :Parameters:
-           #. logToFile (boolean): Whether to log to to file.
+           #. logToFile (boolean): Whether to enable logging to file.
 
         :Raises:
             #. TypeError: If *logToFile* is not a boolean.
@@ -1967,7 +1972,7 @@ class Logger(object):
         :Parameters:
            #. logType (string): A defined logging type.
            #. stdoutFlag (boolean): Whether to log to the standard output stream.
-           #. fileFlag (boolean): Whether to log to to file.
+           #. fileFlag (boolean): Whether to enable logging to file.
 
         :Raises:
             #. ValueError: If *logType* is not a defined log type.
@@ -2192,8 +2197,9 @@ class Logger(object):
         self.__maxMessageSize = maxMessageSize
 
     def set_maximum_data_size(self, maxDataSize):
-        """Set the maximum number of characters allowed in the string
-        representation of the data argument passed to log() or force_log().
+        """Set the maximum character count for the string representation of the data argument.
+
+        Applies to the data argument passed to log() or force_log().
 
         :Parameters:
             #. maxDataSize (None, integer): Maximum character count for the
