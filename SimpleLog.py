@@ -389,7 +389,7 @@ callerInfo — Caller Tagging
 
 """
 # python standard distribution imports
-import os, sys, copy, re, atexit, threading, traceback, functools, inspect
+import os, sys, copy, re, atexit, threading, traceback, functools, inspect, collections, time
 from datetime import datetime
 
 import queue as _queue_module
@@ -517,7 +517,7 @@ class _Sink(object):
            other field.
         #. logTypeFlags (dict): Mapping of {logType (str): bool}.
            Controls per-type enable/disable for this sink only.
-           Missing keys default to True (enabled).
+           Missing keys fall back to *defaultFlag*.
         #. minLevel (int or None): Minimum level integer for this
            sink. Records whose level is below this value are not
            dispatched. None means no floor.
@@ -527,16 +527,136 @@ class _Sink(object):
         #. isFileSink (bool): True only for _SINK_FILE. Signals the
            dispatch loop to run rotation checks after each write.
            Always False for stdout and user-added sinks.
+        #. defaultFlag (bool): Fallback enabled-state used for any
+           logType missing from logTypeFlags. True (default) gives an
+           opt-out sink (gets every type unless explicitly turned off).
+           False gives an opt-in sink (gets nothing unless explicitly
+           turned on) -- including any logType added later.
+        #. dispatchFn (callable, None): Resolved once here, not
+           re-checked on every dispatch. For 'user' sinks: handler.write_record
+           when the handler offers that richer method, otherwise a thin
+           wrapper around handler.write. None for 'stdout'/'file' sinks,
+           which never go through a handler at all.
+        #. threaded (bool): When True, this sink owns a private bounded
+           queue and a dedicated worker thread. Dispatch only ever
+           enqueues onto it (never blocks), so slow or unreliable I/O
+           in this one sink's handler can never stall any other sink or
+           pysimplelog's own file/stdout logging. When the queue is
+           full the oldest queued record is dropped to make room.
+           Default False -- matches the plain synchronous behaviour
+           every sink has always had.
+        #. threadQueueSize (int): Bounded capacity for the private
+           queue when threaded is True. Ignored otherwise.
     """
 
     def __init__(self, handler, enabled, logTypeFlags,
-                 minLevel=None, maxLevel=None, sinkType='stdout'):
+                 minLevel=None, maxLevel=None, sinkType='stdout',
+                 defaultFlag=True, threaded=False, threadQueueSize=1000):
         self.handler      = handler
         self.enabled      = enabled
         self.logTypeFlags = logTypeFlags
         self.minLevel     = minLevel
         self.maxLevel     = maxLevel
         self.sinkType     = sinkType   # 'stdout' | 'file' | 'user'
+        self.defaultFlag  = defaultFlag   # fallback for logTypes missing from logTypeFlags
+        self.dispatchFn   = None
+        if sinkType == 'user':
+            if hasattr(handler, 'write_record'):
+                self.dispatchFn = handler.write_record
+            else:
+                self.dispatchFn = lambda record, logType, level: handler.write(record)
+        self.threaded = threaded
+        self._queue = None
+        self._cv = None
+        self._stopped = None
+        self._thread = None
+        self._busy = False
+        self._droppedCount = 0
+        if threaded:
+            self._queue = collections.deque(maxlen=threadQueueSize)
+            self._cv = threading.Condition()
+            self._stopped = threading.Event()
+            self._thread = threading.Thread(
+                target=self._worker, name='pysimplelog-sink-worker', daemon=True,
+            )
+            self._thread.start()
+
+    def enqueue(self, item):
+        """Push one (record, logType, level) tuple onto this sink's private queue.
+
+        Only called when threaded is True. Never blocks: the oldest
+        queued item is dropped to make room when the queue is full.
+
+        :Parameters:
+            #. item (tuple): (record (str), logType (str), level (int, None)).
+        """
+        with self._cv:
+            if len(self._queue) == self._queue.maxlen:
+                self._droppedCount += 1
+                sys.stderr.write(
+                    'pysimplelog WARNING: sink queue full, record dropped '
+                    '(%d total dropped)\n' % self._droppedCount
+                )
+            self._queue.append(item)
+            self._cv.notify()
+
+    def _worker(self):
+        """Background loop for a threaded sink: drain the private queue and dispatch.
+
+        Runs until stop_threaded() sets the stop event and the queue is
+        empty. Errors from the handler are caught here exactly like the
+        synchronous dispatch path -- one warning line, never a crash.
+        """
+        while True:
+            with self._cv:
+                while not self._queue and not self._stopped.is_set():
+                    self._cv.wait(timeout=1.0)
+                if not self._queue and self._stopped.is_set():
+                    return
+                item = self._queue.popleft()
+                self._busy = True
+            record, logType, level = item
+            try:
+                self.dispatchFn(record, logType, level)
+            except Exception as sinkError:
+                sys.stderr.write(
+                    'pysimplelog WARNING: user sink write failed'
+                    ', record dropped. Error: %s\n' % sinkError
+                )
+            finally:
+                with self._cv:
+                    self._busy = False
+                    self._cv.notify_all()
+
+    def flush_threaded(self, timeout=5.0):
+        """Best-effort wait (up to *timeout* seconds) for this sink's queue to drain.
+
+        Waits for both the queue to empty AND the item currently being
+        dispatched (if any) to finish -- a queue that looks empty while
+        the worker is still mid-dispatch on the last item is not actually
+        drained yet. No-op when threaded is False.
+        """
+        if not self.threaded:
+            return
+        deadline = time.monotonic() + timeout
+        with self._cv:
+            while (self._queue or self._busy) and time.monotonic() < deadline:
+                self._cv.wait(timeout=0.1)
+
+    def stop_threaded(self, timeout=5.0):
+        """Drain what fits in *timeout* seconds, then stop and join the worker thread.
+
+        Called by remove_sink(), clear_sinks(), and atexit shutdown so a
+        threaded sink's thread is never left running after it's gone --
+        no leaked threads. No-op when threaded is False.
+        """
+        if not self.threaded:
+            return
+        self.flush_threaded(timeout=timeout)
+        self._stopped.set()
+        with self._cv:
+            self._cv.notify_all()
+        self._thread.join(timeout=timeout)
 
     @property
     def isFileSink(self):
@@ -1287,8 +1407,11 @@ class Logger(object):
         Registered with atexit at the end of __init__. Sends the stop sentinel
         to the background worker thread (if enqueue mode is active) and waits
         up to 5 seconds for it to finish. Then flushes and closes the log file
-        stream, and flushes any user-supplied sinks (their lifecycle is owned
-        by the caller, so they are flushed but never closed here).
+        stream. User-supplied sinks are never closed here (their lifecycle is
+        owned by the caller) -- but a threaded sink's own private worker
+        thread was started by pysimplelog, so it IS drained and stopped here
+        too, to avoid leaving a thread running past interpreter shutdown.
+        Non-threaded user sinks are simply flushed, as before.
         """
         if self.__enqueue and self.__logQueue is not None:
             self.__logQueue.put(_QUEUE_STOP)
@@ -1296,10 +1419,14 @@ class Logger(object):
         if self.__logFileStream is not None:
             self.__flush_stream(self.__logFileStream)
             self.__logFileStream.close()
-        # flush user sinks at exit — we never close them (caller owns lifecycle)
+        # user sinks: never closed here (caller owns lifecycle), but a
+        # threaded sink's private thread is ours to stop -- no leaks
         for sink in self.__sinks.values():
             if sink.sinkType == 'user' and sink.handler is not None:
-                self.__flush_stream(sink.handler)
+                if sink.threaded:
+                    sink.stop_threaded()
+                else:
+                    self.__flush_stream(sink.handler)
 
     @property
     def lastLogged(self):
@@ -2450,7 +2577,7 @@ class Logger(object):
             for sink in self.__sinks.values():
                 if not sink.enabled:
                     continue
-                if not sink.logTypeFlags.get(logType, True):
+                if not sink.logTypeFlags.get(logType, sink.defaultFlag):
                     continue
                 # user sinks carry their own minLevel/maxLevel that are
                 # not pre-baked into logTypeFlags — apply them here
@@ -2468,23 +2595,32 @@ class Logger(object):
 
         Called by both log() on the synchronous path and __enqueue_worker()
         inside the background thread. Each sink type is handled in turn:
-        file sinks write via __log_to_file, user sinks call handler.write(),
-        and stdout sinks call __log_to_stdout. Errors from user-supplied
-        handlers are caught and reported to stderr without stopping dispatch.
+        file sinks write via __log_to_file, threaded user sinks get the
+        record pushed onto their own private queue (never blocks -- their
+        dedicated worker thread does the actual write), plain user sinks
+        call the sink's pre-resolved dispatchFn directly (write_record when
+        the handler offers it, otherwise plain write -- decided once in
+        _Sink.__init__, not re-checked here on every call), and stdout
+        sinks call __log_to_stdout. Errors from user-supplied handlers are
+        caught and reported to stderr without stopping dispatch.
 
         :Parameters:
             #. sinks (list): List of _Sink objects to dispatch to.
             #. log (string): The fully formatted log record string.
             #. logType (string): The log type name, used for stdout colour formatting.
         """
+        level = self.__logTypeLevels.get(logType)
         for sink in sinks:
             if sink.sinkType == 'file':
                 self.__log_to_file("%s\n" % log)
                 if self.__flush:
                     self.__flush_stream(self.__logFileStream)
             elif sink.sinkType == 'user':
+                if sink.threaded:
+                    sink.enqueue(("%s\n" % log, logType, level))
+                    continue
                 try:
-                    sink.handler.write("%s\n" % log)
+                    sink.dispatchFn("%s\n" % log, logType, level)
                     if self.__flush:
                         self.__flush_stream(sink.handler)
                 except Exception as sinkError:
@@ -2502,7 +2638,8 @@ class Logger(object):
                     self.__flush_stream(sink.handler)
 
     def add_sink(self, name, handler, enabled=True,
-                 minLevel=None, maxLevel=None, logTypeFlags=None):
+                 minLevel=None, maxLevel=None, logTypeFlags=None,
+                 defaultFlag=True, threaded=False, threadQueueSize=1000):
         """Add a user-supplied output sink to the logger.
 
         The sink receives every log record whose type passes the routing
@@ -2517,21 +2654,47 @@ class Logger(object):
                clash with any existing name or reserved integer keys.
             #. handler (file-like): Any object with a write(str) method.
                An optional flush() method is called when Logger.flush
-               is True.
+               is True. A handler may also expose an optional
+               write_record(record, logType, level) method -- when
+               present, it is called instead of write() so the handler
+               receives the log type and numeric level alongside the
+               formatted text.
             #. enabled (bool): Master switch for this sink. Default True.
             #. minLevel (number, None): Records whose level is strictly
                below this value are suppressed. None means no floor.
             #. maxLevel (number, None): Records whose level is strictly
                above this value are suppressed. None means no ceiling.
             #. logTypeFlags (dict, None): Per-type override map
-               {logType (str): bool}. Missing keys default to True.
-               None means all types enabled.
+               {logType (str): bool}. Missing keys fall back to
+               *defaultFlag*. None means every type falls back to
+               *defaultFlag*.
+            #. defaultFlag (bool): Fallback enabled-state for any
+               logType not listed in logTypeFlags. True (default) is an
+               opt-out sink -- it receives every type, including ones
+               added later via add_log_type(), unless you explicitly
+               turn one off. False is an opt-in sink -- it receives
+               nothing unless a type is explicitly listed as True,
+               which also means it stays silent for any type added
+               later until you list it too.
+            #. threaded (bool): When True, this sink gets its own
+               private queue and dedicated worker thread -- dispatch
+               only ever enqueues onto it and returns immediately, so
+               slow or unreliable I/O in this one sink can never stall
+               any other sink or pysimplelog's own file/stdout logging.
+               Default False. Turn this on for sinks that do blocking
+               work (network calls, slow disks, ...); leave it off for
+               fast, simple, in-memory sinks where the extra thread
+               would just be overhead.
+            #. threadQueueSize (int): Bounded capacity for the private
+               queue when *threaded* is True. The oldest queued record
+               is dropped to make room if it fills up. Ignored otherwise.
 
         :Raises:
             #. TypeError: If *name* is not a string, if *handler* has no ``write()``
                method, if *enabled* is not a boolean, if *minLevel* or *maxLevel* is
-               not a number, or if *logTypeFlags* is not a dict with string keys and
-               boolean values.
+               not a number, if *logTypeFlags* is not a dict with string keys and
+               boolean values, if *defaultFlag* or *threaded* is not a boolean, or
+               if *threadQueueSize* is not a positive integer.
             #. ValueError: If *name* is empty or already registered as a sink.
         """
         if not isinstance(name, basestring):
@@ -2549,6 +2712,12 @@ class Logger(object):
             raise TypeError("minLevel must be a number or None")
         if maxLevel is not None and not _is_number(maxLevel):
             raise TypeError("maxLevel must be a number or None")
+        if not isinstance(defaultFlag, bool):
+            raise TypeError("defaultFlag must be a boolean")
+        if not isinstance(threaded, bool):
+            raise TypeError("threaded must be a boolean")
+        if not isinstance(threadQueueSize, int) or isinstance(threadQueueSize, bool) or threadQueueSize <= 0:
+            raise TypeError("threadQueueSize must be a positive integer")
         if logTypeFlags is not None:
             if not isinstance(logTypeFlags, dict):
                 raise TypeError("logTypeFlags must be a dict or None")
@@ -2564,15 +2733,25 @@ class Logger(object):
             minLevel     = float(minLevel) if minLevel is not None else None,
             maxLevel     = float(maxLevel) if maxLevel is not None else None,
             sinkType     = 'user',
+            defaultFlag  = defaultFlag,
+            threaded     = threaded,
+            threadQueueSize = threadQueueSize,
         )
         self.__rebuild_active_sinks()
 
-    def remove_sink(self, name):
+    def remove_sink(self, name, timeout=5.0):
         """Remove a user-added sink by its registered name.
+
+        If the sink is threaded, its private worker thread is drained
+        (up to *timeout* seconds) and stopped here -- no thread is ever
+        left running after its sink is gone.
 
         :Parameters:
             #. name (str): The key used when the sink was registered
                with add_sink().
+            #. timeout (float): Seconds to wait for a threaded sink's
+               private queue to drain before stopping its thread anyway.
+               Ignored for non-threaded sinks.
 
         :Raises:
             #. TypeError: If *name* is not a string.
@@ -2582,21 +2761,28 @@ class Logger(object):
             raise TypeError("sink name must be a string")
         if name not in self.__sinks:
             raise ValueError("sink '%s' is not registered" % name)
-        del self.__sinks[name]
+        sink = self.__sinks.pop(name)
         self.__rebuild_active_sinks()
+        sink.stop_threaded(timeout=timeout)
 
-    def clear_sinks(self):
+    def clear_sinks(self, timeout=5.0):
         """Remove all user-added sinks.
 
         The two built-in sinks (_SINK_STDOUT and _SINK_FILE) are
-        always preserved. This is a no-op if no user sinks are
-        registered.
+        always preserved. Any threaded sink among them has its private
+        worker thread drained (up to *timeout* seconds) and stopped
+        here. This is a no-op if no user sinks are registered.
+
+        :Parameters:
+            #. timeout (float): Seconds to wait for each threaded sink's
+               private queue to drain before stopping its thread anyway.
         """
         userKeys = [k for k in self.__sinks if isinstance(k, basestring)]
-        for k in userKeys:
-            del self.__sinks[k]
+        removedSinks = [self.__sinks.pop(k) for k in userKeys]
         if userKeys:
             self.__rebuild_active_sinks()
+        for sink in removedSinks:
+            sink.stop_threaded(timeout=timeout)
 
     def force_log_type_stdout_flag(self, logType, flag):
         """
@@ -3396,11 +3582,17 @@ class Logger(object):
         """
         return _BoundLogger(self, context)
 
-    def flush(self):
+    def flush(self, timeout=5.0):
         """Flush all streams.
 
         When enqueue mode is active, blocks until all queued log
-        records have been written before flushing the streams.
+        records have been written before flushing the streams. Any
+        threaded sink's own private queue is drained too (up to
+        *timeout* seconds) before its handler is flushed.
+
+        :Parameters:
+            #. timeout (float): Seconds to wait for each threaded
+               sink's private queue to drain. Ignored for non-threaded sinks.
         """
         if self.__enqueue and self.__logQueue is not None:
             self.__logQueue.join()
@@ -3412,6 +3604,8 @@ class Logger(object):
                 if self.__logFileStream is not None:
                     self.__flush_stream(self.__logFileStream)
             elif sink.handler is not None:
+                if sink.threaded:
+                    sink.flush_threaded(timeout=timeout)
                 sid = id(sink.handler)
                 if sid not in seen:
                     seen.add(sid)

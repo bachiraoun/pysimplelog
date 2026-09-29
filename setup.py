@@ -99,8 +99,8 @@ for _m in _re.finditer(r"^(__\w+__)\s*=\s*['\""]([^'\""]*)['\"""]" , _src, _re.M
 
 # create meta data
 metadata = dict(name = PACKAGE_NAME,
-                packages=[PACKAGE_NAME],
-                package_dir={PACKAGE_NAME: '.'},
+                packages=[PACKAGE_NAME, PACKAGE_NAME + '.contrib'],
+                package_dir={PACKAGE_NAME: '.', PACKAGE_NAME + '.contrib': 'contrib'},
                 version= PACKAGE_INFO['__version__'] ,
                 author="Bachir AOUN",
                 author_email="bachir.aoun@e-aoun.com",

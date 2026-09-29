@@ -33,6 +33,7 @@ TestForceLog            -- force_log bypasses user sinks
 TestSanitize            -- ANSI stripping, maxMessageSize, maxDataSize
 TestParametersStr       -- parameters property, userSinks snapshot, __str__
 TestFlushAtexit         -- _flush_atexit_logfile lifecycle contract
+TestThreadedSink        -- opt-in per-sink queue+thread, no-leak lifecycle, overflow
 """
 
 import glob
@@ -41,6 +42,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -1101,6 +1103,101 @@ class TestFlushAtexit(unittest.TestCase):
             L.info('msg')
         L.flush()  # must not hang or raise
         self.assertEqual(len(sink.lines), 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 22 — Threaded (per-sink) dispatch
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestThreadedSink(unittest.TestCase):
+
+    def test_threaded_defaults_to_false(self):
+        L, _ = make_logger()
+        L.add_sink('s', _CaptureSink())
+        self.assertFalse(L.sinks['s'].threaded)
+        L.remove_sink('s')
+
+    def test_threaded_sink_delivers(self):
+        L, _ = make_logger()
+        sink = _CaptureSink()
+        L.add_sink('s', sink, threaded=True)
+        L.error('hello')
+        L.flush(timeout=2.0)
+        self.assertTrue(sink.contains('hello'))
+        L.remove_sink('s')
+
+    def test_threaded_sink_does_not_block_caller(self):
+        L, _ = make_logger()
+        gate = threading.Event()
+
+        class _BlockingSink:
+            def write(self, record):
+                gate.wait(timeout=2.0)
+
+        L.add_sink('slow', _BlockingSink(), threaded=True)
+        t0 = time.monotonic()
+        L.error('should not block')
+        elapsed = time.monotonic() - t0
+        gate.set()
+        L.remove_sink('slow')
+        self.assertLess(elapsed, 0.5, 'threaded sink blocked the caller')
+
+    def test_remove_sink_stops_the_thread_no_leak(self):
+        L, _ = make_logger()
+        before = threading.active_count()
+        L.add_sink('s', _CaptureSink(), threaded=True)
+        self.assertEqual(threading.active_count(), before + 1)
+        L.remove_sink('s')
+        self.assertEqual(threading.active_count(), before)
+
+    def test_clear_sinks_stops_threaded_sinks_no_leak(self):
+        L, _ = make_logger()
+        before = threading.active_count()
+        L.add_sink('a', _CaptureSink(), threaded=True)
+        L.add_sink('b', _CaptureSink(), threaded=True)
+        self.assertEqual(threading.active_count(), before + 2)
+        L.clear_sinks()
+        self.assertEqual(threading.active_count(), before)
+
+    def test_queue_overflow_drops_oldest(self):
+        L, _ = make_logger()
+        gate = threading.Event()
+        started = threading.Event()
+
+        class _GateSink:
+            def __init__(self):
+                self.received = []
+
+            def write(self, record):
+                started.set()
+                gate.wait(timeout=2.0)   # hold the worker so the queue backs up
+                self.received.append(record)
+
+        sink = _GateSink()
+        L.add_sink('s', sink, threaded=True, threadQueueSize=2)
+        L.error('one')
+        self.assertTrue(started.wait(timeout=2.0), 'worker never picked up the first record')
+        L.error('two')     # queued
+        L.error('three')   # queued, queue now full (size 2)
+        L.error('four')    # queue full -- 'two' is evicted to make room
+        gate.set()
+        L.flush(timeout=2.0)
+        L.remove_sink('s')
+        joined = ''.join(sink.received)
+        self.assertIn('one', joined)
+        self.assertNotIn('two', joined)
+        self.assertIn('three', joined)
+        self.assertIn('four', joined)
+
+    def test_bad_threaded_type_raises(self):
+        L, _ = make_logger()
+        with self.assertRaises(TypeError):
+            L.add_sink('s', _CaptureSink(), threaded='yes')
+
+    def test_bad_thread_queue_size_raises(self):
+        L, _ = make_logger()
+        with self.assertRaises(TypeError):
+            L.add_sink('s', _CaptureSink(), threaded=True, threadQueueSize=0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

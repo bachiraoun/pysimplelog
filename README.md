@@ -27,6 +27,34 @@ pip install pysimplelog
 
 https://bachiraoun.github.io/pysimplelog/
 
+## SIEM / syslog forwarding (optional)
+
+`pysimplelog.contrib` ships a zero-mandatory-dependency add-on that forwards
+log records to a SIEM or syslog collector as RFC 5424 structured syslog over
+TCP+TLS, UDP, or HTTP(S). It is pure `add_sink()` usage -- nothing in
+`SimpleLog.py` is touched -- and its own background thread/queue keep a slow
+or unreachable collector from ever blocking your application's normal
+stdout/file logging.
+
+```python
+from pysimplelog import Logger
+from pysimplelog.contrib import siem_sink, siem_transport
+
+logger = Logger("my-app")
+
+transport = siem_transport.TCPSyslogTransport("siem.example.com", 6514, use_tls=True)
+sink = siem_sink.attach(logger, transport, log_types=["warn", "error", "critical"])
+
+logger.error("payment gateway timeout")
+
+# at shutdown
+siem_sink.detach(logger, sink)
+```
+
+See `contrib/siem_sink.py` and `contrib/siem_transport.py` for the full API
+(UDP and HTTP/Splunk-HEC transports, retry/backoff tuning, circuit breaker,
+drop/error callbacks) and `tests/test_siem_sink.py` for runnable examples.
+
 ## Author
 
 Bachir Aoun
