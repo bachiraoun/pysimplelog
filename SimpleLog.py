@@ -679,23 +679,24 @@ class _CatchContext(object):
     Do not instantiate directly -- use ``Logger.catch()``.
     """
 
-    def __init__(self, logger, logType, reraise, message):
-        self._logger  = logger
-        self._logType = logType
-        self._reraise = reraise
-        self._message = message
+    def __init__(self, logger, logType, reraise, message, sanitizer=None):
+        self._logger    = logger
+        self._logType   = logType
+        self._reraise   = reraise
+        self._message   = message
+        self._sanitizer = sanitizer
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
+            msg      = '%s: %s' % (self._message, exc_val)
             tbackStr = traceback.format_exc()
-            self._logger.log(
-                self._logType,
-                '%s: %s' % (self._message, exc_val),
-                tback=tbackStr,
-            )
+            if self._sanitizer is not None:
+                msg      = self._sanitizer(msg)
+                tbackStr = self._sanitizer(tbackStr)
+            self._logger.log(self._logType, msg, tback=tbackStr)
             return not self._reraise   # True suppresses; False re-raises
         return False
 
@@ -703,8 +704,8 @@ class _CatchContext(object):
         """Allow the context manager instance to be used as a decorator."""
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            with _CatchContext(self._logger, self._logType,
-                               self._reraise, self._message):
+            with _CatchContext(self._logger, self._logType, self._reraise,
+                               self._message, self._sanitizer):
                 return func(*args, **kwargs)
         return wrapper
 
@@ -874,7 +875,7 @@ class _BoundLogger(object):
     # ── exception capture ────────────────────────────────────────────
 
     def catch(self, func=None, logType='error', reraise=False,
-              message='An exception was caught'):
+              message='An exception was caught', sanitizer=None):
         """Decorator and context manager that catches and logs exceptions.
 
         Identical to Logger.catch() but the logged exception line
@@ -887,13 +888,16 @@ class _BoundLogger(object):
             #. logType (string): Log type for the caught exception entry.
             #. reraise (boolean): Whether to re-raise after logging.
             #. message (string): Prefix text for the exception log line.
+            #. sanitizer (callable, None): Optional ``f(text) -> text`` run
+               on both the exception message and the full traceback text
+               before either is logged. See Logger.catch() for details.
 
         :Returns:
             #. result (_CatchContext): A _CatchContext usable as decorator or
                context manager.
         """
-        ctx = _CatchContext(self, logType=logType,
-                            reraise=reraise, message=message)
+        ctx = _CatchContext(self, logType=logType, reraise=reraise,
+                            message=message, sanitizer=sanitizer)
         if func is not None:
             return ctx(func)
         return ctx
@@ -3511,7 +3515,7 @@ class Logger(object):
         return message
 
     def catch(self, func=None, logType='error', reraise=False,
-              message='An exception was caught'):
+              message='An exception was caught', sanitizer=None):
         """Decorator and context manager that catches and logs exceptions.
 
         Can be used in three ways::
@@ -3538,13 +3542,22 @@ class Logger(object):
                suppressed. When True it propagates after logging.
             #. message (string): Prefix text prepended to the
                exception description in the log entry.
+            #. sanitizer (callable, None): Optional ``f(text) -> text``
+               run on BOTH the exception message and the full traceback
+               text before either is logged -- e.g. to strip local
+               filesystem paths or other infrastructure detail that
+               should never reach a log file, stdout, or a downstream
+               sink such as a SIEM (Security Information and Event
+               Management) collector. Runs once, before ``log()`` is
+               called, so every sink sees only the sanitized text.
+               Default None -- no change to the raw message/traceback.
 
         :Returns:
             #. result (_CatchContext): A _CatchContext usable as decorator or context
                manager, or the wrapped callable for bare-decorator use.
         """
-        ctx = _CatchContext(self, logType=logType,
-                            reraise=reraise, message=message)
+        ctx = _CatchContext(self, logType=logType, reraise=reraise,
+                            message=message, sanitizer=sanitizer)
         if func is not None:
             return ctx(func)
         return ctx
