@@ -421,5 +421,84 @@ class TestHTTPTransport(unittest.TestCase):
         self.assertEqual(payload['index'], 'main')
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ConsoleTransport
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestConsoleTransport(unittest.TestCase):
+
+    def test_prints_decoded_payload_with_prefix(self):
+        buf = io.StringIO()
+        transport = siem_transport.ConsoleTransport(stream=buf, prefix='[TEST] ')
+        transport.send(b'<134>1 hello world')
+        self.assertEqual(buf.getvalue(), '[TEST] <134>1 hello world\n')
+
+    def test_default_prefix(self):
+        buf = io.StringIO()
+        transport = siem_transport.ConsoleTransport(stream=buf)
+        transport.send(b'msg')
+        self.assertTrue(buf.getvalue().startswith('[SIEM] '))
+
+    def test_default_stream_is_stdout(self):
+        transport = siem_transport.ConsoleTransport()
+        self.assertIs(transport.stream, sys.stdout)
+
+    def test_close_is_a_harmless_noop(self):
+        buf = io.StringIO()
+        transport = siem_transport.ConsoleTransport(stream=buf)
+        transport.close()   # must not raise, must not touch buf
+        self.assertFalse(buf.closed)
+
+    def test_never_raises_so_it_never_trips_the_circuit_breaker(self):
+        buf = io.StringIO()
+        sink = siem_sink.SiemForwardSink(siem_transport.ConsoleTransport(stream=buf))
+        for _ in range(10):
+            sink.write_record('steady stream\n', 'info', 10)
+        self.assertEqual(sink.stats['sent'], 10)
+        self.assertEqual(sink.stats['errors'], 0)
+
+    def test_end_to_end_through_attach(self):
+        logger, _ = make_logger()
+        buf = io.StringIO()
+        transport = siem_transport.ConsoleTransport(stream=buf)
+        sink = siem_sink.attach(logger, transport)
+        try:
+            logger.error('boom')
+            logger.flush(timeout=2.0)
+            self.assertIn('boom', buf.getvalue())
+            self.assertIn('[SIEM] ', buf.getvalue())
+        finally:
+            siem_sink.detach(logger, sink)
+
+    def test_quick_attach_console_protocol(self):
+        logger, _ = make_logger()
+        buf = io.StringIO()
+        sink = siem_sink.quick_attach(logger, protocol='console', stream=buf)
+        try:
+            logger.error('via quick_attach')
+            logger.flush(timeout=2.0)
+            self.assertIn('via quick_attach', buf.getvalue())
+        finally:
+            siem_sink.detach(logger, sink)
+
+    def test_swapping_transport_requires_no_other_change(self):
+        """Same attach() call, only the transport instance differs."""
+        logger, _ = make_logger()
+        buf = io.StringIO()
+        devTransport = siem_transport.ConsoleTransport(stream=buf)
+        prodTransport = _FakeTransport()
+
+        for transport in (devTransport, prodTransport):
+            sink = siem_sink.attach(logger, transport)
+            try:
+                logger.error('same call, different transport')
+                logger.flush(timeout=2.0)
+            finally:
+                siem_sink.detach(logger, sink)
+
+        self.assertIn('same call, different transport', buf.getvalue())
+        self.assertEqual(len(prodTransport.sent), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

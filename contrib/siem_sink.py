@@ -523,7 +523,8 @@ def detach(logger, sink, sinkName='siem', close=True, timeout=5.0):
 def quick_attach(logger, protocol, host=None, port=None, url=None,
                   useTls=False, sslContext=None, headers=None,
                   connectTimeout=5.0, sendTimeout=5.0, timeout=5.0,
-                  payloadBuilder=None, **sinkKwargs):
+                  payloadBuilder=None, stream=None, consolePrefix='[SIEM] ',
+                  **sinkKwargs):
     """
     Build the right transport from a plain protocol string, then wire it
     into *logger* with :func:`attach`.
@@ -539,7 +540,8 @@ def quick_attach(logger, protocol, host=None, port=None, url=None,
     :Parameters:
         #. logger (pysimplelog.Logger): The logger to attach to.
         #. protocol (str): One of 'tcp', 'tcps' (TCP wrapped in TLS),
-           'udp', 'http', or 'https'. Case-insensitive.
+           'udp', 'http', 'https', or 'console' (prints instead of
+           sending -- see ``ConsoleTransport``). Case-insensitive.
         #. host (str, None): Collector hostname or IP. Required for
            'tcp', 'tcps', and 'udp'.
         #. port (int, None): Collector port. Required for 'tcp', 'tcps',
@@ -560,6 +562,10 @@ def quick_attach(logger, protocol, host=None, port=None, url=None,
            only used for 'http'/'https'.
         #. payloadBuilder (callable, None): Custom HTTP body builder,
            only used for 'http'/'https'. See ``splunk_hec_payload_builder``.
+        #. stream (file-like, None): Where to print, only used for
+           'console'. Defaults to ``sys.stdout``.
+        #. consolePrefix (str): Line prefix, only used for 'console'.
+           Default ``'[SIEM] '``.
         #. sinkKwargs: Forwarded to :func:`attach` (``formatter``,
            ``severityMap``, ``sinkName``, ``logTypeFlags``, ``defaultFlag``,
            ``threaded``, ``threadQueueSize``, retry/breaker tuning,
@@ -601,6 +607,11 @@ def quick_attach(logger, protocol, host=None, port=None, url=None,
         sink = quick_attach(logger, protocol='https',
                              url='https://collector.mycompany.com/ingest')
 
+    Development/demo mode -- print instead of sending, swap the protocol
+    string for a real one when you're ready to go live::
+
+        sink = quick_attach(logger, protocol='console')
+
     Splunk HTTP Event Collector (HEC)::
 
         from pysimplelog.contrib import siem_transport
@@ -641,6 +652,11 @@ def quick_attach(logger, protocol, host=None, port=None, url=None,
         transport = siem_transport.HTTPTransport(
             url, headers=headers, timeout=timeout, payloadBuilder=payloadBuilder,
         )
+    elif protocol in ('console', 'print'):
+        transport = siem_transport.ConsoleTransport(stream=stream, prefix=consolePrefix)
     else:
-        raise ValueError(f"unknown protocol '{protocol}' -- expected one of tcp, tcps, udp, http, https")
+        raise ValueError(
+            f"unknown protocol '{protocol}' -- expected one of "
+            "tcp, tcps, udp, http, https, console"
+        )
     return attach(logger, transport, **sinkKwargs)

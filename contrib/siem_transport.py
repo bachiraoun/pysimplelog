@@ -22,16 +22,21 @@ dependencies: everything here is built on ``socket``, ``ssl``, and
        token-authenticated HTTP ingestion (e.g. Splunk HEC). Use
        ``splunk_hec_headers()`` for a ready-made Splunk-compatible
        header set.
+    #. ConsoleTransport -- prints instead of sending. A stand-in for a
+       real collector during development, demos, or smoke tests --
+       swap it for one of the network transports above later with a
+       one-line change, nothing else needs to know.
 """
 import json
 import socket
 import ssl
+import sys
 import threading
 import urllib.request
 
 __all__ = [
     'Transport', 'TCPSyslogTransport', 'UDPSyslogTransport', 'HTTPTransport',
-    'splunk_hec_headers', 'splunk_hec_payload_builder',
+    'ConsoleTransport', 'splunk_hec_headers', 'splunk_hec_payload_builder',
 ]
 
 
@@ -185,6 +190,51 @@ class HTTPTransport(Transport):
 
     def close(self):
         pass
+
+
+class ConsoleTransport(Transport):
+    """Prints every record instead of sending it anywhere -- a stand-in
+    for a real collector.
+
+    Same ``send(bytes)``/``close()`` contract as every other transport
+    here, so swapping this for ``TCPSyslogTransport``, ``UDPSyslogTransport``,
+    or ``HTTPTransport`` later is a one-line change -- nothing in
+    ``attach()``, ``quick_attach()``, or ``SiemForwardSink`` needs to know
+    or care which transport is behind the sink. Useful for:
+
+        #. Local development and demos -- see exactly what would be
+           shipped to a real SIEM (Security Information and Event
+           Management) collector without needing one running.
+        #. Smoke-testing the whole ``attach()`` -> ``SiemForwardSink`` ->
+           formatter -> transport chain in application code or tests,
+           without mocking anything.
+        #. A safe default while wiring up SIEM forwarding for the first
+           time, before pointing it at a real endpoint.
+
+    Never raises on ``send()`` -- there's no network to fail -- so it
+    also never triggers ``SiemForwardSink``'s retry/circuit-breaker
+    machinery. Keep that in mind if you're specifically testing failure
+    handling; use a transport that can be told to fail for that instead.
+
+    :Parameters:
+        #. stream (file-like, None): Where to print. Defaults to
+           ``sys.stdout``. Never closed by this transport -- same rule
+           as every stdout-like sink in pysimplelog: the caller owns it.
+        #. prefix (str): Prepended to every printed line. Default ``'[SIEM] '``.
+    """
+
+    def __init__(self, stream=None, prefix='[SIEM] '):
+        self.stream = stream if stream is not None else sys.stdout
+        self.prefix = prefix
+
+    def send(self, payload):
+        """Decode *payload* and print it, prefixed, to the configured stream."""
+        self.stream.write(f'{self.prefix}{payload.decode("utf-8", "replace")}\n')
+        if hasattr(self.stream, 'flush'):
+            self.stream.flush()
+
+    def close(self):
+        """No-op -- this transport never owns the stream's lifecycle."""
 
 
 def splunk_hec_headers(token):
