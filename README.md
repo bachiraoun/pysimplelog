@@ -27,6 +27,16 @@ pip install pysimplelog
 
 https://bachiraoun.github.io/pysimplelog/
 
+To build and view the docs locally:
+
+```
+./build_docs.sh
+```
+
+This builds the Sphinx HTML docs (`docs/build/html/`) via the repo's
+`.sphinx-venv` and opens `index.html` in your default browser -- one
+command, nothing to activate by hand.
+
 ## SIEM / syslog forwarding (optional)
 
 `pysimplelog.contrib` ships a zero-mandatory-dependency add-on that forwards
@@ -42,8 +52,10 @@ from pysimplelog.contrib import siem_sink, siem_transport
 
 logger = Logger("my-app")
 
-transport = siem_transport.TCPSyslogTransport("siem.example.com", 6514, use_tls=True)
-sink = siem_sink.attach(logger, transport, log_types=["warn", "error", "critical"])
+transport = siem_transport.TCPSyslogTransport("siem.example.com", 6514, useTls=True)
+sink = siem_sink.attach(logger, transport,
+                         logTypeFlags={"warn": True, "error": True, "critical": True},
+                         defaultFlag=False)
 
 logger.error("payment gateway timeout")
 

@@ -64,6 +64,20 @@ Exception Capture with catch()
     with l.catch():
         risky_code()
 
+Pass a ``sanitizer`` callable to scrub the exception message and full
+traceback before either is logged -- useful for stripping local filesystem
+paths or other infrastructure detail that must never reach a log file or a
+downstream sink such as a SIEM collector:
+
+.. code-block:: python
+
+    def hide_paths(text):
+        return text.replace("/opt/myapp/venv/lib/pysimplelog", "<redacted>")
+
+    @l.catch(logType="error", sanitizer=hide_paths)
+    def load_plugin(path):
+        raise ImportError("/opt/myapp/venv/lib/pysimplelog/plugins.py not found")
+
 Non-blocking Enqueue Mode
 --------------------------
 
@@ -87,3 +101,32 @@ For application-wide shared logging, use ``SingleLogger``:
 
     Logger("my-app")          ## first call — creates and initialises
     Logger().info("hello")    ## subsequent calls — returns same instance
+
+SIEM / Syslog Forwarding
+-------------------------
+
+``pysimplelog.contrib`` ships an optional, zero-mandatory-dependency add-on
+that forwards log records to a SIEM (Security Information and Event
+Management) or syslog collector as RFC 5424 structured syslog over TCP+TLS,
+UDP, or HTTP(S). It is pure ``add_sink()`` usage under the hood -- nothing
+in the core ``Logger`` is touched:
+
+.. code-block:: python
+
+    from pysimplelog.contrib import siem_sink, siem_transport
+
+    transport = siem_transport.TCPSyslogTransport("siem.example.com", 6514, useTls=True)
+
+    ## opt-in routing: only 'warn'/'error'/'critical' reach the collector
+    sink = siem_sink.attach(l, transport,
+                             logTypeFlags={"warn": True, "error": True, "critical": True},
+                             defaultFlag=False)
+
+    l.error("payment gateway timeout")
+
+    ## at shutdown
+    siem_sink.detach(l, sink)
+
+See :doc:`api_reference` for the full ``contrib`` API (UDP and HTTP/Splunk-HEC
+transports, retry/backoff tuning, circuit breaker, drop/error callbacks), and
+the ``examples/`` directory in the source distribution for runnable scripts.

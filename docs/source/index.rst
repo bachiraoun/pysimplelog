@@ -7,7 +7,6 @@ Welcome to pysimplelog V. |VERSION| documentation!
 
    getting_started
    api_reference
-   changelog
 
 .. automodule:: pysimplelog
     :members:

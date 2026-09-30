@@ -102,6 +102,15 @@ class TCPSyslogTransport(Transport):
         return raw
 
     def send(self, payload):
+        """Send *payload* over the octet-counted TCP stream, reconnecting first if needed.
+
+        :Parameters:
+            #. payload (bytes): The already-encoded RFC 5424 message to send.
+
+        :Raises:
+            #. Exception: Any socket/TLS error from connecting or sending --
+               the socket is dropped first so the next call reconnects cleanly.
+        """
         with self._lock:
             if self._sock is None:
                 self._sock = self._connect()
@@ -121,6 +130,8 @@ class TCPSyslogTransport(Transport):
             self._sock = None
 
     def close(self):
+        """Close the underlying socket, if open. Idempotent -- safe to call
+        more than once or on a transport that never connected."""
         with self._lock:
             self._close_locked()
 
@@ -144,9 +155,17 @@ class UDPSyslogTransport(Transport):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def send(self, payload):
+        """Fire *payload* as a single UDP datagram. Never raises on
+        delivery -- UDP has no delivery confirmation, so a send() success
+        here only means the OS accepted the datagram, not that it arrived.
+
+        :Parameters:
+            #. payload (bytes): The already-encoded RFC 5424 message to send.
+        """
         self._sock.sendto(payload, self.addr)
 
     def close(self):
+        """Close the underlying socket. Idempotent -- exceptions are swallowed."""
         try:
             self._sock.close()
         except Exception:
@@ -182,6 +201,16 @@ class HTTPTransport(Transport):
         return json.dumps({'event': raw.decode('utf-8', 'replace')}).encode('utf-8')
 
     def send(self, payload):
+        """POST *payload* (run through ``payloadBuilder`` first) to ``url``.
+
+        :Parameters:
+            #. payload (bytes): The already-encoded RFC 5424 message, passed
+               to ``payloadBuilder`` to build the actual HTTP request body.
+
+        :Raises:
+            #. RuntimeError: If the collector responds with an HTTP status >= 300.
+            #. Exception: Any ``urllib`` network/timeout error.
+        """
         body = self.payloadBuilder(payload)
         request = urllib.request.Request(self.url, data=body, headers=self.headers, method='POST')
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -189,6 +218,7 @@ class HTTPTransport(Transport):
                 raise RuntimeError(f'HTTP sink received status {response.status} from {self.url}')
 
     def close(self):
+        """No-op -- each ``send()`` opens and closes its own short-lived HTTP request."""
         pass
 
 

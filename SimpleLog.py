@@ -235,6 +235,32 @@ catch() — Exception Capture
 
         2024-01-01 12:00:00 - my-app <INFO> execution continues after suppressed exception
 
+    .. code-block:: python
+
+        ## ── 4. sanitizer — scrub message + traceback before anything is logged ──
+        ## Runs on BOTH the exception message and the full traceback text,
+        ## before log() is ever called -- so every sink (local file, stdout,
+        ## a SIEM/syslog sink via add_sink(), ...) only ever sees the
+        ## sanitized text. Useful for stripping local filesystem paths or
+        ## other infrastructure detail that must never leave the process.
+        def hide_paths(text):
+            return text.replace("/opt/myapp/venv/lib/pysimplelog", "<redacted>")
+
+        @l.catch(logType="error", sanitizer=hide_paths)
+        def load_plugin(path):
+            raise ImportError("/opt/myapp/venv/lib/pysimplelog/plugins.py not found")
+
+        load_plugin("bad_plugin")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - my-app <ERROR> An exception was caught: <redacted>/plugins.py not found
+        Traceback (most recent call last):
+          File "<redacted>/SimpleLog.py", line 709, in wrapper
+        ImportError: <redacted>/plugins.py not found
+
 
 add_sink() — Custom Output Sinks
 ===================================
@@ -2150,12 +2176,12 @@ class Logger(object):
         Set the log file full path including directory path basename and extension.
 
         :Parameters:
-           #. logFile (string): the full log file path including basename and
+           #. logfile (string): the full log file path including basename and
               extension. If this is given, all of logFileBasename and logFileExtension
               will be discarded. logfile is equivalent to logFileBasename.logFileExtension
 
         :Raises:
-            #. TypeError: If *logFile* is not a string.
+            #. TypeError: If *logfile* is not a string.
         """
         if not isinstance(logfile, basestring):
             raise TypeError("logfile must be a string")
