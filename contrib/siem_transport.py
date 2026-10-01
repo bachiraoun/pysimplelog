@@ -95,7 +95,8 @@ class TCPSyslogTransport(Transport):
         self._lock = threading.Lock()
 
     def _connect(self):
-        raw = socket.create_connection((self.host, self.port), timeout=self.connectTimeout)
+        """Opens the TCP socket, wrapping it in TLS when useTls is True."""
+        raw =socket.create_connection((self.host, self.port), timeout=self.connectTimeout)
         if self.useTls:
             raw = self.sslContext.wrap_socket(raw, server_hostname=self.host)
         raw.settimeout(self.sendTimeout)
@@ -122,6 +123,7 @@ class TCPSyslogTransport(Transport):
                 raise
 
     def _close_locked(self):
+        """Closes the socket. The caller must already hold the lock."""
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -198,6 +200,7 @@ class HTTPTransport(Transport):
 
     @staticmethod
     def _default_payload_builder(raw):
+        """Wraps the raw bytes in a JSON object under the 'event' key."""
         return json.dumps({'event': raw.decode('utf-8', 'replace')}).encode('utf-8')
 
     def send(self, payload):
@@ -291,7 +294,8 @@ def splunk_hec_payload_builder(sourcetype='pysimplelog', index=None, source=None
         #. builder (callable): ``f(raw_bytes) -> bytes`` for ``HTTPTransport``.
     """
     def _build(raw):
-        event = {'event': raw.decode('utf-8', 'replace'), 'sourcetype': sourcetype}
+        """Builds the Splunk HTTP Event Collector JSON payload for one raw message."""
+        event ={'event': raw.decode('utf-8', 'replace'), 'sourcetype': sourcetype}
         if index is not None:
             event['index'] = index
         if source is not None:

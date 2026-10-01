@@ -9,61 +9,61 @@ Usage Examples
         from pysimplelog import Logger
 
         # initialize
-        l=Logger("log test")
+        logger=Logger("log test")
 
         # change log file basename from simplelog to mylog
-        l.set_log_file_basename("mylog")
+        logger.set_log_file_basename("mylog")
 
         # change log file extension from .log to .pylog
-        l.set_log_file_extension("pylog")
+        logger.set_log_file_extension("pylog")
 
         # Add new log types.
-        l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
-        l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
-        l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
+        logger.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
+        logger.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
+        logger.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold"])
 
         # update error log type
-        l.update_log_type(logType='error', color='pink', attributes=['underline','bold'])
+        logger.update_log_type(logType='error', color='pink', attributes=['underline','bold'])
 
         # print logger
-        print(l, end="\\n\\n")
+        print(logger, end="\\n\\n")
 
         # test logging
-        l.info("I am info, called using my shortcut method.")
-        l.log("info", "I am info, called using log method.")
+        logger.info("I am info, called using my shortcut method.")
+        logger.log("info", "I am info, called using log method.")
 
-        l.warn("I am warn, called using my shortcut method.")
-        l.log("warn", "I am warn, called using log method.")
+        logger.warn("I am warn, called using my shortcut method.")
+        logger.log("warn", "I am warn, called using log method.")
 
-        l.error("I am error, called using my shortcut method.")
-        l.log("error", "I am error, called using log method.")
+        logger.error("I am error, called using my shortcut method.")
+        logger.log("error", "I am error, called using log method.")
 
-        l.critical("I am critical, called using my shortcut method.")
-        l.log("critical", "I am critical, called using log method.")
+        logger.critical("I am critical, called using my shortcut method.")
+        logger.log("critical", "I am critical, called using log method.")
 
-        l.debug("I am debug, called using my shortcut method.")
-        l.log("debug", "I am debug, called using log method.")
+        logger.debug("I am debug, called using my shortcut method.")
+        logger.log("debug", "I am debug, called using log method.")
 
-        l.log("super critical", "I am super critical, called using log method because I have no shortcut method.")
-        l.log("wrong", "I am wrong, called using log method because I have no shortcut method.")
-        l.log("important", "I am important, called using log method because I have no shortcut method.")
+        logger.log("super critical", "I am super critical, called using log method because I have no shortcut method.")
+        logger.log("wrong", "I am wrong, called using log method because I have no shortcut method.")
+        logger.log("important", "I am important, called using log method because I have no shortcut method.")
 
         # print last logged messages
         print("")
         print("Last logged messages are:")
         print("=========================")
-        print(l.lastLoggedMessage)
-        print(l.lastLoggedDebug)
-        print(l.lastLoggedInfo)
-        print(l.lastLoggedWarning)
-        print(l.lastLoggedError)
-        print(l.lastLoggedCritical)
+        print(logger.lastLoggedMessage)
+        print(logger.lastLoggedDebug)
+        print(logger.lastLoggedInfo)
+        print(logger.lastLoggedWarning)
+        print(logger.lastLoggedError)
+        print(logger.lastLoggedCritical)
 
         # log data
         print("")
         print("Log random data and traceback stack:")
         print("====================================")
-        l.info("Check out this data", data=list(range(10)))
+        logger.info("Check out this data", data=list(range(10)))
         print("")
 
         # log error with traceback
@@ -71,7 +71,7 @@ Usage Examples
         try:
             1/range(10)
         except Exception as err:
-            l.error('%s (is this python ?)'%err, tback=traceback.extract_stack())
+            logger.error('%s (is this python ?)'%err, tback=traceback.extract_stack())
 
 
 
@@ -141,11 +141,11 @@ bind() — Structured Context Logging
 
         from pysimplelog import Logger
 
-        l = Logger("api-server", logToFile=False)
+        logger = Logger("api-server", logToFile=False)
 
         ## attach request-level context once; use the bound logger everywhere
         def handle_request(requestId, user):
-            log = l.bind(requestId=requestId, user=user)
+            log = logger.bind(requestId=requestId, user=user)
             log.info("request received")
             log.warn("slow query detected")
 
@@ -174,10 +174,10 @@ catch() — Exception Capture
 
         from pysimplelog import Logger
 
-        l = Logger("my-app", logToFile=False)
+        logger = Logger("my-app", logToFile=False)
 
         ## ── 1. bare decorator — uses defaults (logType='error', reraise=False) ──
-        @l.catch
+        @logger.catch
         def parse_config(path):
             with open(path) as fh:
                 return fh.read()
@@ -196,14 +196,14 @@ catch() — Exception Capture
     .. code-block:: python
 
         ## ── 2. parameterised decorator — custom level, re-raise enabled ──────
-        @l.catch(logType="critical", reraise=True)
+        @logger.catch(logType="critical", reraise=True)
         def connect_db(url):
             raise ConnectionError("timed out")
 
         try:
             connect_db("postgres://localhost/mydb")
         except ConnectionError:
-            l.warn("falling back to read-only replica")
+            logger.warn("falling back to read-only replica")
 
     **Output:**
 
@@ -219,10 +219,10 @@ catch() — Exception Capture
     .. code-block:: python
 
         ## ── 3. context manager — exception suppressed, execution continues ───
-        with l.catch(logType="warn", reraise=False):
+        with logger.catch(logType="warn", reraise=False):
             result = 1 / 0
 
-        l.info("execution continues after suppressed exception")
+        logger.info("execution continues after suppressed exception")
 
     **Output:**
 
@@ -246,7 +246,7 @@ catch() — Exception Capture
         def hide_paths(text):
             return text.replace("/opt/myapp/venv/lib/pysimplelog", "<redacted>")
 
-        @l.catch(logType="error", sanitizer=hide_paths)
+        @logger.catch(logType="error", sanitizer=hide_paths)
         def load_plugin(path):
             raise ImportError("/opt/myapp/venv/lib/pysimplelog/plugins.py not found")
 
@@ -273,14 +273,14 @@ add_sink() — Custom Output Sinks
         import io
         from pysimplelog import Logger
 
-        l = Logger("my-app", logToFile=False)
+        logger = Logger("my-app", logToFile=False)
 
         ## ── in-memory sink (useful in tests) ─────────────────────────────────
         buffer = io.StringIO()
-        l.add_sink("memory", buffer)
+        logger.add_sink("memory", buffer)
 
-        l.info("hello buffer")
-        l.error("something went wrong")
+        logger.info("hello buffer")
+        logger.error("something went wrong")
 
     **Output (stdout):**
 
@@ -305,12 +305,12 @@ add_sink() — Custom Output Sinks
 
         ## ── secondary log file ────────────────────────────────────────────────
         audit = open("audit.log", "a")
-        l.add_sink("audit", audit)
-        l.warn("this goes to stdout, buffer, AND audit.log")
+        logger.add_sink("audit", audit)
+        logger.warn("this goes to stdout, buffer, AND audit.log")
 
         ## ── remove a sink when no longer needed ───────────────────────────────
-        l.remove_sink("memory")
-        l.info("this no longer goes to the in-memory buffer")
+        logger.remove_sink("memory")
+        logger.info("this no longer goes to the in-memory buffer")
         audit.close()
 
     **Output (stdout, after remove_sink):**
@@ -332,14 +332,14 @@ enqueue — Non-blocking Mode
         from pysimplelog import Logger
 
         ## enqueue=True — log calls return in microseconds regardless of I/O load
-        l = Logger("worker", enqueue=True, logToFile=False)
+        logger = Logger("worker", enqueue=True, logToFile=False)
 
         for i in range(3):
-            l.info("processed item %d" % i)
+            logger.info("processed item %d" % i)
             ## returns immediately; I/O happens in the background thread
 
         ## block until all records have been written
-        l.flush()
+        logger.flush()
 
     **Output:**
 
@@ -384,10 +384,10 @@ callerInfo — Caller Tagging
 
         from pysimplelog import Logger
 
-        l = Logger("my-app", callerInfo=True, logToFile=False)
+        logger = Logger("my-app", callerInfo=True, logToFile=False)
 
         def process_order(orderId):
-            l.info("processing order %s" % orderId)
+            logger.info("processing order %s" % orderId)
 
         process_order(42)
 
@@ -401,7 +401,7 @@ callerInfo — Caller Tagging
 
         ## combine with bind() — caller tag and context both appear
         def handle_request(requestId):
-            log = l.bind(requestId=requestId)
+            log = logger.bind(requestId=requestId)
             log.debug("request started")
 
         handle_request("req-001")
@@ -730,6 +730,7 @@ class _CatchContext(object):
         """Allow the context manager instance to be used as a decorator."""
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            """Runs the wrapped function inside the catch context."""
             with _CatchContext(self._logger, self._logType, self._reraise,
                                self._message, self._sanitizer):
                 return func(*args, **kwargs)
@@ -749,20 +750,16 @@ class _BoundLogger(object):
     merged context dict; the originals are never modified.
 
     Do not instantiate directly -- use Logger.bind() or _BoundLogger.bind().
+
+    :Parameters:
+        #. parent (Logger, _BoundLogger): The logger that performs all
+           actual I/O. The root Logger is always stored, so delegation
+           stays one hop deep however many bind() calls are chained.
+        #. context (dict): Key-value pairs prepended to every message.
+           Values are converted to strings when the prefix is built.
     """
 
     def __init__(self, parent, context):
-        """Initialise a bound logger wrapping a parent Logger.
-
-        :Parameters:
-            #. parent (Logger or _BoundLogger): The logger that will
-               perform all actual I/O. Always store the root Logger so
-               the delegation chain stays one hop deep regardless of
-               how many bind() calls are chained.
-            #. context (dict): Key-value pairs to prepend to every
-               message. Values are converted to strings at prefix-build
-               time via str().
-        """
         self.__parent  = parent
         self.__context = dict(context)   # defensive copy -- never mutate
 
@@ -998,19 +995,19 @@ class Logger(object):
         from pysimplelog import Logger
 
         ## create a logger instance
-        l = Logger("my-app")
+        logger = Logger("my-app")
 
         ## log at built-in levels
-        l.info("application started")
-        l.warn("disk usage above 80 percent")
-        l.error("connection refused")
+        logger.info("application started")
+        logger.warn("disk usage above 80 percent")
+        logger.error("connection refused")
 
         ## add a custom log type
-        l.add_log_type("trace", name="TRACE", level=5, color="cyan")
-        l.log("trace", "entering request handler")
+        logger.add_log_type("trace", name="TRACE", level=5, color="cyan")
+        logger.log("trace", "entering request handler")
 
         ## bind context for structured logging
-        requestLogger = l.bind(requestId="abc123", user="alice")
+        requestLogger = logger.bind(requestId="abc123", user="alice")
         requestLogger.info("request received")
 
 
@@ -1185,7 +1182,7 @@ class Logger(object):
         # sink registry and cache — pre-created empty so every setter
         # called during __init__ can safely guard with
         # "if _SINK_STDOUT in self.__sinks". The real _Sink objects are
-        # inserted at the END of __init__ (Phase 3 block).
+        # inserted at the END of __init__ (sink registry block).
         self.__sinks       = {}
         self.__activeSinks = {}
         # instantiate file stream
@@ -1301,9 +1298,9 @@ class Logger(object):
         # are the SAME objects as __logTypeStdoutFlags/__logTypeFileFlags
         # so __update_stdout_flags() and __update_file_flags() keep them
         # current automatically — no extra code required.
-        # Scalar fields (enabled, minLevel, maxLevel) are Phase-3 snapshots;
-        # Phase 4 setters will write to both old attributes and sink fields
-        # simultaneously so the cache stays accurate after config changes.
+        # Scalar fields (enabled, minLevel, maxLevel) are snapshots;
+        # setters write to both the old attributes and the sink fields
+        # so the cache stays accurate after config changes.
         self.__sinks = {
             _SINK_STDOUT: _Sink(
                 handler      = self.__stdout,
@@ -1461,9 +1458,9 @@ class Logger(object):
     @property
     def lastLogged(self):
         """Return a dictionary of the last logged message for each log type."""
-        d = copy.deepcopy(self.__lastLogged)
-        d.pop(-1, None)
-        return d
+        lastLoggedCopy = copy.deepcopy(self.__lastLogged)
+        lastLoggedCopy.pop(-1, None)
+        return lastLoggedCopy
 
     @property
     def lastLoggedMessage(self):
@@ -1678,7 +1675,7 @@ class Logger(object):
         """Shallow-copy snapshot of the unified sink registry.
 
         Keys: ``_SINK_STDOUT`` (-1) and ``_SINK_FILE`` (0) for the two
-        built-in sinks; string keys for any user-added sinks (Phase 9).
+        built-in sinks; string keys for any user-added sinks.
         Values are live ``_Sink`` instances — do not mutate them directly;
         use the public setter API to change routing configuration.
         """
@@ -2251,18 +2248,18 @@ class Logger(object):
             ordered  = []
             if not len(logDir) or os.path.isdir(logDir):
                 listDir = os.listdir(logDir) if len(logDir) else os.listdir('.')
-                for f in listDir:
-                    p = os.path.join(logDir,f)
-                    if not os.path.isfile(p):
+                for fileName in listDir:
+                    filePath = os.path.join(logDir,fileName)
+                    if not os.path.isfile(filePath):
                         continue
-                    if re.match(r"^{bsn}(_\d+)?\.{ext}$".format(bsn=re.escape(self.__logFileBasename), ext=re.escape(self.__logFileExtension)), p) is None:
+                    if re.match(r"^{bsn}(_\d+)?\.{ext}$".format(bsn=re.escape(self.__logFileBasename), ext=re.escape(self.__logFileExtension)), filePath) is None:
                         continue
-                    n = p.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
-                    n = int(n[1:]) if len(n) else ''
-                    if n in numsLUT:
+                    fileNumber = filePath.split(self.__logFileBasename)[1].split('.%s'%self.__logFileExtension)[0]
+                    fileNumber = int(fileNumber[1:]) if len(fileNumber) else ''
+                    if fileNumber in numsLUT:
                         raise RuntimeError("filelog number is found in LUT shouldn't have happened. PLEASE REPORT BUG")
-                    numsLUT[n]  = p
-                    filesLUT[p] = n
+                    numsLUT[fileNumber]  = filePath
+                    filesLUT[filePath] = fileNumber
                 ordered = ([''] if '' in numsLUT else []) + sorted([n for n in numsLUT if isinstance(n, int)])
                 ordered = [numsLUT[n] for n in ordered]
             # get last file number
@@ -3706,8 +3703,8 @@ class SingleLogger(Logger):
         logger.info("application started")
 
         ## Second call — returns the existing instance; arguments are ignored.
-        same_logger = AppLogger()
-        assert same_logger is logger
+        sameLogger = AppLogger()
+        assert sameLogger is logger
     """
     __thisInstance = None
 
@@ -3731,13 +3728,13 @@ class SingleLogger(Logger):
 
 if __name__ == "__main__":
     import time
-    l=Logger("log test")
-    l.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
-    l.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
-    l.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
-    print(l, '\n')
+    logger=Logger("log test")
+    logger.add_log_type("super critical", name="SUPER CRITICAL", level=200, color='red', attributes=["bold","underline"])
+    logger.add_log_type("wrong", name="info", color='magenta', attributes=["strike through"])
+    logger.add_log_type("important", name="info", color='black', highlight="orange", attributes=["bold","blink"])
+    print(logger, '\n')
     # print available logs and logging time.
-    for logType in l.logTypes:
+    for logType in logger.logTypes:
         tic = time.time()
-        l.log(logType, "this is '%s' level log message."%logType)
+        logger.log(logType, "this is '%s' level log message."%logType)
         print("%s seconds\n"%str(time.time()-tic))

@@ -175,29 +175,32 @@ class RFC5424Formatter:
         :Returns:
             #. message (str): Ready-to-encode RFC 5424 syslog line.
         """
-        msg = line.rstrip('\n')
+        messageText = line.rstrip('\n')
         if self.collapseNewlines:
-            msg = msg.replace('\r\n', '\\n').replace('\n', '\\n')
-        pri = self.facility * 8 + severity
+            messageText = messageText.replace('\r\n', '\\n').replace('\n', '\\n')
+        priorityValue = self.facility * 8 + severity
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        msgId = self._nil_safe(_WHITESPACE_RE.sub('_', str(logType))[:32])
+        messageId = self._nil_safe(_WHITESPACE_RE.sub('_', str(logType))[:32])
         structuredData = self._build_structured_data(logType, severity)
-        return f'<{pri}>1 {timestamp} {self.hostname} {self.appName} {self._pid} {msgId} {structuredData} {msg}'
+        return f'<{priorityValue}>1 {timestamp} {self.hostname} {self.appName} {self._pid} {messageId} {structuredData} {messageText}'
 
     def _build_structured_data(self, logType, severity):
+        """Builds the RFC 5424 structured-data element carrying log type and severity."""
         if not self.includeStructuredData:
             return self.NILVALUE
-        escapedType = self._escape_sd(str(logType))
+        escapedType = self._escape_structured_data(str(logType))
         return f'[meta@{self.enterpriseId} logtype="{escapedType}" severity="{severity}"]'
 
     NILVALUE = '-'
 
     @classmethod
     def _nil_safe(cls, value):
+        """Returns the value, or the RFC 5424 nil value '-' when it is empty."""
         return value if value else cls.NILVALUE
 
     @staticmethod
-    def _escape_sd(value):
+    def _escape_structured_data(value):
+        """Escapes backslash, quote and bracket characters as RFC 5424 requires."""
         return value.replace('\\', '\\\\').replace('"', '\\"').replace(']', '\\]')
 
 
@@ -377,6 +380,7 @@ class SiemForwardSink:
             return
 
     def _record_drop(self, item):
+        """Counts a dropped record and notifies the onDrop callback."""
         with self._statsLock:
             self.stats['dropped'] += 1
         if self._onDrop:
@@ -384,6 +388,7 @@ class SiemForwardSink:
 
     @staticmethod
     def _safe_callback(callback, *args):
+        """Calls a user callback and swallows its errors."""
         try:
             callback(*args)
         except Exception:
@@ -478,9 +483,9 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
     More than one SIEM sink on the same logger -- different collectors, or
     splitting log types across endpoints -- just give each its own sinkName::
 
-        critical_sink = attach(logger, criticalTransport, sinkName='siem-critical',
+        criticalSink = attach(logger, criticalTransport, sinkName='siem-critical',
                                 logTypeFlags={'error': True, 'critical': True}, defaultFlag=False)
-        audit_sink = attach(logger, auditTransport, sinkName='siem-audit',
+        auditSink = attach(logger, auditTransport, sinkName='siem-audit',
                              logTypeFlags={'info': True}, defaultFlag=False)
 
     Synchronous, blocking delivery -- only if you specifically want it::
