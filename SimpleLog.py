@@ -413,6 +413,26 @@ callerInfo — Caller Tagging
         2024-01-01 12:00:00 - my-app <DEBUG> [handler.py:3 in handle_request] [requestId=req-001] request started
 
 
+Unknown log types
+=================
+    By default logging with an undefined log type raises ``KeyError``. Set
+    ``unknownLogTypePolicy='fallback'`` to log the message under a fallback
+    type instead, so a wrong type name never crashes the caller and stays visible.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        logger = Logger("app", unknownLogTypePolicy='fallback', fallbackLogType='error', logToFile=False)
+        logger.log('typo', 'hello')
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - app <ERROR> Unknown log type 'typo': hello
+
+
 """
 # python standard distribution imports
 import os, sys, copy, re, atexit, threading, traceback, functools, inspect, collections, time
@@ -1148,6 +1168,15 @@ class Logger(object):
           existing callers pay zero overhead. Can be toggled at runtime
           via set_caller_info(). Does not apply to bound loggers
           created with bind() — those inherit the parent setting.
+       #. unknownLogTypePolicy (string): What log() and force_log() do with a log
+          type that is not defined. 'raise' (default) raises KeyError. 'fallback'
+          logs the message under *fallbackLogType* with the text
+          "Unknown log type 'X': " in front, so a wrong type name never crashes
+          the caller and stays visible. Can be updated at runtime via
+          set_unknown_log_type_policy().
+       #. fallbackLogType (None, string): The log type used by the 'fallback'
+          policy. Required when the policy is 'fallback'. It may be defined later,
+          for example in custom_init, and is checked when it is first used.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -1158,9 +1187,11 @@ class Logger(object):
     :Raises:
         #. TypeError: If *logTypes* is not a dict or None, if its keys are not
            strings, if its values are not dicts or None, if *enqueue* is not a
-           boolean, or if *callerInfo* is not a boolean. Each setter called
+           boolean, if *callerInfo* is not a boolean, or if *unknownLogTypePolicy*
+           is 'fallback' and *fallbackLogType* is not a string. Each setter called
            during construction may also raise ``TypeError`` or ``ValueError``
            for its own parameter — see the individual setter docstrings.
+        #. ValueError: If *unknownLogTypePolicy* is not 'raise' or 'fallback'.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None,
@@ -1176,6 +1207,7 @@ class Logger(object):
                        queueFullPolicy='block',
                        queueBlockTimeout=None,
                        callerInfo=False,
+                       unknownLogTypePolicy='raise', fallbackLogType=None,
                        *args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
@@ -1245,24 +1277,6 @@ class Logger(object):
         self.add_log_type("warn",     name="WARNING",  level=20,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("error",    name="ERROR",    level=30,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
-        # custom initialize
-        self.custom_init( *args, **kwargs )
-        # add logTypes
-        if logTypes is not None:
-            if not isinstance(logTypes, dict):
-                raise TypeError("logTypes must be None or a dictionary")
-            if not all([isinstance(lt, basestring) for lt in logTypes]):
-                raise TypeError("logTypes dictionary keys must be strings")
-            if not all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]):
-                raise TypeError("logTypes dictionary values must be all None or dictionaries")
-            for lt in logTypes:
-                ltv = logTypes[lt]
-                if ltv is None:
-                    ltv = {}
-                if not self.is_log_type(lt):
-                    self.add_log_type(lt, **ltv)
-                elif len(ltv):
-                    self.update_log_type(lt, **ltv)
         # enqueue mode — validate policy params first so errors surface early
         if not isinstance(enqueue, bool):
             raise TypeError("enqueue must be a boolean")
@@ -1293,6 +1307,10 @@ class Logger(object):
         if not isinstance(callerInfo, bool):
             raise TypeError("callerInfo must be a boolean")
         self.__callerInfo = callerInfo
+        # unknown log type policy
+        self.__unknownLogTypePolicy = 'raise'
+        self.__fallbackLogType      = None
+        self.set_unknown_log_type_policy(unknownLogTypePolicy, fallbackLogType)
         # ── unified sink registry ─────────────────────────────────────────
         # Both built-in sinks are always created. The logTypeFlags dicts
         # are the SAME objects as __logTypeStdoutFlags/__logTypeFileFlags
@@ -1323,6 +1341,24 @@ class Logger(object):
         self.__rebuild_active_sinks()
         # flush at python exit
         atexit.register(self._flush_atexit_logfile)
+        # custom initialize runs last, so queue, sinks and logging all work inside it
+        self.custom_init( *args, **kwargs )
+        # add logTypes, still applied after custom_init so they can update types it created
+        if logTypes is not None:
+            if not isinstance(logTypes, dict):
+                raise TypeError("logTypes must be None or a dictionary")
+            if not all([isinstance(lt, basestring) for lt in logTypes]):
+                raise TypeError("logTypes dictionary keys must be strings")
+            if not all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]):
+                raise TypeError("logTypes dictionary values must be all None or dictionaries")
+            for lt in logTypes:
+                ltv = logTypes[lt]
+                if ltv is None:
+                    ltv = {}
+                if not self.is_log_type(lt):
+                    self.add_log_type(lt, **ltv)
+                elif len(ltv):
+                    self.update_log_type(lt, **ltv)
 
     def __str__(self):
         """Return a formatted configuration table for this Logger instance."""
@@ -1335,6 +1371,7 @@ class Logger(object):
         string += "\n - Enqueue mode: %s  Queue max size: %s  Policy: %s  Block timeout: %s  Dropped: %s"%(self.__enqueue, self.__maxQueueSize, self.__queueFullPolicy,
           self.__queueBlockTimeout, self.__droppedMessages)
         string += "\n - Caller info: %s"%(self.__callerInfo,)
+        string += "\n - Unknown log type policy: %s"%(self.__unknownLogTypePolicy,)
         string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
@@ -1512,6 +1549,16 @@ class Logger(object):
         roughly 10-30 us per call. Default is False.
         """
         return self.__callerInfo
+
+    @property
+    def unknownLogTypePolicy(self):
+        """The policy applied to undefined log types, 'raise' or 'fallback'."""
+        return self.__unknownLogTypePolicy
+
+    @property
+    def fallbackLogType(self):
+        """The log type used by the 'fallback' policy, None for 'raise'."""
+        return self.__fallbackLogType
 
     @property
     def maxQueueSize(self):
@@ -1762,6 +1809,26 @@ class Logger(object):
             raise TypeError("callerInfo must be a boolean")
         self.__callerInfo = callerInfo
 
+    def set_unknown_log_type_policy(self, policy, fallbackLogType=None):
+        """
+        Set what log() and force_log() do with an undefined log type.
+
+        :Parameters:
+            #. policy (string): 'raise' or 'fallback'.
+            #. fallbackLogType (None, string): The log type to use when policy is
+               'fallback'. It is checked when first used, so it can be defined later.
+
+        :Raises:
+            #. ValueError: If *policy* is not 'raise' or 'fallback'.
+            #. TypeError: If *policy* is 'fallback' and *fallbackLogType* is not a string.
+        """
+        if policy not in ('raise', 'fallback'):
+            raise ValueError("unknownLogTypePolicy must be 'raise' or 'fallback'")
+        if policy == 'fallback' and not isinstance(fallbackLogType, basestring):
+            raise TypeError("fallbackLogType must be a string when unknownLogTypePolicy is 'fallback'")
+        self.__unknownLogTypePolicy = policy
+        self.__fallbackLogType      = fallbackLogType if policy == 'fallback' else None
+
     def set_max_queue_size(self, maxQueueSize):
         """Set the maximum number of records the internal queue may hold.
 
@@ -1910,7 +1977,7 @@ class Logger(object):
         """Update logger general parameters using key value pairs.
         Updatable parameters are name, flush, stdout, logToStdout, logFileRoll,
         logToFile, logFileMaxSize, stdoutMinLevel, stdoutMaxLevel, fileMinLevel,
-        fileMaxLevel and logFileFirstNumber.
+        fileMaxLevel, logFileFirstNumber, unknownLogTypePolicy and fallbackLogType.
         """
         # update name
         if "name" in kwargs:
@@ -1966,6 +2033,9 @@ class Logger(object):
             self.set_queue_block_timeout(kwargs["queueBlockTimeout"])
         if "callerInfo" in kwargs:
             self.set_caller_info(kwargs["callerInfo"])
+        if "unknownLogTypePolicy" in kwargs or "fallbackLogType" in kwargs:
+            self.set_unknown_log_type_policy(kwargs.get("unknownLogTypePolicy", self.__unknownLogTypePolicy),
+                                             kwargs.get("fallbackLogType", self.__fallbackLogType))
 
 
     @property
@@ -2008,12 +2078,19 @@ class Logger(object):
                 "queueFullPolicy":self.__queueFullPolicy,
                 "queueBlockTimeout":self.__queueBlockTimeout,
                 "callerInfo":self.__callerInfo,
+                "unknownLogTypePolicy":self.__unknownLogTypePolicy,
+                "fallbackLogType":self.__fallbackLogType,
                 "userSinks":userSinks}
 
 
     def custom_init(self, *args, **kwargs):
         """
-        Custom initialize abstract method called at the end of Logger.__init__.
+        Custom initialize hook, called as the very last step of Logger.__init__.
+
+        The logger is fully built when this runs: log types, the stdout and
+        file sinks, the queue and caller info all exist, so logging and
+        add_sink() work inside it. The ``logTypes`` constructor argument is
+        applied right after it.
 
         Override this method to perform application-specific setup on Logger
         instances without modifying __init__ directly.
@@ -3108,6 +3185,27 @@ class Logger(object):
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag,
                             color=color, highlight=highlight, attributes=attributes)
 
+    def _resolve_log_type(self, logType, message):
+        """
+        Applies the unknown log type policy and returns the log type and message to log.
+
+        :Parameters:
+            #. logType (string): The log type given by the caller.
+            #. message (string): The message given by the caller.
+
+        :Returns:
+            #. logType (string): *logType*, or the fallback type when it is undefined and the policy is 'fallback'.
+            #. message (string): *message*, with the unknown type named in front when the fallback is used.
+
+        :Raises:
+            #. ValueError: If the policy is 'fallback' and the fallback type is itself undefined.
+        """
+        if self.__unknownLogTypePolicy == 'raise' or logType in self.__logTypeNames:
+            return logType, message
+        if self.__fallbackLogType not in self.__logTypeNames:
+            raise ValueError("fallbackLogType %r is not a defined log type" % (self.__fallbackLogType,))
+        return self.__fallbackLogType, "Unknown log type %r: %s" % (logType, message)
+
     def _format_message(self, logType, message, data, tback, callerStr=''):
         """Build the complete formatted log record string.
 
@@ -3463,6 +3561,7 @@ class Logger(object):
                 "not a callable. To defer expensive message construction "
                 "guard the call with is_enabled('%s') instead." % logType
             )
+        logType, message = self._resolve_log_type(logType, message)
         if countConstraint is not None:
             self.__logMessagesCounter.setdefault(message, -1)
             self.__logMessagesCounter[message] += 1
@@ -3517,6 +3616,7 @@ class Logger(object):
                 "not a callable. To defer expensive message construction "
                 "guard the call with is_enabled('%s') instead." % logType
             )
+        logType, message = self._resolve_log_type(logType, message)
         # format on caller thread so timestamp is captured at call time
         callerStr = _get_caller_str() if self.__callerInfo else ''
         log = self._format_message(logType=logType, message=message, data=data, tback=tback, callerStr=callerStr)
