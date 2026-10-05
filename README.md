@@ -8,6 +8,8 @@ This package is a simple yet complete logging management system for Python-based
 * Context-aware bound loggers returned by `bind()` prepend structured key-value pairs to every message.
 * Exception capture via `catch()` works as both a decorator and a context manager.
 * Caller tagging (`callerInfo=True`) prepends `[file:line in func]` to each log line automatically.
+* Processors (`add_processor()`) rewrite every finished record, message and traceback included, before any sink sees it, e.g. to hide filesystem paths or secrets.
+* An opt-in policy (`unknownLogTypePolicy='fallback'`) logs a misspelled log type under a fallback type instead of raising.
 * Per-message count constraints, message size limits, and data size limits are supported.
 * Logging text formatting (text colour, text weight, background colour) is allowed when the stream supports it.
 * Adding as many logging levels and types as needed is possible.

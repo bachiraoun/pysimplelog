@@ -1,6 +1,6 @@
 """
 Dedicated 'admin_error' logType: pysimplelog's real @logger.catch decorator,
-its built-in `sanitizer` param, and SIEM opt-in filtering.
+a path-hiding processor, and SIEM opt-in filtering.
 
 The problem this solves:
     1. You want @logger.catch on a handful of sensitive methods/functions,
@@ -12,10 +12,11 @@ The problem this solves:
     2. A raw traceback always contains the REAL absolute filesystem path
        of every stack frame -- e.g. wherever this app/pysimplelog is
        actually installed on disk. That must never reach a SIEM team.
-       @logger.catch()'s `sanitizer` param runs a f(text) -> text callable
-       on BOTH the exception message and the full traceback before either
-       is logged, so every sink -- local file, stdout, SIEM, all of them --
-       only ever sees the sanitized text. One place, applied once.
+       A processor added with logger.add_processor() runs a f(text) -> text
+       callable on the whole finished record, exception message and full
+       traceback included, before any sink gets it, so every sink -- local
+       file, stdout, SIEM, all of them -- only ever sees the sanitized text.
+       One place, applied once.
 
 Run directly::
 
@@ -29,7 +30,7 @@ from pysimplelog import Logger
 from pysimplelog.contrib import siem_sink
 
 
-# ── sanitizer function, passed straight into logger.catch() ────────────
+# ── processor function, added once with logger.add_processor() ─────────
 #
 # Your own app would likely have something shaped like this already --
 # see the PARAMETERS.* / lazy_loaders.SITE_PACKAGES style example from
@@ -45,7 +46,7 @@ _WIN_PATH_RE = re.compile(r'[A-Za-z]:\\(?:[^\\/:*?"<>|\r\n]+\\)+[^\\/:*?"<>|\r\n
 
 def hide_paths(text, placeholder='<redacted>'):
     """Return *text* with absolute filesystem paths collapsed to just
-    their basename -- passed directly as logger.catch()'s `sanitizer`.
+    their basename -- added with logger.add_processor().
 
     :Parameters:
         #. text (str): The message or traceback text to scrub.
@@ -89,12 +90,14 @@ def main():
         logTypeFlags={'admin_error': True}, defaultFlag=False,
     )
 
-    # 3. The REAL logger.catch() from pysimplelog, with its built-in
-    #    `sanitizer` param doing the path redaction -- no sink-wrapping,
-    #    no reimplementing catch(). Message AND traceback both get
-    #    sanitized before logger.log() is ever called, so the local log
-    #    line and the SIEM-forwarded copy are identically scrubbed.
-    @logger.catch(logType='admin_error', message='admin action failed', sanitizer=hide_paths)
+    # 3. A processor doing the path redaction, then the REAL logger.catch()
+    #    from pysimplelog -- no sink-wrapping, no reimplementing catch().
+    #    The processor sees the finished record, message AND traceback, before
+    #    any sink does, so the local log line and the SIEM-forwarded copy are
+    #    identically scrubbed.
+    logger.add_processor(hide_paths, logTypes=['admin_error'])
+
+    @logger.catch(logType='admin_error', message='admin action failed')
     def delete_user(userId):
         if userId == 'root':
             raise PermissionError("refusing to delete 'root'")
@@ -103,7 +106,7 @@ def main():
     print('--- ordinary error: logged locally, NOT forwarded to SIEM ---')
     logger.error('just a routine validation error, nobody paged for this')
 
-    print('\n--- admin_error via logger.catch(sanitizer=hide_paths): scrubbed everywhere ---')
+    print('\n--- admin_error via logger.catch() and the hide_paths processor: scrubbed everywhere ---')
     delete_user('root')   # swallowed (reraise defaults to False)
 
     print('\n--- happy path: no exception, nothing forwarded ---')

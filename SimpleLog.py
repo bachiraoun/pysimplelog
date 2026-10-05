@@ -237,16 +237,18 @@ catch() — Exception Capture
 
     .. code-block:: python
 
-        ## ── 4. sanitizer — scrub message + traceback before anything is logged ──
-        ## Runs on BOTH the exception message and the full traceback text,
-        ## before log() is ever called -- so every sink (local file, stdout,
-        ## a SIEM/syslog sink via add_sink(), ...) only ever sees the
-        ## sanitized text. Useful for stripping local filesystem paths or
-        ## other infrastructure detail that must never leave the process.
+        ## ── 4. processors — scrub message + traceback before any sink sees them ──
+        ## A processor runs on the whole finished record, message and traceback
+        ## included, so every sink (local file, stdout, a SIEM/syslog sink via
+        ## add_sink(), ...) only ever sees the rewritten text. Useful for stripping
+        ## local filesystem paths or other infrastructure detail that must never
+        ## leave the process. See add_processor().
         def hide_paths(text):
             return text.replace("/opt/myapp/venv/lib/pysimplelog", "<redacted>")
 
-        @logger.catch(logType="error", sanitizer=hide_paths)
+        logger.add_processor(hide_paths)
+
+        @logger.catch(logType="error")
         def load_plugin(path):
             raise ImportError("/opt/myapp/venv/lib/pysimplelog/plugins.py not found")
 
@@ -433,18 +435,38 @@ Unknown log types
         2024-01-01 12:00:00 - app <ERROR> Unknown log type 'typo': hello
 
 
+Processors
+==========
+    A processor is a function ``f(text) -> text`` that rewrites each finished log
+    record before it reaches any sink (terminal, file, SIEM, ...). It receives the
+    whole record, message, data and traceback included, so one function can hide
+    local paths or secrets everywhere. A processor applies to every log type, or only
+    to the log types it was added for. A processor that raises is skipped.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        def hide_paths(text):
+            return text.replace("/opt/myapp", "...")
+
+        logger = Logger("app", logToFile=False, processors={None: [hide_paths]})
+        logger.add_processor(str.upper, logTypes=['critical'])
+        logger.error("cannot open /opt/myapp/data.txt")
+
+    **Output:**
+
+    .. code-block:: text
+
+        2024-01-01 12:00:00 - app <ERROR> cannot open .../data.txt
+
+
 """
 # python standard distribution imports
 import os, sys, copy, re, atexit, threading, traceback, functools, inspect, collections, time
 from datetime import datetime
 
 import queue as _queue_module
-
-# Python 2 compatibility aliases — kept so that isinstance(x, basestring)
-# and isinstance(x, long) calls continue to work in any subclasses that
-# were written when Python 2 was still supported.
-long       = int
-basestring = str
 
 # import pysimplelog version
 try:
@@ -465,7 +487,7 @@ _SINK_FILE   =  0   # key for the built-in file sink
 # useful definitions
 def _is_number(number):
     """Return True if value can be interpreted as a Python number."""
-    if isinstance(number, (int, long, float, complex)):
+    if isinstance(number, (int, float, complex)):
         return True
     try:
         float(number)
@@ -534,7 +556,7 @@ def _sanitize_message(message):
         #. result (str): Sanitized string. Non-strings are coerced via '%s'
            formatting before control-character stripping, so a str is always returned.
     """
-    if not isinstance(message, basestring):
+    if not isinstance(message, str):
         message = '%s' % (message,)
     if '\x1b' not in message and '\x00' not in message and '\r' not in message:
         return message
@@ -725,12 +747,11 @@ class _CatchContext(object):
     Do not instantiate directly -- use ``Logger.catch()``.
     """
 
-    def __init__(self, logger, logType, reraise, message, sanitizer=None):
+    def __init__(self, logger, logType, reraise, message):
         self._logger    = logger
         self._logType   = logType
         self._reraise   = reraise
         self._message   = message
-        self._sanitizer = sanitizer
 
     def __enter__(self):
         return self
@@ -739,9 +760,6 @@ class _CatchContext(object):
         if exc_type is not None:
             msg      = '%s: %s' % (self._message, exc_val)
             tbackStr = traceback.format_exc()
-            if self._sanitizer is not None:
-                msg      = self._sanitizer(msg)
-                tbackStr = self._sanitizer(tbackStr)
             self._logger.log(self._logType, msg, tback=tbackStr)
             return not self._reraise   # True suppresses; False re-raises
         return False
@@ -751,8 +769,7 @@ class _CatchContext(object):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             """Runs the wrapped function inside the catch context."""
-            with _CatchContext(self._logger, self._logType, self._reraise,
-                               self._message, self._sanitizer):
+            with _CatchContext(self._logger, self._logType, self._reraise, self._message):
                 return func(*args, **kwargs)
         return wrapper
 
@@ -918,7 +935,7 @@ class _BoundLogger(object):
     # ── exception capture ────────────────────────────────────────────
 
     def catch(self, func=None, logType='error', reraise=False,
-              message='An exception was caught', sanitizer=None):
+              message='An exception was caught'):
         """Decorator and context manager that catches and logs exceptions.
 
         Identical to Logger.catch() but the logged exception line
@@ -931,16 +948,12 @@ class _BoundLogger(object):
             #. logType (string): Log type for the caught exception entry.
             #. reraise (boolean): Whether to re-raise after logging.
             #. message (string): Prefix text for the exception log line.
-            #. sanitizer (callable, None): Optional ``f(text) -> text`` run
-               on both the exception message and the full traceback text
-               before either is logged. See Logger.catch() for details.
 
         :Returns:
             #. result (_CatchContext): A _CatchContext usable as decorator or
                context manager.
         """
-        ctx = _CatchContext(self, logType=logType, reraise=reraise,
-                            message=message, sanitizer=sanitizer)
+        ctx = _CatchContext(self, logType=logType, reraise=reraise, message=message)
         if func is not None:
             return ctx(func)
         return ctx
@@ -1177,6 +1190,12 @@ class Logger(object):
        #. fallbackLogType (None, string): The log type used by the 'fallback'
           policy. Required when the policy is 'fallback'. It may be defined later,
           for example in custom_init, and is checked when it is first used.
+       #. processors (None, dict): Functions that rewrite every finished log record before it
+          reaches any sink, in the shape of the ``processors`` property: key None holds the functions
+          for every log type, every other key is a log type holding the functions for that type, e.g.
+          ``{None: [hide_paths], 'critical': [add_environment]}``. Each function is
+          ``f(text) -> text``. Same as calling add_processor() for each one, after custom_init
+          and the *logTypes* argument.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -1192,6 +1211,8 @@ class Logger(object):
            during construction may also raise ``TypeError`` or ``ValueError``
            for its own parameter — see the individual setter docstrings.
         #. ValueError: If *unknownLogTypePolicy* is not 'raise' or 'fallback'.
+        #. TypeError: If *processors* is not None or a dictionary of lists of callables.
+        #. ValueError: If a *processors* key is not None or a defined log type.
     """
     def __init__(self, name="logger", flush=True,
                        logToStdout=True, stdout=None,
@@ -1208,6 +1229,7 @@ class Logger(object):
                        queueBlockTimeout=None,
                        callerInfo=False,
                        unknownLogTypePolicy='raise', fallbackLogType=None,
+                       processors=None,
                        *args, **kwargs):
         # set last logged message
         self.__lastLogged    = {}
@@ -1311,6 +1333,9 @@ class Logger(object):
         self.__unknownLogTypePolicy = 'raise'
         self.__fallbackLogType      = None
         self.set_unknown_log_type_policy(unknownLogTypePolicy, fallbackLogType)
+        # processors: key None holds the ones for every log type, other keys are log types
+        self.__processors = {None: []}
+        self.__failedProcessors = set()
         # ── unified sink registry ─────────────────────────────────────────
         # Both built-in sinks are always created. The logTypeFlags dicts
         # are the SAME objects as __logTypeStdoutFlags/__logTypeFileFlags
@@ -1347,7 +1372,7 @@ class Logger(object):
         if logTypes is not None:
             if not isinstance(logTypes, dict):
                 raise TypeError("logTypes must be None or a dictionary")
-            if not all([isinstance(lt, basestring) for lt in logTypes]):
+            if not all([isinstance(lt, str) for lt in logTypes]):
                 raise TypeError("logTypes dictionary keys must be strings")
             if not all([isinstance(logTypes[lt], dict) for lt in logTypes if logTypes[lt] is not None]):
                 raise TypeError("logTypes dictionary values must be all None or dictionaries")
@@ -1359,6 +1384,15 @@ class Logger(object):
                     self.add_log_type(lt, **ltv)
                 elif len(ltv):
                     self.update_log_type(lt, **ltv)
+        # add processors
+        if processors is not None:
+            if not isinstance(processors, dict):
+                raise TypeError("processors must be None or a dictionary of lists of functions")
+            for key in processors:
+                if not isinstance(processors[key], (list, tuple)):
+                    raise TypeError("processors[%r] must be a list of functions" % (key,))
+                for func in processors[key]:
+                    self.add_processor(func, logTypes=key)
 
     def __str__(self):
         """Return a formatted configuration table for this Logger instance."""
@@ -1372,6 +1406,7 @@ class Logger(object):
           self.__queueBlockTimeout, self.__droppedMessages)
         string += "\n - Caller info: %s"%(self.__callerInfo,)
         string += "\n - Unknown log type policy: %s"%(self.__unknownLogTypePolicy,)
+        string += "\n - Processors: %s"%(sum(len(self.__processors[key]) for key in self.__processors),)
         string += "\n                  Current log file (%s)"%(self.__logFileName)
         # add log types table
         if not len(self.__logTypeNames):
@@ -1549,6 +1584,11 @@ class Logger(object):
         roughly 10-30 us per call. Default is False.
         """
         return self.__callerInfo
+
+    @property
+    def processors(self):
+        """Dictionary of processor functions: key None holds those run for every log type, other keys are log types."""
+        return self.__processors
 
     @property
     def unknownLogTypePolicy(self):
@@ -1809,6 +1849,49 @@ class Logger(object):
             raise TypeError("callerInfo must be a boolean")
         self.__callerInfo = callerInfo
 
+    def add_processor(self, func, logTypes=None):
+        """
+        Add a function that rewrites every finished log record before it reaches any sink.
+
+        The function receives the complete record text, message, data and traceback included, and returns the text to log.
+        Functions run in the order they were added, those for every log type first, then those of the record's own log type.
+        A function that raises is skipped, the record goes on with the text it had. A function must not log.
+
+        :Parameters:
+            #. func (callable): ``f(text) -> text``.
+            #. logTypes (None, string, list, set, tuple): The log types the function applies to. None means every log type.
+
+        :Raises:
+            #. TypeError: If *func* is not callable.
+            #. ValueError: If a log type is not defined.
+        """
+        if not callable(func):
+            raise TypeError("processor func must be callable")
+        if logTypes is None:
+            keys = [None]
+        else:
+            if isinstance(logTypes, str):
+                logTypes = [logTypes]
+            keys = list(logTypes)
+            for logType in keys:
+                if not self.is_log_type(logType):
+                    raise ValueError("logType %r is not a defined log type" % (logType,))
+        for key in keys:
+            self.__processors.setdefault(key, []).append(func)
+
+    def remove_processor(self, func):
+        """
+        Remove a function from every list of processors it is in, those for every log type and those of single log types.
+        Nothing happens when the function was never added.
+
+        :Parameters:
+            #. func (callable): The function to remove.
+        """
+        for key in list(self.__processors):
+            self.__processors[key] = [processor for processor in self.__processors[key] if processor != func]
+            if key is not None and len(self.__processors[key]) == 0:
+                del self.__processors[key]
+
     def set_unknown_log_type_policy(self, policy, fallbackLogType=None):
         """
         Set what log() and force_log() do with an undefined log type.
@@ -1824,7 +1907,7 @@ class Logger(object):
         """
         if policy not in ('raise', 'fallback'):
             raise ValueError("unknownLogTypePolicy must be 'raise' or 'fallback'")
-        if policy == 'fallback' and not isinstance(fallbackLogType, basestring):
+        if policy == 'fallback' and not isinstance(fallbackLogType, str):
             raise TypeError("fallbackLogType must be a string when unknownLogTypePolicy is 'fallback'")
         self.__unknownLogTypePolicy = policy
         self.__fallbackLogType      = fallbackLogType if policy == 'fallback' else None
@@ -1889,7 +1972,7 @@ class Logger(object):
                ``'drop'``, ``'warn'``, or ``'raise'``.
         """
         validPolicies = ('block', 'drop', 'warn', 'raise')
-        if not isinstance(queueFullPolicy, basestring):
+        if not isinstance(queueFullPolicy, str):
             raise TypeError("queueFullPolicy must be a string, one of %s" % str(validPolicies))
         if queueFullPolicy not in validPolicies:
             raise ValueError("queueFullPolicy must be one of %s, got '%s'"
@@ -1937,7 +2020,7 @@ class Logger(object):
                that does not match any timezone known to pytz.
         """
         if timezone is not None:
-            if not isinstance(timezone, basestring):
+            if not isinstance(timezone, str):
                 raise TypeError("timezone must be None or a string")
             import pytz
             timezone = pytz.timezone(timezone)
@@ -2113,7 +2196,7 @@ class Logger(object):
         :Raises:
             #. TypeError: If *name* is not a string.
         """
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("name must be a string")
         self.__name = name
 
@@ -2257,7 +2340,7 @@ class Logger(object):
         :Raises:
             #. TypeError: If *logfile* is not a string.
         """
-        if not isinstance(logfile, basestring):
+        if not isinstance(logfile, str):
             raise TypeError("logfile must be a string")
         basename, extension = os.path.splitext(logfile)
         self.__set_log_file_basename(logFileBasename=basename)
@@ -2276,8 +2359,8 @@ class Logger(object):
             #. ValueError: If *logFileExtension* resolves to an empty string
                after stripping leading and trailing dots.
         """
-        if not isinstance(logFileExtension, basestring):
-            raise TypeError("logFileExtension must be a basestring")
+        if not isinstance(logFileExtension, str):
+            raise TypeError("logFileExtension must be a string")
         if not len(logFileExtension):
             raise ValueError("logFileExtension can't be empty")
         if logFileExtension[0] == ".":
@@ -2308,8 +2391,8 @@ class Logger(object):
         self.__set_log_file_name()
 
     def __set_log_file_basename(self, logFileBasename):
-        if not isinstance(logFileBasename, basestring):
-            raise TypeError("logFileBasename must be a basestring")
+        if not isinstance(logFileBasename, str):
+            raise TypeError("logFileBasename must be a string")
         self.__logFileBasename = _normalize_path(logFileBasename)#logFileBasename
 
     def __set_log_file_name(self):
@@ -2502,7 +2585,7 @@ class Logger(object):
                 raise TypeError("sinks must be None or a list of sink names")
             sinks = list(sinks)
             for sinkName in sinks:
-                if not isinstance(sinkName, basestring):
+                if not isinstance(sinkName, str):
                     raise TypeError("each entry in sinks must be a string sink name")
                 if sinkName not in self.__sinks:
                     raise ValueError("sink '%s' is not registered" % sinkName)
@@ -2512,7 +2595,7 @@ class Logger(object):
             return
         # check level
         if level is not None:
-            if isinstance(level, basestring):
+            if isinstance(level, str):
                 level = str(level)
                 if level not in self.__logTypeStdoutFlags:
                     raise ValueError("level '%s' given as string, is not defined logType" %level)
@@ -2583,7 +2666,7 @@ class Logger(object):
                 raise TypeError("sinks must be None or a list of sink names")
             sinks = list(sinks)
             for sinkName in sinks:
-                if not isinstance(sinkName, basestring):
+                if not isinstance(sinkName, str):
                     raise TypeError("each entry in sinks must be a string sink name")
                 if sinkName not in self.__sinks:
                     raise ValueError("sink '%s' is not registered" % sinkName)
@@ -2593,7 +2676,7 @@ class Logger(object):
             return
         # check level
         if level is not None:
-            if isinstance(level, basestring):
+            if isinstance(level, str):
                 level = str(level)
                 if level not in self.__logTypeStdoutFlags:
                     raise ValueError("level '%s' given as string, is not defined logType"%level)
@@ -2801,7 +2884,7 @@ class Logger(object):
                if *threadQueueSize* is not a positive integer.
             #. ValueError: If *name* is empty or already registered as a sink.
         """
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("sink name must be a non-empty string")
         if not len(name):
             raise ValueError("sink name must be non-empty")
@@ -2826,7 +2909,7 @@ class Logger(object):
             if not isinstance(logTypeFlags, dict):
                 raise TypeError("logTypeFlags must be a dict or None")
             for k, v in logTypeFlags.items():
-                if not isinstance(k, basestring):
+                if not isinstance(k, str):
                     raise TypeError("logTypeFlags keys must be strings")
                 if not isinstance(v, bool):
                     raise TypeError("logTypeFlags values must be booleans")
@@ -2861,7 +2944,7 @@ class Logger(object):
             #. TypeError: If *name* is not a string.
             #. ValueError: If *name* is not currently registered as a sink.
         """
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("sink name must be a string")
         if name not in self.__sinks:
             raise ValueError("sink '%s' is not registered" % name)
@@ -2881,7 +2964,7 @@ class Logger(object):
             #. timeout (float): Seconds to wait for each threaded sink's
                private queue to drain before stopping its thread anyway.
         """
-        userKeys = [k for k in self.__sinks if isinstance(k, basestring)]
+        userKeys = [k for k in self.__sinks if isinstance(k, str)]
         removedSinks = [self.__sinks.pop(k) for k in userKeys]
         if userKeys:
             self.__rebuild_active_sinks()
@@ -2972,7 +3055,7 @@ class Logger(object):
         """
         if logType not in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' not defined" %logType)
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("name must be a string")
         name = str(name)
         self.__logTypeNames[logType] = name
@@ -3053,7 +3136,7 @@ class Logger(object):
                or an item in *attributes* is not a recognised formatting token.
         """
         # check logType
-        if not isinstance(logType, basestring):
+        if not isinstance(logType, str):
             raise TypeError("logType must be a string")
         if logType in self.__logTypeStdoutFlags:
             raise ValueError("logType '%s' already defined" %logType)
@@ -3068,7 +3151,7 @@ class Logger(object):
         # check name
         if name is None:
             name = logType
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("name must be a string")
         name = str(name)
         # check level
@@ -3109,7 +3192,7 @@ class Logger(object):
             wrapFancy[0] += code
         if attributes is None:
             attributes = []
-        elif isinstance(attributes, basestring):
+        elif isinstance(attributes, str):
             attributes = [str(attributes)]
         for attr in attributes:
             code = self.__stdoutFontFormat["attributes"][attr]
@@ -3184,6 +3267,31 @@ class Logger(object):
         self.__set_log_type(logType=logType, name=name, level=level,
                             stdoutFlag=stdoutFlag, fileFlag=fileFlag,
                             color=color, highlight=highlight, attributes=attributes)
+
+    def _process(self, logType, log):
+        """
+        Runs the processors of a log type over a finished log record.
+
+        :Parameters:
+            #. logType (string): The log type of the record.
+            #. log (string): The finished record text.
+
+        :Returns:
+            #. log (string): The text after every processor, a processor that raises or does not return a string is skipped.
+        """
+        for processor in self.__processors[None] + self.__processors.get(logType, []):
+            try:
+                result = processor(log)
+            except Exception as processorError:
+                # Skipped as asked, but never silently: one warning per processor
+                if id(processor) not in self.__failedProcessors:
+                    self.__failedProcessors.add(id(processor))
+                    sys.stderr.write('pysimplelog WARNING: processor %r raised %s: %s, it is skipped when it fails\n' % (
+                                     processor, type(processorError).__name__, processorError))
+                continue
+            if isinstance(result, str):
+                log = result
+        return log
 
     def _resolve_log_type(self, logType, message):
         """
@@ -3572,6 +3680,7 @@ class Logger(object):
         # is minimal and the user frame is as close to the top as possible
         callerStr = _get_caller_str() if self.__callerInfo else ''
         log = self._format_message(logType=logType, message=message, data=data, tback=tback, callerStr=callerStr)
+        log = self._process(logType, log)
         # routing: read from the pre-computed active-sink cache (O(1) lookup)
         # the list contains only sinks whose enabled flag and logTypeFlags
         # both pass for this logType — no per-call boolean arithmetic needed
@@ -3620,6 +3729,7 @@ class Logger(object):
         # format on caller thread so timestamp is captured at call time
         callerStr = _get_caller_str() if self.__callerInfo else ''
         log = self._format_message(logType=logType, message=message, data=data, tback=tback, callerStr=callerStr)
+        log = self._process(logType, log)
         if self.__enqueue:
             self.__put_to_queue((log, logType, stdout, file))
         else:
@@ -3638,8 +3748,11 @@ class Logger(object):
         return message
 
     def catch(self, func=None, logType='error', reraise=False,
-              message='An exception was caught', sanitizer=None):
+              message='An exception was caught'):
         """Decorator and context manager that catches and logs exceptions.
+
+        The exception message and traceback go through the processors like any other record,
+        see add_processor().
 
         Can be used in three ways::
 
@@ -3665,22 +3778,12 @@ class Logger(object):
                suppressed. When True it propagates after logging.
             #. message (string): Prefix text prepended to the
                exception description in the log entry.
-            #. sanitizer (callable, None): Optional ``f(text) -> text``
-               run on BOTH the exception message and the full traceback
-               text before either is logged -- e.g. to strip local
-               filesystem paths or other infrastructure detail that
-               should never reach a log file, stdout, or a downstream
-               sink such as a SIEM (Security Information and Event
-               Management) collector. Runs once, before ``log()`` is
-               called, so every sink sees only the sanitized text.
-               Default None -- no change to the raw message/traceback.
 
         :Returns:
             #. result (_CatchContext): A _CatchContext usable as decorator or context
                manager, or the wrapped callable for bare-decorator use.
         """
-        ctx = _CatchContext(self, logType=logType, reraise=reraise,
-                            message=message, sanitizer=sanitizer)
+        ctx = _CatchContext(self, logType=logType, reraise=reraise, message=message)
         if func is not None:
             return ctx(func)
         return ctx

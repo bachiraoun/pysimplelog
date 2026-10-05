@@ -64,19 +64,64 @@ Exception Capture with catch()
     with l.catch():
         risky_code()
 
-Pass a ``sanitizer`` callable to scrub the exception message and full
-traceback before either is logged -- useful for stripping local filesystem
-paths or other infrastructure detail that must never reach a log file or a
-downstream sink such as a SIEM collector:
+Add a processor to scrub the exception message and full traceback -- useful
+for stripping local filesystem paths or other infrastructure detail that must
+never reach a log file or a downstream sink such as a SIEM collector. A
+processor is a ``f(text) -> text`` function run on every finished record before
+it reaches any sink; ``logTypes`` limits it to some log types, ``None`` means all:
 
 .. code-block:: python
 
     def hide_paths(text):
         return text.replace("/opt/myapp/venv/lib/pysimplelog", "<redacted>")
 
-    @l.catch(logType="error", sanitizer=hide_paths)
+    l.add_processor(hide_paths)                      ## every log type
+    l.add_processor(str.upper, logTypes=["critical"])  ## only critical records
+
+    @l.catch(logType="error")
     def load_plugin(path):
         raise ImportError("/opt/myapp/venv/lib/pysimplelog/plugins.py not found")
+
+Processors
+----------
+
+A processor is a function ``f(text) -> text`` that rewrites each finished log
+record before it reaches any sink (terminal, file, SIEM, ...). It receives the
+whole record -- message, data and traceback included -- so one function can hide
+local paths or secrets everywhere. ``processors`` is a dictionary: the key ``None``
+holds the functions run for every log type, every other key is a log type holding
+the functions run only for that type. Functions run in the order they were added,
+those for every log type first:
+
+.. code-block:: python
+
+    def hide_paths(text):
+        return text.replace("/opt/myapp", "...")
+
+    ## at creation
+    l = Logger("my-app", processors={None: [hide_paths], "critical": [str.upper]})
+
+    ## or later
+    l.add_processor(hide_paths)                          ## every log type
+    l.add_processor(str.upper, logTypes=["critical"])    ## only critical records
+    l.processors                                         ## {None: [...], "critical": [...]}
+
+    l.remove_processor(hide_paths)    ## removed from every list it is in
+
+A function that raises is skipped and the record goes on with the text it had; one
+warning per function is written to stderr, so a broken processor is never silent.
+A function that does not return a string is ignored. A processor must not log.
+
+Unknown Log Types
+-----------------
+
+By default logging with an undefined log type raises ``KeyError``. Choose a
+fallback instead, so a misspelled type never crashes the caller and stays visible:
+
+.. code-block:: python
+
+    l = Logger("my-app", unknownLogTypePolicy="fallback", fallbackLogType="error")
+    l.log("typo", "hello")    ## logged as an error: Unknown log type 'typo': hello
 
 Non-blocking Enqueue Mode
 --------------------------
