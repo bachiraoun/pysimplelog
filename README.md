@@ -43,8 +43,8 @@ command, nothing to activate by hand.
 
 `pysimplelog.contrib` ships a zero-mandatory-dependency add-on that forwards
 log records to a SIEM or syslog collector as RFC 5424 structured syslog over
-TCP+TLS, UDP, or HTTP(S). It is pure `add_sink()` usage -- nothing in
-`SimpleLog.py` is touched -- and its own background thread/queue keep a slow
+TCP+TLS, UDP, or HTTP(S). It is plain `add_sink()` usage, and its own
+background thread/queue keep a slow
 or unreachable collector from ever blocking your application's normal
 stdout/file logging.
 
@@ -68,6 +68,26 @@ siem_sink.detach(logger, sink)
 See `contrib/siem_sink.py` and `contrib/siem_transport.py` for the full API
 (UDP and HTTP/Splunk-HEC transports, retry/backoff tuning, circuit breaker,
 drop/error callbacks) and `tests/test_siem_sink.py` for runnable examples.
+
+Records can carry named fields, passed as `logger.log(..., fields={...})`. A sink
+that sets `acceptsFields = True`, such as the SIEM sink, receives them, and the
+RFC 5424 formatter writes them as a second structured-data element. They are not
+printed in the normal log text.
+
+### Known limitation and future work
+
+Delivery is best effort. Records wait in an in-memory queue, so some are lost when:
+
+- the collector stays down longer than the retries and the circuit breaker cover,
+- the queue is full, when the oldest record is dropped,
+- the application stops while records are still queued.
+
+Losses are counted in `sink.stats` and reported through `onDrop` / `onError`.
+
+Planned: a disk spool for guaranteed delivery. Records that cannot be sent would
+be written to a local file and resent in order once the collector is back,
+surviving restarts. Open design points: spool size limit and rotation, ordering,
+and duplicate handling after a crash during replay.
 
 ## Author
 
