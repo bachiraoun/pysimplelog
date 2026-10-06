@@ -164,7 +164,7 @@ class RFC5424Formatter:
         self.collapseNewlines = collapseNewlines
         self._pid = os.getpid()
 
-    def format(self, line, logType, severity):
+    def format(self, line, logType, severity, fields=None):
         """Build one RFC 5424 syslog message for a single log record.
 
         :Parameters:
@@ -181,15 +181,28 @@ class RFC5424Formatter:
         priorityValue = self.facility * 8 + severity
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         messageId = self._nil_safe(_WHITESPACE_RE.sub('_', str(logType))[:32])
-        structuredData = self._build_structured_data(logType, severity)
+        structuredData = self._build_structured_data(logType, severity, fields)
         return f'<{priorityValue}>1 {timestamp} {self.hostname} {self.appName} {self._pid} {messageId} {structuredData} {messageText}'
 
-    def _build_structured_data(self, logType, severity):
-        """Builds the RFC 5424 structured-data element carrying log type and severity."""
+    def _build_structured_data(self, logType, severity, fields=None):
+        """Builds the RFC 5424 structured-data elements: log type and severity, then the optional fields."""
         if not self.includeStructuredData:
             return self.NILVALUE
         escapedType = self._escape_structured_data(str(logType))
-        return f'[meta@{self.enterpriseId} logtype="{escapedType}" severity="{severity}"]'
+        elements = f'[meta@{self.enterpriseId} logtype="{escapedType}" severity="{severity}"]'
+        params = []
+        for name, value in (fields or {}).items():
+            if value is None:
+                continue
+            # RFC 5424 forbids space, '=', ']' and quote in a parameter name, and caps it at 32 characters
+            safeName = re.sub(r'[^!-~]|[="\]]', '_', str(name))[:32]
+            text = str(value)
+            if self.collapseNewlines:
+                text = text.replace('\r\n', '\\n').replace('\n', '\\n')
+            params.append(f'{safeName}="{self._escape_structured_data(text)}"')
+        if len(params) > 0:
+            elements += f'[event@{self.enterpriseId} {" ".join(params)}]'
+        return elements
 
     NILVALUE = '-'
 
@@ -337,7 +350,10 @@ class SiemForwardSink:
         """
         self.write_record(record, None, None)
 
-    def write_record(self, record, logType, level):
+    # Tells pysimplelog this sink wants the named fields of each record
+    acceptsFields = True
+
+    def write_record(self, record, logType, level, fields=None):
         """
         Preferred entry point: called by pysimplelog with the logType and
         numeric level alongside the formatted text, so the real RFC 5424
@@ -351,13 +367,14 @@ class SiemForwardSink:
             #. record (str): The fully-formatted pysimplelog record text.
             #. logType (str, None): The pysimplelog logType this record belongs to.
             #. level (int, None): The numeric level registered for that logType.
+            #. fields (dict, None): Named values written as the structured-data element "event".
         """
         severity = self._severityMap.resolve(logType, level)
         item = (record, logType, severity)
         if not self._breaker.allow():
             self._record_drop(item)
             return
-        payload = self._formatter.format(record, logType, severity).encode('utf-8')
+        payload = self._formatter.format(record, logType, severity, fields).encode('utf-8')
         attempt = 0
         while True:
             try:

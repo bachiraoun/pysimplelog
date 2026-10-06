@@ -602,8 +602,10 @@ class _Sink(object):
            turned on) -- including any logType added later.
         #. dispatchFn (callable, None): Resolved once here, not
            re-checked on every dispatch. For 'user' sinks: handler.write_record
-           when the handler offers that richer method, otherwise a thin
-           wrapper around handler.write. None for 'stdout'/'file' sinks,
+           when the handler sets ``acceptsFields = True``, otherwise a thin
+           wrapper that takes the same four arguments (record, logType,
+           level, fields) and calls handler.write_record without the
+           fields, or handler.write when there is no write_record. None for 'stdout'/'file' sinks,
            which never go through a handler at all.
         #. threaded (bool): When True, this sink owns a private bounded
            queue and a dedicated worker thread. Dispatch only ever
@@ -629,10 +631,12 @@ class _Sink(object):
         self.defaultFlag  = defaultFlag   # fallback for logTypes missing from logTypeFlags
         self.dispatchFn   = None
         if sinkType == 'user':
-            if hasattr(handler, 'write_record'):
+            if getattr(handler, 'acceptsFields', False):
                 self.dispatchFn = handler.write_record
+            elif hasattr(handler, 'write_record'):
+                self.dispatchFn = lambda record, logType, level, fields: handler.write_record(record, logType, level)
             else:
-                self.dispatchFn = lambda record, logType, level: handler.write(record)
+                self.dispatchFn = lambda record, logType, level, fields: handler.write(record)
         self.threaded = threaded
         self._queue = None
         self._cv = None
@@ -650,13 +654,13 @@ class _Sink(object):
             self._thread.start()
 
     def enqueue(self, item):
-        """Push one (record, logType, level) tuple onto this sink's private queue.
+        """Push one (record, logType, level, fields) tuple onto this sink's private queue.
 
         Only called when threaded is True. Never blocks: the oldest
         queued item is dropped to make room when the queue is full.
 
         :Parameters:
-            #. item (tuple): (record (str), logType (str), level (int, None)).
+            #. item (tuple): (record (str), logType (str), level (int, None), fields (dict, None)).
         """
         with self._cv:
             if len(self._queue) == self._queue.maxlen:
@@ -683,9 +687,9 @@ class _Sink(object):
                     return
                 item = self._queue.popleft()
                 self._busy = True
-            record, logType, level = item
+            record, logType, level, fields = item
             try:
-                self.dispatchFn(record, logType, level)
+                self.dispatchFn(record, logType, level, fields)
             except Exception as sinkError:
                 sys.stderr.write(
                     'pysimplelog WARNING: user sink write failed'
@@ -2777,7 +2781,7 @@ class Logger(object):
             result[logType] = activeSinks
         self.__activeSinks = result
 
-    def __dispatch_sinks_sync(self, sinks, log, logType):
+    def __dispatch_sinks_sync(self, sinks, log, logType, fields=None):
         """Dispatch a formatted log record to a list of sinks synchronously.
 
         Called by both log() on the synchronous path and __enqueue_worker()
@@ -2795,6 +2799,7 @@ class Logger(object):
             #. sinks (list): List of _Sink objects to dispatch to.
             #. log (string): The fully formatted log record string.
             #. logType (string): The log type name, used for stdout colour formatting.
+            #. fields (None, dict): Named values for sinks that accept them.
         """
         level = self.__logTypeLevels.get(logType)
         for sink in sinks:
@@ -2804,10 +2809,10 @@ class Logger(object):
                     self.__flush_stream(self.__logFileStream)
             elif sink.sinkType == 'user':
                 if sink.threaded:
-                    sink.enqueue(("%s\n" % log, logType, level))
+                    sink.enqueue(("%s\n" % log, logType, level, fields))
                     continue
                 try:
-                    sink.dispatchFn("%s\n" % log, logType, level)
+                    sink.dispatchFn("%s\n" % log, logType, level, fields)
                     if self.__flush:
                         self.__flush_stream(sink.handler)
                 except Exception as sinkError:
@@ -3414,7 +3419,7 @@ class Logger(object):
         """Background thread: drain the log queue and perform all I/O.
 
         Items are one of two formats:
-          - 3-tuple (log, logType, sinks) from normal log() calls;
+          - 4-tuple (log, logType, sinks, fields) from normal log() calls;
             sinks is a snapshot list of _Sink objects from __activeSinks.
           - 4-tuple (log, logType, toStdout, toFile) from force_log();
             toStdout/toFile are caller-supplied booleans that bypass routing.
@@ -3426,10 +3431,11 @@ class Logger(object):
             try:
                 if item is _QUEUE_STOP:
                     return
-                if len(item) == 3:
-                    # normal log() path — 3-tuple (log, logType, sinks)
-                    log, logType, sinks = item
-                    self.__dispatch_sinks_sync(sinks, log, logType)
+                # the third element is a list of sinks only on the normal log() path
+                if isinstance(item[2], list):
+                    # normal log() path — 4-tuple (log, logType, sinks, fields)
+                    log, logType, sinks, fields = item
+                    self.__dispatch_sinks_sync(sinks, log, logType, fields)
                 else:
                     # force_log() path — 4-tuple (log, logType, toStdout, toFile)
                     # bypasses routing; toStdout/toFile are caller-supplied booleans
@@ -3639,7 +3645,7 @@ class Logger(object):
         return bool(self.__activeSinks.get(logType))
 
 
-    def log(self, logType, message, data=None, tback=None, countConstraint=None):
+    def log(self, logType, message, data=None, tback=None, countConstraint=None, fields=None):
         """
         Log a message of the specified log type.
 
@@ -3650,6 +3656,9 @@ class Logger(object):
               the given message
            #. data (None,  object): Any type of data to print and/or write to log file
               after log message
+           #. fields (None, dict): Named values handed only to sinks that set
+              ``acceptsFields = True``, such as the SIEM sink. They are not
+              printed in the log text.
            #. tback (None, str, list): Stack traceback to print and/or write to
               log file. In general, this should be traceback.extract_stack
 
@@ -3688,9 +3697,9 @@ class Logger(object):
         if self.__enqueue:
             # snapshot so the worker sees a stable list even if config
             # changes between put() and the item being processed
-            self.__put_to_queue((log, logType, list(activeSinks)))
+            self.__put_to_queue((log, logType, list(activeSinks), fields))
         else:
-            self.__dispatch_sinks_sync(activeSinks, log, logType)
+            self.__dispatch_sinks_sync(activeSinks, log, logType, fields)
         # set last logged message (on caller thread for immediate visibility)
         self.__lastLogged[logType] = log
         self.__lastLogged[-1]      = log
