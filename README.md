@@ -4,11 +4,14 @@ This package is a simple yet complete logging management system for Python-based
 
 * Logging to multiple streams simultaneously: by default stdout (terminal) and a rotating log file.
 * Any number of additional user-defined output sinks can be registered via `add_sink()`.
-* Non-blocking enqueue mode routes all I/O to a background thread for latency-sensitive callers.
-* Context-aware bound loggers returned by `bind()` prepend structured key-value pairs to every message.
+* Non-blocking enqueue mode routes all I/O to a background thread for latency-sensitive callers. A sink can have its own queue and thread. What a full queue does is explicit (`block`, `drop_newest`, `drop_oldest` or `reject`), and `sink_stats()` counts what every sink queued, delivered, failed and dropped.
+* Context-aware bound loggers returned by `bind()`, and `with logger.context(request_id=...)` blocks, attach key-value pairs to the `context` of every record. The values follow the flow of the program through `contextvars`, also across asynchronous tasks.
 * Exception capture via `catch()` works as both a decorator and a context manager.
 * Caller tagging (`callerInfo=True`) prepends `[file:line in func]` to each log line automatically.
-* Processors (`add_processor()`) rewrite every finished record, message and traceback included, before any sink sees it, e.g. to hide filesystem paths or secrets.
+* Every log call builds one immutable structured `LogRecord`. Each sink renders it with its own formatter: readable text, JSON lines, a `{field}` template or any function.
+* Processors (`add_processor()`) rewrite every record before any sink sees it. `redact_fields()` hides the value of sensitive keys such as passwords and tokens, and `redact_text()` turns a text function into a processor, e.g. to hide filesystem paths.
+* Filters (`add_filter()`) drop whole records, and `set_sink_filter()` chooses by any field which records one sink receives.
+* Python's standard `logging` flows in: `redirect_standard_logging(logger)` sends the records of the libraries an application uses through the same processors, filters and sinks, with `extra=` becoming fields and `logging.exception` keeping its traceback.
 * An opt-in policy (`unknownLogTypePolicy='fallback'`) logs a misspelled log type under a fallback type instead of raising.
 * Per-message count constraints, message size limits, and data size limits are supported.
 * Logging text formatting (text colour, text weight, background colour) is allowed when the stream supports it.
@@ -17,7 +20,7 @@ This package is a simple yet complete logging management system for Python-based
 
 ## Requirements
 
-Python 3.6 or later.
+Python 3.10 or later.
 
 ## Installation
 
@@ -69,10 +72,10 @@ See `contrib/siem_sink.py` and `contrib/siem_transport.py` for the full API
 (UDP and HTTP/Splunk-HEC transports, retry/backoff tuning, circuit breaker,
 drop/error callbacks) and `tests/test_siem_sink.py` for runnable examples.
 
-Records can carry named fields, passed as `logger.log(..., fields={...})`. A sink
-that sets `acceptsFields = True`, such as the SIEM sink, receives them, and the
-RFC 5424 formatter writes them as a second structured-data element. They are not
-printed in the normal log text.
+Records carry named fields, passed as keyword arguments: `logger.info("Order created", order_id=123)`.
+The text layout writes them as `key=value` after the message, JSON keeps them as they are, and the SIEM sink
+writes them as a second structured-data element of the RFC 5424 line. `exc_info=True` (or an exception
+object) records the exception being handled, with its type, message and traceback.
 
 ### Known limitation and future work
 

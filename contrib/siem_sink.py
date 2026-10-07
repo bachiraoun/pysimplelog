@@ -2,19 +2,11 @@
 
 Design summary (see the code-audit notes this was born from):
 
-    #. pysimplelog's ``add_sink()`` calls ``handler.write(record)`` by
-       default, which only ever carries the plain formatted text -- no
-       logType, no level. Recovering the real RFC 5424 severity by
-       scraping that text back apart would be fragile (it breaks the
-       moment someone changes the format string). Instead, this sink
-       implements pysimplelog's optional ``write_record(record, logType,
-       level)`` handler contract: when a handler exposes that method,
-       pysimplelog's dispatch calls it instead of ``write()``, handing
-       over the exact logType and numeric level for every record. That
-       means ``attach()`` only needs to register ONE sink for the whole
-       logger -- no more one-sink-per-logType. Handlers that only
-       implement plain ``write()`` still work everywhere else in
-       pysimplelog; this richer contract is purely additive and opt-in.
+    #. The forwarder is a pysimplelog :class:`pysimplelog.sinks.Sink`: the logger gives it the
+       structured :class:`pysimplelog.record.LogRecord`, with the exact log type, numeric level and
+       fields of every record. The real RFC 5424 severity is resolved from those, never recovered
+       by scraping formatted text. That means ``attach()`` only needs to register ONE sink for the
+       whole logger -- no more one-sink-per-logType.
 
     #. pysimplelog's own dispatch -- whether synchronous or its
        ``enqueue=True`` background worker -- calls every active sink's
@@ -37,14 +29,8 @@ Design summary (see the code-audit notes this was born from):
        backoff give a transient failure a couple of chances before the
        record is dropped for good.
 
-Works with any pysimplelog ``Logger``: a core version without the
-optional ``write_record()`` dispatch hook simply falls back to plain
-``write()``, which still forwards every record, just always tagged as
-Informational (severity 6) since the logType is unknown on that path.
-
-Nothing here imports from ``SimpleLog.py`` beyond the public
-``Logger.add_sink()`` / ``remove_sink()`` API, so it works against any
-pysimplelog ``Logger`` instance without modification.
+The module imports only the public ``Sink`` class and ``TextFormatter`` of pysimplelog, and
+``Logger.add_sink()`` / ``remove_sink()`` through ``attach()`` and ``detach()``.
 """
 import os
 import re
@@ -52,6 +38,13 @@ import socket
 import threading
 import time
 from datetime import datetime, timezone
+
+try:
+    from ..formatters import TextFormatter
+    from ..sinks import Sink
+except ImportError:
+    from formatters import TextFormatter
+    from sinks import Sink
 
 __all__ = [
     'SeverityMap', 'RFC5424Formatter', 'CircuitBreaker', 'SiemForwardSink',
@@ -264,10 +257,11 @@ class CircuitBreaker:
                 self._openedAt = time.monotonic()
 
 
-class SiemForwardSink:
-    """Formats and sends one RFC 5424 record at a time -- safe to register
-    directly via ``add_sink()``, but only non-blocking when registered
-    with ``threaded=True`` (which ``attach()`` does by default).
+class SiemForwardSink(Sink):
+    """Formats and sends one RFC 5424 record at a time -- a pysimplelog
+    :class:`pysimplelog.sinks.Sink`, safe to register directly via ``add_sink()``,
+    but only non-blocking when registered with ``threaded=True`` (which
+    ``attach()`` does by default).
 
     This sink does its own work synchronously: format, resolve severity,
     try the transport, retry with backoff, trip the circuit breaker on
@@ -281,13 +275,9 @@ class SiemForwardSink:
     the circuit breaker rejects it outright -- don't do that unless you
     specifically want synchronous delivery.
 
-    Exposes both handler contracts pysimplelog understands:
-    ``write_record(record, logType, level)`` is used automatically when
-    pysimplelog's dispatch supports it, giving an accurate RFC 5424
-    severity per record. Plain ``write(record)`` is the fallback for
-    dispatchers that don't know about ``write_record`` -- it still
-    forwards every record, just always as Informational since the
-    logType is unknown on that path.
+    The message of each RFC 5424 line is the readable text of the record. The log type and
+    numeric level of the record give the severity, and its fields, except ``data`` which is part
+    of the message, become the structured-data element ``event``.
 
     Delivery guarantees: this is best-effort, not guaranteed. A failed
     send is retried with backoff up to ``maxRetries`` times; once that
@@ -295,7 +285,7 @@ class SiemForwardSink:
     dropped permanently (watch ``onDrop``/``onError`` and ``.stats`` to
     see this happen). Nothing here is queued to disk, and nothing
     survives a process crash mid-delivery. When registered threaded,
-    records queued but not yet handed to write_record() also don't
+    records queued but not yet handed to the sink also don't
     survive a crash -- see pysimplelog's ``threaded`` sink docs.
 
     Use ``attach(logger, transport)`` rather than constructing and
@@ -315,13 +305,13 @@ class SiemForwardSink:
         #. retryBackoffBase (float): Initial retry delay in seconds.
         #. retryBackoffMax (float): Retry delay ceiling in seconds.
         #. maxRetries (int): Extra attempts per record after the first
-           failure. Each retry sleeps, blocking whichever thread called
-           write_record() -- normally your dedicated core sink thread,
+           failure. Each retry sleeps, blocking whichever thread delivers
+           the record -- normally your dedicated core sink thread,
            never pysimplelog's shared dispatch thread.
-        #. onDrop (callable, None): ``f((record, logType, severity))``, called
-           whenever a record is dropped (breaker open, or retries exhausted).
-           Exceptions from it are swallowed.
-        #. onError (callable, None): ``f(exception, (record, logType, severity))``,
+        #. onDrop (callable, None): ``f((text, logType, severity))``, called
+           whenever a record is dropped (breaker open, or retries exhausted), with the RFC 5424
+           text of the record. Exceptions from it are swallowed.
+        #. onError (callable, None): ``f(exception, (text, logType, severity))``,
            called on every failed send attempt. Exceptions from it are swallowed.
     """
 
@@ -329,6 +319,7 @@ class SiemForwardSink:
                  breakerFailureThreshold=5, breakerResetTimeout=30.0,
                  retryBackoffBase=0.5, retryBackoffMax=10.0, maxRetries=2,
                  onDrop=None, onError=None):
+        super().__init__(formatter=self._render, terminator='')
         self._transport = transport
         self._formatter = formatter or RFC5424Formatter()
         self._severityMap = severityMap or SeverityMap()
@@ -338,43 +329,41 @@ class SiemForwardSink:
         self._maxRetries = maxRetries
         self._onDrop = onDrop
         self._onError = onError
+        self._textFormatter = TextFormatter()
         self._statsLock = threading.Lock()
-        self.stats = {'sent': 0, 'dropped': 0, 'errors': 0}
+        self._counts = {'sent': 0, 'dropped': 0, 'errors': 0}
 
-    def write(self, record):
-        """
-        Plain fallback for dispatchers that only know the base
-        ``write(str)`` sink contract. The logType is unknown on this
-        path, so severity always resolves to whatever :class:`SeverityMap`
-        returns for an unrecognized type (Informational by default).
-        """
-        self.write_record(record, None, None)
+    @property
+    def stats(self):
+        """Dictionary with the counts ``sent``, ``dropped`` and ``errors`` of the forwarding, and ``processed``, ``failed`` and ``last_error`` of the sink."""
+        counts = dict(super().stats)
+        with self._statsLock:
+            counts.update(self._counts)
+        return counts
 
-    # Tells pysimplelog this sink wants the named fields of each record
-    acceptsFields = True
+    def _render(self, record):
+        """Returns the RFC 5424 line of a record."""
+        severity = self._severityMap.resolve(record.logType, record.level)
+        # data is part of the message line, so it is not repeated in the structured data
+        fields = {key: value for key, value in record.fields.items() if key != 'data'}
+        return self._formatter.format(self._textFormatter(record), record.logType, severity, fields)
 
-    def write_record(self, record, logType, level, fields=None):
+    def write(self, text, record):
         """
-        Preferred entry point: called by pysimplelog with the logType and
-        numeric level alongside the formatted text, so the real RFC 5424
-        severity can be resolved instead of defaulted. Formats and sends
-        the record right here, synchronously, retrying on failure --
-        register this sink with ``threaded=True`` (the ``attach()``
-        default) so this work happens on its own dedicated thread
-        instead of blocking pysimplelog's shared dispatch.
+        Sends the RFC 5424 line of a record, retrying on failure and dropping it when the retries are exhausted
+        or the circuit breaker is open. Register this sink threaded (the ``attach()`` default) so
+        this work happens on its own dedicated thread instead of blocking pysimplelog's shared dispatch.
 
         :Parameters:
-            #. record (str): The fully-formatted pysimplelog record text.
-            #. logType (str, None): The pysimplelog logType this record belongs to.
-            #. level (int, None): The numeric level registered for that logType.
-            #. fields (dict, None): Named values written as the structured-data element "event".
+            #. text (str): The RFC 5424 line, rendered by this sink.
+            #. record (LogRecord): The record that was rendered, its log type and level give the severity.
         """
-        severity = self._severityMap.resolve(logType, level)
-        item = (record, logType, severity)
+        severity = self._severityMap.resolve(record.logType, record.level)
+        item = (text, record.logType, severity)
         if not self._breaker.allow():
             self._record_drop(item)
             return
-        payload = self._formatter.format(record, logType, severity, fields).encode('utf-8')
+        payload = text.encode('utf-8')
         attempt = 0
         while True:
             try:
@@ -383,7 +372,7 @@ class SiemForwardSink:
                 attempt += 1
                 self._breaker.record_failure()
                 with self._statsLock:
-                    self.stats['errors'] += 1
+                    self._counts['errors'] += 1
                 if self._onError:
                     self._safe_callback(self._onError, exc, item)
                 if attempt > self._maxRetries or not self._breaker.allow():
@@ -393,13 +382,13 @@ class SiemForwardSink:
                 continue
             self._breaker.record_success()
             with self._statsLock:
-                self.stats['sent'] += 1
+                self._counts['sent'] += 1
             return
 
     def _record_drop(self, item):
         """Counts a dropped record and notifies the onDrop callback."""
         with self._statsLock:
-            self.stats['dropped'] += 1
+            self._counts['dropped'] += 1
         if self._onDrop:
             self._safe_callback(self._onDrop, item)
 
@@ -432,6 +421,7 @@ class SiemForwardSink:
 def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
            enabled=True, minLevel=None, maxLevel=None,
            logTypeFlags=None, defaultFlag=True, threaded=True, threadQueueSize=1000,
+           threadQueuePolicy='drop_oldest', threadBlockTimeout=None,
            **sinkKwargs):
     """Wire a SIEM (Security Information and Event Management) forwarder
     into a pysimplelog ``Logger`` as a single sink.
@@ -439,11 +429,9 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
     Delivery is best-effort, not guaranteed -- see :class:`SiemForwardSink`
     for exactly what happens when a send fails or its queue fills up.
 
-    Registers exactly ONE ``add_sink()`` entry, threaded by default. Thanks
-    to pysimplelog's optional ``write_record(record, logType, level)``
-    handler contract, that one sink receives the real logType and numeric
-    level for every record, so severity is resolved correctly without
-    needing one sink per logType. And because network sinks are the risky,
+    Registers exactly ONE ``add_sink()`` entry, threaded by default. Because the
+    sink receives the whole record, with its real log type and numeric level, severity
+    is resolved correctly without needing one sink per logType. And because network sinks are the risky,
     slow ones, ``threaded=True`` by default means all the formatting,
     sending, and retrying happens on its own dedicated thread -- a slow or
     dead SIEM collector can never stall your application's other logging.
@@ -473,6 +461,9 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
         #. threadQueueSize (int): Forwarded to ``add_sink()`` as the
            bounded capacity of this sink's private queue when *threaded*
            is True. Ignored otherwise.
+        #. threadQueuePolicy (str): Forwarded to ``add_sink()``: what the private queue does with a record
+           when it is full, ``block``, ``drop_newest``, ``drop_oldest`` (default) or ``reject``.
+        #. threadBlockTimeout (None, number): Forwarded to ``add_sink()``: seconds the ``block`` policy waits.
         #. sinkKwargs: Forwarded to ``SiemForwardSink()`` (retries,
            breaker tuning, callbacks...).
 
@@ -517,7 +508,8 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
     sink = SiemForwardSink(transport, formatter=formatter, severityMap=severityMap, **sinkKwargs)
     logger.add_sink(sinkName, sink, enabled=enabled, minLevel=minLevel, maxLevel=maxLevel,
                      logTypeFlags=logTypeFlags, defaultFlag=defaultFlag,
-                     threaded=threaded, threadQueueSize=threadQueueSize)
+                     threaded=threaded, threadQueueSize=threadQueueSize,
+                     threadQueuePolicy=threadQueuePolicy, threadBlockTimeout=threadBlockTimeout)
     return sink
 
 

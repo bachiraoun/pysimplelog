@@ -19,9 +19,9 @@ needed to reach the desired state.
 
 Coverage map
 ------------
-TestDropPolicy          -- 'drop': caller never blocks, droppedMessages counted
-TestWarnPolicy          -- 'warn': same as drop + one stderr line per overflow
-TestRaisePolicy         -- 'raise': queue.Full propagated to caller
+TestDropPolicy          -- 'drop_newest': caller never blocks, droppedMessages counted
+TestDropOldestPolicy    -- 'drop_oldest': newest kept, one stderr line per run of drops
+TestRaisePolicy         -- 'reject': QueueFull (a queue.Full) propagated to caller
 TestBlockPolicy         -- 'block' + timeout: bounded wait then drop
 TestUnboundedQueue      -- no maxQueueSize: zero drops under load
 TestDroppedCount        -- exact droppedMessages accounting
@@ -142,15 +142,15 @@ class _RaiseSink:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1 — 'drop' policy
+# 1 — 'drop_newest' policy
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestDropPolicy(unittest.TestCase):
-    """'drop' discards records silently and never parks the calling thread."""
+    """'drop_newest' discards the new record and never parks the calling thread."""
 
     def _make(self):
         return make_enqueue_logger(maxQueueSize=SMALL_QUEUE,
-                                   queueFullPolicy='drop')
+                                   queueFullPolicy='drop_newest')
 
     def test_drop_caller_returns_immediately(self):
         """Flooding a full queue with 'drop' must complete well under TIMEOUT_FAST."""
@@ -184,8 +184,8 @@ class TestDropPolicy(unittest.TestCase):
         self.assertGreater(L.droppedMessages, 0,
                            'droppedMessages stayed 0 despite queue overflow')
 
-    def test_drop_does_not_write_to_stderr(self):
-        """`drop` is silent — no stderr output on overflow."""
+    def test_drop_writes_one_warning_per_run(self):
+        """A whole run of drops gives exactly one stderr warning."""
         gate = _GateSink()
         L, _ = self._make()
         L.add_sink('gate', gate)
@@ -202,8 +202,8 @@ class TestDropPolicy(unittest.TestCase):
             gate.open_gate()
             L.flush()
 
-        self.assertEqual(captured.getvalue(), '',
-                         'drop policy wrote unexpected output to stderr')
+        self.assertEqual(captured.getvalue().count('pysimplelog WARNING'), 1,
+                         'a run of drops must give exactly one warning')
 
     def test_surviving_records_are_delivered(self):
         """The first SMALL_QUEUE records must still arrive in the sink."""
@@ -228,17 +228,17 @@ class TestDropPolicy(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2 — 'warn' policy
+# 2 — 'drop_oldest' policy
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestWarnPolicy(unittest.TestCase):
-    """`warn` behaves like `drop` but writes one stderr line per overflow."""
+class TestDropOldestPolicy(unittest.TestCase):
+    """`drop_oldest` keeps the newest records and writes one stderr line for each run of drops."""
 
     def _make(self):
         return make_enqueue_logger(maxQueueSize=SMALL_QUEUE,
-                                   queueFullPolicy='warn')
+                                   queueFullPolicy='drop_oldest')
 
-    def test_warn_caller_does_not_block(self):
+    def test_drop_oldest_caller_does_not_block(self):
         gate = _GateSink()
         L, _ = self._make()
         L.add_sink('gate', gate)
@@ -252,10 +252,10 @@ class TestWarnPolicy(unittest.TestCase):
         gate.open_gate()
         L.flush()
         self.assertLess(elapsed, TIMEOUT_FAST,
-                        f'warn policy blocked caller for {elapsed:.2f}s')
+                        f'drop_oldest policy blocked caller for {elapsed:.2f}s')
 
-    def test_warn_writes_to_stderr(self):
-        """Each dropped record under 'warn' must emit at least one stderr line."""
+    def test_drop_oldest_writes_to_stderr(self):
+        """A run of drops under 'drop_oldest' must emit a stderr line."""
         gate = _GateSink()
         L, _ = self._make()
         L.add_sink('gate', gate)
@@ -273,9 +273,9 @@ class TestWarnPolicy(unittest.TestCase):
             L.flush()
 
         self.assertIn('pysimplelog', captured.getvalue(),
-                      'warn policy emitted no stderr warning')
+                      'drop_oldest policy emitted no stderr warning')
 
-    def test_warn_increments_droppedMessages(self):
+    def test_drop_oldest_increments_droppedMessages(self):
         gate = _GateSink()
         L, _ = self._make()
         L.add_sink('gate', gate)
@@ -290,15 +290,15 @@ class TestWarnPolicy(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3 — 'raise' policy
+# 3 — 'reject' policy
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestRaisePolicy(unittest.TestCase):
-    """`raise` propagates queue.Full to the caller — circuit-breaker pattern."""
+    """`reject` propagates QueueFull to the caller — circuit-breaker pattern."""
 
     def _make(self):
         return make_enqueue_logger(maxQueueSize=SMALL_QUEUE,
-                                   queueFullPolicy='raise')
+                                   queueFullPolicy='reject')
 
     def test_raise_propagates_queue_full(self):
         gate = _GateSink()
@@ -454,7 +454,7 @@ class TestUnboundedQueue(unittest.TestCase):
     def test_unbounded_zero_drops_under_burst(self):
         """With no cap, any burst must result in zero dropped messages."""
         L, buf = make_enqueue_logger(maxQueueSize=None,
-                                     queueFullPolicy='drop',
+                                     queueFullPolicy='drop_newest',
                                      logToStdout=True)
         N = 500
         for _ in range(N):
@@ -495,10 +495,10 @@ class TestUnboundedQueue(unittest.TestCase):
 class TestDroppedCount(unittest.TestCase):
 
     def test_exact_drop_count(self):
-        """droppedMessages must equal total_sent - capacity when using 'drop'."""
+        """droppedMessages must equal total_sent - capacity when using 'drop_newest'."""
         gate = _GateSink()
         CAP  = 4   # deliberately small
-        L, _ = make_enqueue_logger(maxQueueSize=CAP, queueFullPolicy='drop')
+        L, _ = make_enqueue_logger(maxQueueSize=CAP, queueFullPolicy='drop_newest')
         L.add_sink('gate', gate)
         gate.close_gate()   # freeze the worker
 
@@ -506,15 +506,17 @@ class TestDroppedCount(unittest.TestCase):
         for _ in range(TOTAL_SENT):
             L.info('msg')
 
-        # Worker is frozen: queue holds CAP items, the rest were dropped
-        dropped = L.droppedMessages
+        # The worker may already hold the first record when it freezes on the gate, so the queue
+        # holds CAP records and one more can be in flight
+        stats = L.queueStats
         gate.open_gate()
         L.flush()
 
-        # Exact guarantee: dropped == TOTAL_SENT - CAP
-        # (all overflow was rejected immediately by put_nowait)
-        self.assertEqual(dropped, TOTAL_SENT - CAP,
-                         f'expected {TOTAL_SENT - CAP} dropped, got {dropped}')
+        self.assertIn(stats['dropped'], (TOTAL_SENT - CAP, TOTAL_SENT - CAP - 1),
+                      f'unexpected drop count {stats["dropped"]}')
+        self.assertEqual(stats['dropped'], L.droppedMessages)
+        self.assertEqual(stats['queued'] + stats['dropped'], TOTAL_SENT,
+                         'every record must be either queued or counted as dropped')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -528,7 +530,7 @@ class TestSlowSink(unittest.TestCase):
         gate  = _GateSink()
         fast  = _CountSink()
         CAP   = 3
-        L, _  = make_enqueue_logger(maxQueueSize=CAP, queueFullPolicy='drop')
+        L, _  = make_enqueue_logger(maxQueueSize=CAP, queueFullPolicy='drop_newest')
         L.add_sink('slow', gate)   # acts as the bottleneck
         L.add_sink('fast', fast)
         gate.close_gate()          # slow sink stalls; fast also blocked per-batch
@@ -545,7 +547,7 @@ class TestSlowSink(unittest.TestCase):
     def test_drop_policy_never_blocks_caller_with_slow_sink(self):
         gate = _GateSink()
         L, _ = make_enqueue_logger(maxQueueSize=SMALL_QUEUE,
-                                   queueFullPolicy='drop')
+                                   queueFullPolicy='drop_newest')
         L.add_sink('slow', gate)
         gate.close_gate()
 
@@ -640,7 +642,7 @@ class TestRuntimePolicyChange(unittest.TestCase):
             L.info('fill')
 
         # Switch to drop while queue is full — overflow must now return instantly
-        L.set_queue_full_policy('drop')
+        L.set_queue_full_policy('drop_newest')
         start = time.monotonic()
         for _ in range(SMALL_QUEUE * 3):
             L.info('overflow')
@@ -659,7 +661,7 @@ class TestRuntimePolicyChange(unittest.TestCase):
         the switch must raise queue.Full instead of silently discarding."""
         gate = _GateSink()
         L, _ = make_enqueue_logger(maxQueueSize=SMALL_QUEUE,
-                                   queueFullPolicy='drop')
+                                   queueFullPolicy='drop_newest')
         L.add_sink('gate', gate)
         gate.close_gate()
 
@@ -668,7 +670,7 @@ class TestRuntimePolicyChange(unittest.TestCase):
             L.info('fill')
 
         # Switch policy
-        L.set_queue_full_policy('raise')
+        L.set_queue_full_policy('reject')
 
         raised = False
         for _ in range(SMALL_QUEUE * 2):

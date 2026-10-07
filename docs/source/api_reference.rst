@@ -9,6 +9,41 @@ Core
     :undoc-members:
     :show-inheritance:
 
+Records, Formatters and Sinks
+-----------------------------
+
+.. automodule:: pysimplelog.record
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.formatters
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.sinks
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.processors
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.filters
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.standard_logging
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.log_context
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.queues
+    :members:
+    :show-inheritance:
+
 SIEM / Syslog Forwarding (pysimplelog.contrib)
 -----------------------------------------------
 

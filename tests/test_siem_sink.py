@@ -23,11 +23,19 @@ import sys
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from SimpleLog import Logger  # noqa: E402
+from record import LogRecord  # noqa: E402
 from contrib import siem_sink  # noqa: E402
 from contrib import siem_transport  # noqa: E402
+
+
+def make_record(text, logType, level):
+    """Return the LogRecord the logger would build for a message of this log type and level."""
+    return LogRecord.create(datetime.now(timezone.utc), logType.upper(), logType, level, 'test', text,
+                            1, 1, 'MainThread')
 
 
 def make_logger(**kwargs):
@@ -179,22 +187,22 @@ class TestSiemForwardSink(unittest.TestCase):
     def test_write_record_delivers_immediately(self):
         transport = _FakeTransport()
         sink = siem_sink.SiemForwardSink(transport)
-        sink.write_record('boom\n', 'error', 30)
+        sink.emit(make_record('boom', 'error', 30))
         self.assertEqual(len(transport.sent), 1)
         self.assertIn(b'boom', transport.sent[0])
         self.assertEqual(sink.stats['sent'], 1)
 
-    def test_plain_write_fallback_defaults_to_informational(self):
+    def test_unknown_log_type_defaults_to_informational(self):
         transport = _FakeTransport()
         sink = siem_sink.SiemForwardSink(transport)
-        sink.write('no type info\n')   # base write() contract -- logType unknown
+        sink.emit(make_record('no type info', 'not_a_known_type', None))
         self.assertIn(b'severity="6"', transport.sent[0])
 
     def test_retry_then_success(self):
         transport = _FakeTransport(fail_times=1)
         sink = siem_sink.SiemForwardSink(transport, retryBackoffBase=0.01, maxRetries=2,
                                           breakerFailureThreshold=5)
-        sink.write_record('retry-me\n', 'warn', 20)
+        sink.emit(make_record('retry-me', 'warn', 20))
         self.assertEqual(len(transport.sent), 1)
         self.assertEqual(sink.stats['errors'], 1)
         self.assertEqual(sink.stats['sent'], 1)
@@ -208,7 +216,7 @@ class TestSiemForwardSink(unittest.TestCase):
             breakerFailureThreshold=99, onDrop=dropped.append,
             onError=lambda exc, item: errors.append((str(exc), item)),
         )
-        sink.write_record('will-fail\n', 'error', 30)
+        sink.emit(make_record('will-fail', 'error', 30))
         self.assertEqual(len(dropped), 1)
         self.assertEqual(len(errors), 1)
         self.assertEqual(sink.stats['dropped'], 1)
@@ -216,7 +224,7 @@ class TestSiemForwardSink(unittest.TestCase):
     def test_context_manager_closes(self):
         transport = _FakeTransport()
         with siem_sink.SiemForwardSink(transport) as sink:
-            sink.write_record('hi\n', 'debug', 0)
+            sink.emit(make_record('hi', 'debug', 0))
         self.assertTrue(transport.closed)
 
 
@@ -453,7 +461,7 @@ class TestConsoleTransport(unittest.TestCase):
         buf = io.StringIO()
         sink = siem_sink.SiemForwardSink(siem_transport.ConsoleTransport(stream=buf))
         for _ in range(10):
-            sink.write_record('steady stream\n', 'info', 10)
+            sink.emit(make_record('steady stream', 'info', 10))
         self.assertEqual(sink.stats['sent'], 10)
         self.assertEqual(sink.stats['errors'], 0)
 

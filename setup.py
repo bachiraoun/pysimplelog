@@ -25,8 +25,8 @@ PACKAGE_PATH = '.'
 PACKAGE_NAME = 'pysimplelog'
 
 # check python version
-if sys.version_info[:2] < (3, 6):
-    raise RuntimeError("Python version 3.6 and above is required.")
+if sys.version_info[:2] < (3, 10):
+    raise RuntimeError("Python version 3.10 and above is required.")
 
 # automatically create MANIFEST.in
 commands = [# include MANIFEST.in
@@ -65,10 +65,6 @@ Intended Audience :: Developers
 License :: OSI Approved :: GNU Affero General Public License v3
 Programming Language :: Python
 Programming Language :: Python :: 3
-Programming Language :: Python :: 3.6
-Programming Language :: Python :: 3.7
-Programming Language :: Python :: 3.8
-Programming Language :: Python :: 3.9
 Programming Language :: Python :: 3.10
 Programming Language :: Python :: 3.11
 Programming Language :: Python :: 3.12
@@ -110,6 +106,7 @@ metadata = dict(name = PACKAGE_NAME,
                 download_url = "https://github.com/bachiraoun/pysimplelog",
                 license = 'GNU Affero General Public License v3',
                 classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
+                python_requires = ">=3.10",
                 platforms = ["Windows", "Linux", "Mac OS-X", "Unix"], )
 
 # setup

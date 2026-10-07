@@ -12,9 +12,10 @@ The problem this solves:
     2. A raw traceback always contains the REAL absolute filesystem path
        of every stack frame -- e.g. wherever this app/pysimplelog is
        actually installed on disk. That must never reach a SIEM team.
-       A processor added with logger.add_processor() runs a f(text) -> text
-       callable on the whole finished record, exception message and full
-       traceback included, before any sink gets it, so every sink -- local
+       A processor added with logger.add_processor() runs a f(record) -> record
+       callable on every record, before any sink gets it. redact_text() turns a
+       text function into one: it is applied to the message, the exception message
+       and full traceback, and every string field, so every sink -- local
        file, stdout, SIEM, all of them -- only ever sees the sanitized text.
        One place, applied once.
 
@@ -26,7 +27,7 @@ import ntpath
 import posixpath
 import re
 
-from pysimplelog import Logger
+from pysimplelog import Logger, redact_text
 from pysimplelog.contrib import siem_sink
 
 
@@ -95,7 +96,13 @@ def main():
     #    The processor sees the finished record, message AND traceback, before
     #    any sink does, so the local log line and the SIEM-forwarded copy are
     #    identically scrubbed.
-    logger.add_processor(hide_paths, logTypes=['admin_error'])
+    hideInRecord = redact_text(hide_paths)
+
+    def hide_paths_of_admin_errors(record):
+        """Hide the paths of admin_error records only, every other record goes on untouched."""
+        return hideInRecord(record) if record.logType == 'admin_error' else record
+
+    logger.add_processor(hide_paths_of_admin_errors)
 
     @logger.catch(logType='admin_error', message='admin action failed')
     def delete_user(userId):

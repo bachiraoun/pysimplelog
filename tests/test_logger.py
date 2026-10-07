@@ -14,7 +14,7 @@ Coverage map
 TestLoggerInit          -- constructor parameters and initial property values
 TestBuiltinLogTypes     -- info / warn / warning / error / critical / debug
 TestCountConstraint     -- countConstraint parameter on log()
-TestLastLogged          -- lastLogged / lastLoggedMessage / lastLogged* properties
+TestLastRecord          -- lastRecord / lastRecords properties
 TestStdoutSink          -- enable/disable, per-type flags, level window
 TestFileSink            -- file creation, enable/disable, rotation
 TestUserSinkBasic       -- add_sink / remove_sink / clear_sinks, routing, ANSI-free
@@ -182,9 +182,9 @@ class TestBuiltinLogTypes(unittest.TestCase):
         self.L.log('info', 'via-log')
         self.assertIn('via-log', self._out())
 
-    def test_tback_appended(self):
-        """Passing tback= causes the traceback string to appear in output."""
-        self.L.info('err', tback='Traceback (most recent call last):\n  File "x.py"')
+    def test_exc_info_appended(self):
+        """Passing exc_info= causes the traceback string to appear in output."""
+        self.L.info('err', exc_info='Traceback (most recent call last):\n  File "x.py"')
         self.assertIn('Traceback', self._out())
 
     def test_data_appended(self):
@@ -222,41 +222,40 @@ class TestCountConstraint(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 4 — lastLogged properties
+# 4 — lastRecord properties
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestLastLogged(unittest.TestCase):
+class TestLastRecord(unittest.TestCase):
 
     def setUp(self):
         self.L, _ = make_logger()
 
-    def test_lastLoggedMessage_after_info(self):
+    def test_lastRecord_after_info(self):
         self.L.info('hello')
-        self.assertIn('hello', self.L.lastLoggedMessage)
+        self.assertEqual('hello', self.L.lastRecord.message)
 
-    def test_lastLoggedInfo(self):
+    def test_lastRecords_info(self):
         self.L.info('i-msg')
-        self.assertIn('i-msg', self.L.lastLoggedInfo)
+        self.assertEqual('i-msg', self.L.lastRecords['info'].message)
 
-    def test_lastLoggedWarning(self):
+    def test_lastRecords_warn(self):
         self.L.warn('w-msg')
-        self.assertIn('w-msg', self.L.lastLoggedWarning)
+        self.assertEqual('w-msg', self.L.lastRecords['warn'].message)
 
-    def test_lastLoggedError(self):
+    def test_lastRecords_error(self):
         self.L.error('e-msg')
-        self.assertIn('e-msg', self.L.lastLoggedError)
+        self.assertEqual('e-msg', self.L.lastRecords['error'].message)
 
-    def test_lastLoggedCritical(self):
+    def test_lastRecords_critical(self):
         self.L.critical('c-msg')
-        self.assertIn('c-msg', self.L.lastLoggedCritical)
+        self.assertEqual('c-msg', self.L.lastRecords['critical'].message)
 
-    def test_lastLogged_dict_contains_all_types(self):
+    def test_lastRecords_dict_contains_all_logged_types(self):
         self.L.debug('d'); self.L.info('i')
-        d = self.L.lastLogged
+        d = self.L.lastRecords
         self.assertIn('debug', d)
         self.assertIn('info', d)
-        # integer key -1 (lastLoggedMessage sentinel) must be absent
-        self.assertNotIn(-1, d)
+        self.assertEqual({'debug', 'info'}, set(d))
 
 
 # ═══════════════════════════════════════════════════════════════════════════

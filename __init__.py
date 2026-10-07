@@ -7,7 +7,7 @@ stream allows it.  For singleton use, import ``SingleLogger`` in place of ``Logg
 
 Installation guide
 ==================
-pysimplelog requires Python 3.6 or later and has no mandatory third-party dependencies
+pysimplelog requires Python 3.10 or later and has no mandatory third-party dependencies
 (``pytz`` is optional and only needed when a timezone name is passed to the constructor).
 Install from PyPI using pip:
 
@@ -22,10 +22,26 @@ Python's site-packages directory.
 
 try:
     from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
-    from .SimpleLog import Logger, SingleLogger
+    from .SimpleLog import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from .record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
+    from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
+    from .processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
+    from .filters import sample
+    from .log_context import context, current_context
+    from .queues import BoundedQueue, QueueFull, validate_queue_policy
+    from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
-    from SimpleLog import Logger, SingleLogger
+    from SimpleLog import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
+    from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
+    from processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
+    from filters import sample
+    from log_context import context, current_context
+    from queues import BoundedQueue, QueueFull, validate_queue_policy
+    from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 
 
 def get_version():
