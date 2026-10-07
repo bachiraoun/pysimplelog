@@ -53,7 +53,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger, FILE_SINK  # noqa: E402
+from simple_log import Logger, FILE_SINK  # noqa: E402
 
 
 # ── tuning ──────────────────────────────────────────────────────────────────

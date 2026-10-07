@@ -12,7 +12,7 @@ Welcome to pysimplelog V. |VERSION| documentation!
     :members:
 
 
-.. automodule:: pysimplelog.SimpleLog
+.. automodule:: pysimplelog.simple_log
     :members:
     :undoc-members:
     :noindex:

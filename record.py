@@ -93,6 +93,13 @@ class LogRecord(NamedTuple):
     exception: ExceptionInfo | None = None
     caller: CallerInfo | None = None
 
+    def __reduce__(self):
+        """Makes the record picklable and deep-copyable: the read-only views are saved as plain dictionaries."""
+        values = list(self)
+        values[9] = dict(self.fields)
+        values[10] = dict(self.context)
+        return (_rebuild_record, (tuple(values),))
+
     @classmethod
     def create(cls, timestamp, severity, logType, level, logger, message, processId, threadId, threadName,
                fields=None, context=None, exception=None, caller=None):
@@ -121,6 +128,13 @@ class LogRecord(NamedTuple):
                    EMPTY_MAPPING if fields is None else MappingProxyType(fields),
                    EMPTY_MAPPING if context is None else MappingProxyType(context),
                    exception, caller)
+
+
+def _rebuild_record(values):
+    """Rebuilds a record from the plain values that ``LogRecord.__reduce__`` saved, wrapping fields and context in read-only views."""
+    fields, context = values[9], values[10]
+    return LogRecord(*values[:9], EMPTY_MAPPING if len(fields) == 0 else MappingProxyType(fields),
+                     EMPTY_MAPPING if len(context) == 0 else MappingProxyType(context), *values[11:])
 
 
 def _is_number(value):

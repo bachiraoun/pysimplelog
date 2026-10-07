@@ -4,7 +4,7 @@ API Reference
 Core
 ----
 
-.. automodule:: pysimplelog.SimpleLog
+.. automodule:: pysimplelog.simple_log
     :members:
     :undoc-members:
     :show-inheritance:

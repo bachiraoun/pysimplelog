@@ -1,4 +1,4 @@
-"""SimpleLog defines the Logger and SingleLogger classes for multi-sink,
+"""simple_log defines the Logger and SingleLogger classes for multi-sink,
 thread-safe, formatted logging in Python applications.
 
 Usage Examples
@@ -275,7 +275,7 @@ catch() — Exception Capture
 
         2024-01-01 12:00:00 - my-app <ERROR> An exception was caught: <redacted>/plugins.py not found
         Traceback (most recent call last):
-          File "<redacted>/SimpleLog.py", line 709, in wrapper
+          File "<redacted>/simple_log.py", line 709, in wrapper
         ImportError: <redacted>/plugins.py not found
 
 
@@ -587,7 +587,7 @@ def _get_caller_info():
     """
     Walks the call stack and returns where the user code made the log call.
 
-    Finds the first frame whose file is not SimpleLog.py. Only called when Logger.callerInfo is True.
+    Finds the first frame whose file is not simple_log.py. Only called when Logger.callerInfo is True.
 
     :Returns:
         #. caller (CallerInfo, None): The file, line, function and module of the log call, or None
@@ -1740,7 +1740,7 @@ class Logger(object):
         """Whether caller file/line/function is prepended to each log line.
 
         When True every log() and force_log() call walks the call stack
-        to find the first frame outside SimpleLog.py and prepends a
+        to find the first frame outside simple_log.py and prepends a
         ``[file:line in func]`` tag before the message. The overhead is
         roughly 10-30 us per call. Default is False.
         """

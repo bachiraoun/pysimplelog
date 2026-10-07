@@ -5,10 +5,10 @@ import os
 
 try:
     from .record import CallerInfo
-    from .SimpleLog import Logger
+    from .simple_log import Logger
 except ImportError:
     from record import CallerInfo
-    from SimpleLog import Logger
+    from simple_log import Logger
 
 # Names of the attributes every standard record has. Any other attribute of a record was added by the
 # ``extra`` argument of the logging call, and becomes a field
@@ -88,6 +88,23 @@ class StandardLoggingHandler(logging.Handler):
     def createLock(self):
         """Gives the handler no lock, a pysimplelog Logger is already safe to use from many threads."""
         self.lock = None
+
+    def handle(self, record):
+        """
+        Filters one standard record and gives it to :meth:`emit`, without a lock.
+
+        Python 3.13 takes ``self.lock`` with a ``with`` statement, which fails when there is no lock, so the method is replaced.
+
+        :Parameters:
+            #. record (logging.LogRecord): The standard record.
+
+        :Returns:
+            #. isAccepted (bool): True when the filters of the handler let the record through.
+        """
+        isAccepted = bool(self.filter(record))
+        if isAccepted:
+            self.emit(record)
+        return isAccepted
 
     def emit(self, record):
         """

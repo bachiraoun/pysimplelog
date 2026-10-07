@@ -26,7 +26,7 @@ import unittest
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger  # noqa: E402
+from simple_log import Logger  # noqa: E402
 from record import LogRecord  # noqa: E402
 from contrib import siem_sink  # noqa: E402
 from contrib import siem_transport  # noqa: E402

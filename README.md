@@ -92,6 +92,10 @@ be written to a local file and resent in order once the collector is back,
 surviving restarts. Open design points: spool size limit and rotation, ordering,
 and duplicate handling after a crash during replay.
 
+## Enrichment and filters
+
+`add_context(service=..., environment=..., host=...)` is a processor that puts the same values in every record, and `match_logger`, `match_module` and `match_field` are filters that choose by the structure of a record, for example to silence a noisy library or send two categories to one sink. The JSON layout is documented in full, a test keeps the page and the formatter equal, and `JsonFormatter(utc=True)` writes UTC timestamps.
+
 ## Log files
 
 A `FileSink` rotates by size, keeps a number of files (`roll`) and deletes rotated files older than `maxAge`, and can compress rotated files to `.gz` (`compress='gz'`), in a thread of its own. There is no monitor thread: the age is tested when something happens, and `logger.maintain()` does the housekeeping of every sink on demand, for a scheduler. See *Log files* in the documentation.

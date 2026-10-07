@@ -25,7 +25,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import sinks as sinks_module  # noqa: E402
-from SimpleLog import Logger, FILE_SINK  # noqa: E402
+from simple_log import Logger, FILE_SINK  # noqa: E402
 from sinks import FileSink, Sink  # noqa: E402
 from record import LogRecord  # noqa: E402
 

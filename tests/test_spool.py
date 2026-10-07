@@ -189,6 +189,13 @@ class TestRecordRoundTrip(unittest.TestCase):
         back = record_from_dict(spool_module.json.loads(text))
         self.assertEqual(back.fields['items'], '{1, 2}')
 
+    def test_a_level_that_is_not_finite_makes_the_round_trip_through_the_file(self):
+        for level in (float('inf'), -float('inf')):
+            record = make_record(0)._replace(level=level)
+            text = spool_module._dumps(record_to_dict(record))
+            spool_module.json.loads(text, parse_constant=lambda constant: self.fail(f"not valid JSON: {constant}"))
+            self.assertEqual(record_from_dict(spool_module.json.loads(text)).level, level)
+
     def test_an_invalid_dictionary_is_refused(self):
         good = record_to_dict(make_record(0))
         for key in ('ts', 'off', 'message', 'fields'):

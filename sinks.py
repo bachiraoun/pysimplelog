@@ -375,7 +375,7 @@ class Sink:
         Does the housekeeping this sink needs, such as deleting old files. Does nothing here, sinks that need it override it.
 
         It never sends or loses a record. It is safe to call at any time, from any thread, also while the sink is in use.
-        :meth:`pysimplelog.SimpleLog.Logger.maintain` calls it for every sink.
+        :meth:`pysimplelog.simple_log.Logger.maintain` calls it for every sink.
 
         :Returns:
             #. result (dict, None): What was done, as counts, or None when the sink has no housekeeping.

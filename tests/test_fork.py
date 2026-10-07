@@ -22,7 +22,7 @@ import unittest
 
 PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, PACKAGE_DIR)
-from SimpleLog import Logger  # noqa: E402
+from simple_log import Logger  # noqa: E402
 from sinks import Sink, StreamSink, FileSink  # noqa: E402
 from contrib import siem_sink, siem_transport  # noqa: E402
 

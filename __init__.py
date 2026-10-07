@@ -22,24 +22,24 @@ Python's site-packages directory.
 
 try:
     from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
-    from .SimpleLog import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from .simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from .record import LogRecord, ExceptionInfo, CallerInfo, validate_record
     from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
-    from .processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
-    from .filters import sample
+    from .processors import add_context, redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
+    from .filters import sample, match_logger, match_module, match_field
     from .log_context import context, current_context
     from .queues import QueueFull, validate_queue_policy
     from .spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
-    from SimpleLog import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from record import LogRecord, ExceptionInfo, CallerInfo, validate_record
     from formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
-    from processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
-    from filters import sample
+    from processors import add_context, redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
+    from filters import sample, match_logger, match_module, match_field
     from log_context import context, current_context
     from queues import QueueFull, validate_queue_policy
     from spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
@@ -50,7 +50,8 @@ __all__ = [
     'LogRecord', 'ExceptionInfo', 'CallerInfo', 'validate_record',
     'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'register_formatter', 'resolve_formatter',
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
-    'redact_fields', 'redact_text', 'DEFAULT_SENSITIVE_NAMES', 'sample',
+    'add_context', 'redact_fields', 'redact_text', 'DEFAULT_SENSITIVE_NAMES',
+    'sample', 'match_logger', 'match_module', 'match_field',
     'context', 'current_context',
     'QueueFull', 'validate_queue_policy',
     'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError',

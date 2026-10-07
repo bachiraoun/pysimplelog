@@ -268,12 +268,16 @@ def record_from_dict(data):
     """
     exception, caller = data['exception'], data['caller']
     microseconds, offset = data['ts'], data['off']
+    level = data['level']
+    if isinstance(level, str) and level in ('NaN', 'Infinity', '-Infinity'):
+        # JSON has no such numbers, they are written as text, and a level is a number
+        level = float(level)
     if not isinstance(microseconds, int) or not isinstance(offset, int):
         raise TypeError("the time of a record must be made of integers")
     timestamp = (_EPOCH + timedelta(microseconds=microseconds)).astimezone(timezone(timedelta(seconds=offset)))
     record = LogRecord.create(
         timestamp=timestamp, severity=data['severity'], logType=data['logType'],
-        level=data['level'], logger=data['logger'], message=data['message'], processId=data['processId'],
+        level=level, logger=data['logger'], message=data['message'], processId=data['processId'],
         threadId=data['threadId'], threadName=data['threadName'], fields=dict(data['fields']),
         context=dict(data['context']),
         exception=None if exception is None else

@@ -44,7 +44,7 @@ import unittest
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger  # noqa: E402
+from simple_log import Logger  # noqa: E402
 
 
 # ── tuneable constants ──────────────────────────────────────────────────────
@@ -834,7 +834,7 @@ class TestClearSinksUnderLoad(unittest.TestCase):
         self.assertFalse(errors, f'exception in clear_sinks() under load: {errors}')
 
         # Built-in sinks must still be present
-        from SimpleLog import _SINK_STDOUT, _SINK_FILE
+        from simple_log import _SINK_STDOUT, _SINK_FILE
         self.assertIn(_SINK_STDOUT, L.sinks)
         self.assertIn(_SINK_FILE,   L.sinks)
 

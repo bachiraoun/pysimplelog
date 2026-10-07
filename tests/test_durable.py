@@ -22,7 +22,7 @@ from unittest import mock
 
 PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, PACKAGE_DIR)
-from SimpleLog import Logger  # noqa: E402
+from simple_log import Logger  # noqa: E402
 from sinks import Sink, StreamSink, ConsoleSink  # noqa: E402
 from spool import Spool, SpoolConfig  # noqa: E402
 from queues import QueueFull  # noqa: E402
@@ -101,7 +101,7 @@ class Collector(Sink):
 COLLECTOR_SOURCE = '''
 import json, os, sys, time
 sys.path.insert(0, sys.argv[1])
-from SimpleLog import Logger
+from simple_log import Logger
 from sinks import Sink
 
 

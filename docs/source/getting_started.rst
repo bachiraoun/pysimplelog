@@ -131,6 +131,24 @@ drop the record rather than let it through unredacted. One warning per function 
 written to stderr and ``processorFailures`` counts them, so a broken processor is
 never silent. A processor must not log.
 
+Adding the same values to every record
+--------------------------------------
+
+``add_context()`` makes a processor that puts named values in the context of every record, for what describes the whole
+program: the service, the environment, the host. A value that is a function is called for every record, so it can say what is
+true now. A name that the call already has in its context is left as it is, a function that raises is reported once and the record is
+never lost. It also reaches the records of the standard ``logging`` bridge, which ``bind()`` does not:
+
+.. code-block:: python
+
+    import socket
+    from pysimplelog import Logger, add_context
+
+    l = Logger("orders", processors=[add_context(service="checkout", environment="production", host=socket.gethostname(),
+                                                 request_id=lambda: current_request_id())])
+
+The process and thread identifiers are already in every record, so there is nothing to add for them.
+
 Structured fields and exceptions
 --------------------------------
 
@@ -242,6 +260,60 @@ a function ``f(record) -> str`` is used as it is:
     l.add_sink("audit", open("audit.log", "a"))        ## a file-like object gets the readable text
     l.set_sink_formatter("audit", None)                ## ... or JSON
 
+JSON schema
+-----------
+
+``JsonFormatter`` (the keyword ``'json'`` or ``'jsonl'``, and the default of every new sink) writes one object on one line. The
+layout is documented, and a test compares this page with what the formatter writes, so it cannot drift. The schema number is
+in every line. A later release may add keys, and never changes or removes one without changing that number.
+
+.. code-block:: json
+
+    {"schema":1,"timestamp":"2026-10-06T13:31:52.123-05:00","severity":"ERROR","log_type":"error","level":30.0,"logger":"orders","message":"Database connection failed","exception":{"type":"ConnectionError","message":"timed out","stacktrace":"Traceback (most recent call last):\n  File \"db.py\", line 9, in connect\nConnectionError: timed out"},"caller":{"file":"db.py","line":9,"function":"connect","module":"orders.db"},"process":{"id":4321},"thread":{"id":140234,"name":"worker-3"},"context":{"service":"checkout","request_id":"r-77"},"fields":{"order_id":123,"retries":3,"ratio":"NaN"}}
+
+======================  ============================  ===========================================================================
+Key                     Type                          Meaning
+======================  ============================  ===========================================================================
+``schema``              integer                       The version of this layout, 1.
+``timestamp``           text                          ISO 8601 with milliseconds and the offset of the time zone, ``Z`` for UTC.
+``severity``            text                          The display name of the log type, ``ERROR``.
+``log_type``            text                          The name of the log type, ``error``.
+``level``               number or null                The numeric level of the log type.
+``logger``              text                          The name of the logger.
+``message``             text                          The message.
+``exception``           object, when there is one     ``type``, ``message`` (null when only the traceback is known), ``stacktrace``.
+``caller``              object, when recorded         ``file``, ``line``, ``function``, ``module``, with ``callerInfo=True``.
+``process``             object                        ``id``.
+``thread``              object                        ``id`` and ``name``.
+``context``             object, when not empty        Ambient values: ``bind()``, ``context()``, ``add_context()``.
+``fields``              object, when not empty        The values given with the log call.
+======================  ============================  ===========================================================================
+
+``JsonFormatter(flatten=True)`` writes the entries of ``context`` and ``fields`` at the top level instead, in this order, and a
+field wins over a context value of the same name. A name that is one of the keys above is written as ``fields.<name>`` or
+``context.<name>`` and never replaces the key:
+
+.. code-block:: json
+
+    {"schema":1,"timestamp":"2026-10-06T13:31:52.123-05:00","severity":"ERROR","log_type":"error","level":30.0,"logger":"orders","message":"Database connection failed","exception":{"type":"ConnectionError","message":"timed out","stacktrace":"Traceback (most recent call last):\n  File \"db.py\", line 9, in connect\nConnectionError: timed out"},"caller":{"file":"db.py","line":9,"function":"connect","module":"orders.db"},"process":{"id":4321},"thread":{"id":140234,"name":"worker-3"},"service":"checkout","request_id":"r-77","order_id":123,"retries":3,"ratio":"NaN"}
+
+``JsonFormatter(utc=True)`` converts the timestamp to UTC and writes it with a ``Z``, whatever the time zone of the logger. The instant is
+the same:
+
+.. code-block:: json
+
+    {"schema":1,"timestamp":"2026-10-06T18:31:52.123Z","severity":"ERROR","log_type":"error","level":30.0,"logger":"orders","message":"Database connection failed","exception":{"type":"ConnectionError","message":"timed out","stacktrace":"Traceback (most recent call last):\n  File \"db.py\", line 9, in connect\nConnectionError: timed out"},"caller":{"file":"db.py","line":9,"function":"connect","module":"orders.db"},"process":{"id":4321},"thread":{"id":140234,"name":"worker-3"},"context":{"service":"checkout","request_id":"r-77"},"fields":{"order_id":123,"retries":3,"ratio":"NaN"}}
+
+What a value becomes, so that a line is always valid JSON and a record is never lost for one value:
+
+* Text, integers, booleans and null are written as they are. A float that is finite is written as a number.
+* ``NaN``, ``Infinity`` and ``-Infinity`` are written as the **text** ``"NaN"``, ``"Infinity"`` and ``"-Infinity"``, because JSON has no
+  such numbers and a strict parser refuses the whole line when it meets one. The example above has one in ``ratio``.
+* Dictionaries, lists and tuples are written as objects and arrays. A key that is not text is written as its text, and a structure
+  nested more than 20 levels, or one that contains itself, is cut with the text ``"<too deep>"``.
+* Any other value, a set, bytes or an object, is written as its ``repr`` text. A value whose ``repr`` raises is written as
+  ``"<unprintable TypeName: ErrorClass>"``, never with the message of the error.
+
 Filters
 -------
 
@@ -257,6 +329,20 @@ record for every sink. A filter that raises keeps the record and is counted in
     l.add_filter(sample(0.1))                       ## keep about one record in ten
     l.set_sink_filter("audit", lambda record: record.logType == "audit")
     l.set_sink_filter("audit", None)                ## back to everything the sink's routing allows
+
+Three ready-made filters choose by the structure of the record, not by its text. ``match_logger()`` keeps the records of the loggers
+that are named, or inside them (``urllib3`` also matches ``urllib3.connectionpool`` and not ``urllib3x``), which is what the
+standard ``logging`` bridge needs. ``match_module()`` keeps the records of the modules that are named, when the logger records
+the caller (``callerInfo=True``), and keeps what it cannot judge. ``match_field()`` keeps the records whose field or context
+value is one of the values given. Each takes ``exclude=True`` to drop the matches instead:
+
+.. code-block:: python
+
+    from pysimplelog import match_logger, match_field
+
+    l.add_filter(match_logger("urllib3", "asyncio", exclude=True))                 ## silence two noisy libraries
+    l.add_filter(match_field("environment", "test", exclude=True))                ## nothing from the test environment
+    l.set_sink_filter("audit", match_field("category", "security", "billing"))    ## the audit sink gets two categories only
 
 Unknown Log Types
 -----------------

@@ -1,6 +1,7 @@
-"""Ready-made record processors: redaction of sensitive values, and a bridge for text functions."""
+"""Ready-made record processors: values added to every record, redaction of sensitive values, and a bridge for text functions."""
 
 import re
+import sys
 from collections.abc import Mapping
 from types import MappingProxyType
 
@@ -189,4 +190,75 @@ def redact_text(function):
             context = MappingProxyType(_apply_text(function, context, 0))
         return record._replace(message=_apply_text(function, record.message, 0), fields=fields,
                                context=context, exception=exception)
+    return processor
+
+
+def add_context(**values):
+    """
+    Makes a processor that adds the same named values to the context of every record.
+
+    Use it for what describes the whole program and not one call: the service, the environment, the host, the version. The values
+    are in the context of the record, next to a request identifier, so every sink and every format shows them. They reach
+    the records of the standard ``logging`` bridge too, which ``bind()`` does not.
+
+    A value that is a function is called for every record, so it can say what is true now, for example the current request. A
+    function that returns None adds nothing for that record, and a function that raises adds nothing and is reported once,
+    the record itself is never lost. A name that the record already has in its context is left as it is: what the call
+    said is more precise than what the program says.
+
+    :Parameters:
+        #. values: The names and values, any number of keyword arguments. A value is a string, a number or anything the
+           formats can write, or a function of no argument that returns one.
+
+    :Returns:
+        #. processor (callable): ``f(record) -> record``, to give to ``Logger.add_processor`` or to ``Logger(processors=[...])``.
+
+    :Raises:
+        #. ValueError: If no value is given.
+
+    .. code-block:: python
+
+        import socket
+
+        logger.add_processor(add_context(service="orders", environment="production", host=socket.gethostname()))
+        ## The current request, known only while one is handled
+        logger.add_processor(add_context(request_id=lambda: current_request_id()))
+    """
+    if len(values) == 0:
+        raise ValueError("give at least one value")
+    static = {name: value for name, value in values.items() if not callable(value)}
+    dynamic = {name: value for name, value in values.items() if callable(value)}
+    reported = set()
+
+    def processor(record):
+        context = record.context
+        added = None
+        for name, value in static.items():
+            if name not in context:
+                if added is None:
+                    added = {}
+                added[name] = value
+        for name, function in dynamic.items():
+            if name in context:
+                continue
+            try:
+                value = function()
+            except Exception as error:
+                if name not in reported:
+                    reported.add(name)
+                    try:
+                        sys.stderr.write(f"pysimplelog WARNING: the function for {name!r} in add_context raised "
+                                         f"{type(error).__name__}: {error}, the value is left out\n")
+                    except (OSError, ValueError):
+                        # The error stream is closed or broken, the record goes on without the value
+                        pass
+                continue
+            if value is not None:
+                if added is None:
+                    added = {}
+                added[name] = value
+        if added is None:
+            return record
+        return record._replace(context=MappingProxyType({**context, **added}))
+
     return processor

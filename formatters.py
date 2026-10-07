@@ -2,6 +2,7 @@
 
 import json
 import math
+from datetime import timezone
 from json.encoder import encode_basestring_ascii
 from string import Formatter
 
@@ -83,6 +84,13 @@ def _safe_repr(value):
         return f"<unprintable {type(value).__name__}: {type(error).__name__}>"
 
 
+def _non_finite_text(value):
+    """Returns the text a number that JSON cannot hold is written as: ``NaN``, ``Infinity`` or ``-Infinity``."""
+    if value != value:
+        return 'NaN'
+    return 'Infinity' if value > 0 else '-Infinity'
+
+
 def _to_jsonable(value, depth):
     """
     Returns a copy of a value that json can always write: keys become text, and a structure nested too deep,
@@ -95,16 +103,19 @@ def _to_jsonable(value, depth):
                 for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_to_jsonable(item, depth + 1) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        # JSON has no NaN or infinity, a bare NaN makes a strict parser refuse the whole line
+        return _non_finite_text(value)
     return value
 
 
 def _dumps(value):
     """Returns the JSON text of a value, using repr for what JSON cannot represent, and never raising for a bad value."""
     try:
-        return json.dumps(value, default=_safe_repr, separators=JSON_SEPARATORS)
+        return json.dumps(value, default=_safe_repr, separators=JSON_SEPARATORS, allow_nan=False)
     except (TypeError, ValueError):
-        # A key that is not text, or a structure that contains itself: rewrite it, then write it
-        return json.dumps(_to_jsonable(value, 0), default=_safe_repr, separators=JSON_SEPARATORS)
+        # A key that is not text, a number that is not finite, or a structure that contains itself: rewrite it, then write it
+        return json.dumps(_to_jsonable(value, 0), default=_safe_repr, separators=JSON_SEPARATORS, allow_nan=False)
 
 
 def _require_record(record):
@@ -165,6 +176,8 @@ class JsonFormatter:
            instead of inside their own objects. An entry whose name is a fixed key is written as
            ``fields.<name>`` or ``context.<name>`` and never overwrites the fixed key. When a name is in
            both, the field wins. Flattened output is a little slower to build.
+        #. utc (bool): When True, the timestamp is converted to Coordinated Universal Time and written with a ``Z``, whatever the
+           time zone of the logger. The instant is the same. The default writes the offset of the time zone of the logger.
 
     .. code-block:: python
 
@@ -174,10 +187,13 @@ class JsonFormatter:
         formatter = JsonFormatter(flatten=True)
     """
 
-    def __init__(self, flatten=False):
+    def __init__(self, flatten=False, utc=False):
         if not isinstance(flatten, bool):
             raise TypeError("flatten must be a boolean")
+        if not isinstance(utc, bool):
+            raise TypeError("utc must be a boolean")
         self.__flatten = flatten
+        self.__utc = utc
 
     def __call__(self, record):
         """
@@ -193,7 +209,7 @@ class JsonFormatter:
             #. TypeError: If record is not a LogRecord.
         """
         _require_record(record)
-        items = self._fixed_items(record)
+        items = self._fixed_items(record, record.timestamp.astimezone(timezone.utc) if self.__utc else record.timestamp)
         if self.__flatten:
             items.extend(self._flat_items(record))
         else:
@@ -204,11 +220,11 @@ class JsonFormatter:
         return '{' + ','.join(items) + '}'
 
     @staticmethod
-    def _fixed_items(record):
+    def _fixed_items(record, timestamp):
         """Returns the JSON entries that every layout shares, as a list of ``"key":value`` texts."""
         level = 'null' if record.level is None else _json_value(record.level)
         items = [f'"schema":{SCHEMA_VERSION}',
-                 f'"timestamp":"{_format_timestamp(record.timestamp)}"',
+                 f'"timestamp":"{_format_timestamp(timestamp)}"',
                  f'"severity":{encode_basestring_ascii(record.severity)}',
                  f'"log_type":{encode_basestring_ascii(record.logType)}',
                  f'"level":{level}',
@@ -310,7 +326,12 @@ class _SafeValue:
         try:
             return format(self.value, spec)
         except Exception:
-            return format(safe_str(self.value) if not isinstance(self.value, str) else self.value, spec)
+            text = safe_str(self.value) if not isinstance(self.value, str) else self.value
+        try:
+            return format(text, spec)
+        except Exception:
+            # The spec does not fit the value, such as ``d`` on text. The value without the spec is better than no record
+            return text
 
 
 class _TemplateView(dict):

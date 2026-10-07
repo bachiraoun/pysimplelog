@@ -1,7 +1,7 @@
 """Optional, zero-mandatory-dependency integrations for pysimplelog.
 
 Nothing under ``pysimplelog.contrib`` is imported by the core package and
-nothing here modifies ``SimpleLog.py``. Everything is a pure consumer of
+nothing here modifies ``simple_log.py``. Everything is a pure consumer of
 the public ``Logger.add_sink()`` API, so importing this sub-package has
 zero effect on Logger behaviour unless you explicitly wire it up.
 

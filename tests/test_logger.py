@@ -47,7 +47,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger, _SINK_STDOUT, _SINK_FILE  # noqa: E402
+from simple_log import Logger, _SINK_STDOUT, _SINK_FILE  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 from formatters import safe_str  # noqa: E402
 from log_context import context  # noqa: E402

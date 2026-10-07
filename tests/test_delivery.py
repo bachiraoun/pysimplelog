@@ -16,7 +16,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger  # noqa: E402
+from simple_log import Logger  # noqa: E402
 from queues import BoundedQueue, QueueFull, validate_queue_policy  # noqa: E402
 from sinks import Sink  # noqa: E402
 
