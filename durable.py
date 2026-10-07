@@ -234,6 +234,20 @@ class DurableDelivery:
         return {**self.__spool.stats(), **counters, 'orphans_skipped': skipped,
                 'slot': os.path.basename(self.__spool.path)}
 
+    def maintain(self):
+        """
+        Does the housekeeping of the spool, see :meth:`pysimplelog.spool.Spool.maintain`. Nothing is sent.
+
+        :Returns:
+            #. result (dict, None): What the spool did, or None in a forked child, which does not own it.
+        """
+        if self._is_child():
+            return None
+        try:
+            return self.__spool.maintain()
+        except SpoolError:
+            return None
+
     def queue_stats(self):
         """Returns the counters of the queue of hints. A hint that was dropped lost no record."""
         return self.__hints.stats()

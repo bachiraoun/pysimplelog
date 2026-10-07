@@ -322,32 +322,38 @@ class TestFileSink(unittest.TestCase):
 
     def setUp(self):
         self.tmpBase = tempfile.mktemp(suffix='.log')
+        self.fileLoggers = []
 
     def tearDown(self):
+        # Windows cannot delete a file that is still open, so the logger lets go of its file first
+        for logger in self.fileLoggers:
+            logger.sinks[_SINK_FILE].close()
         base = self.tmpBase.replace('.log', '')
         for f in glob.glob(base + '*.log'):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+            os.unlink(f)
 
     def _make_file_logger(self, **kwargs):
         defaults = dict(name='ftest', logToFile=True, logFile=self.tmpBase,
                         logToStdout=False, stdout=io.StringIO())
         defaults.update(kwargs)
-        return Logger(**defaults)
+        logger = Logger(**defaults)
+        self.fileLoggers.append(logger)
+        return logger
 
     def test_message_written_to_file(self):
         L = self._make_file_logger()
         L.info('to-file'); L.flush()
-        with open(L.logFileName) as fh:
+        with open(L.logFileName, encoding='utf-8') as fh:
             self.assertIn('to-file', fh.read())
 
     def test_disable_file_stops_writes(self):
         L = self._make_file_logger()
         L.set_log_to_file_flag(False)
         L.info('no-file'); L.flush()
-        content = open(L.logFileName).read() if os.path.exists(L.logFileName) else ''
+        content = ''
+        if os.path.exists(L.logFileName):
+            with open(L.logFileName, encoding='utf-8') as fh:
+                content = fh.read()
         self.assertNotIn('no-file', content)
 
     def test_file_rotation_occurs(self):
@@ -764,6 +770,7 @@ class TestIsEnabled(unittest.TestCase):
 
     def test_is_enabled_for_file_reflects_flag(self):
         tmpBase = tempfile.mktemp(suffix='.log')
+        L = None
         try:
             L = Logger(name='t', logToFile=True, logFile=tmpBase,
                        logToStdout=False, stdout=io.StringIO())
@@ -771,11 +778,10 @@ class TestIsEnabled(unittest.TestCase):
             L.set_log_to_file_flag(False)
             self.assertFalse(L.is_enabled_for_file('info'))
         finally:
+            if L is not None:
+                L.sinks[_SINK_FILE].close()
             for f in glob.glob(tmpBase.replace('.log', '') + '*.log'):
-                try:
-                    os.unlink(f)
-                except OSError:
-                    pass
+                os.unlink(f)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -115,7 +115,7 @@ class Collector(Sink):
     def write(self, text, record):
         if not self.up:
             return False
-        with open(self.idsFile, 'a') as stream:
+        with open(self.idsFile, 'a', encoding='utf-8') as stream:
             stream.write(record.fields.get('event_id') + '\\n')
 
 
@@ -604,7 +604,7 @@ class TestOrphans(DurableTestCase):
         process = self.run_script(DELIVER_THEN_CRASH_SCRIPT, self.base, idsFile, '5')
         slot = process.stdout.readline().strip()
         process.wait(timeout=WAIT_SECONDS)
-        with open(idsFile) as stream:
+        with open(idsFile, encoding='utf-8') as stream:
             firstRun = stream.read().split()
         self.assertEqual(len(firstRun), 5)
         logger, sink = self.make()

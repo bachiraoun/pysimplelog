@@ -38,7 +38,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 
 import pysimplelog  # noqa: E402
-from pysimplelog import Logger, Sink  # noqa: E402
+from pysimplelog import Logger, Sink, FileSink  # noqa: E402
 
 try:
     import loguru
@@ -163,6 +163,21 @@ def psl_disabled(folder):
     return (lambda: logger.debug('order created', order_id=1, user='a')), (lambda: 0.0)
 
 
+def psl_filesink(**options):
+    def prepare(folder):
+        logger = Logger('bench', logToStdout=False, logToFile=False)
+        logger.add_sink('f', FileSink(os.path.join(folder, 'f'), 'log', formatter='text', **options))
+
+        def finish():
+            started = time.perf_counter()
+            logger.clear_sinks()
+            return time.perf_counter() - started
+
+        return (lambda: logger.info('order created', order_id=1, user='a')), finish
+
+    return prepare
+
+
 def psl_threaded(folder):
     logger = Logger('bench', logToStdout=False, logToFile=False)
     logger.add_sink('s', Destination(), threaded=True, threadQueueSize=1000000)
@@ -232,6 +247,10 @@ def build_cases():
         Case('standard logging, level off', 'standard', standard_disabled),
         Case('pysimplelog, file text', 'pysimplelog', psl_text),
         Case('pysimplelog, file JSON', 'pysimplelog', psl_json),
+        Case('pysimplelog, FileSink, no limits', 'filesink', psl_filesink()),
+        Case('pysimplelog, FileSink, maxAge set', 'filesink', psl_filesink(maxAge=3600)),
+        Case('pysimplelog, FileSink, rotating', 'filesink', psl_filesink(maxSize=0.05, roll=5)),
+        Case('pysimplelog, FileSink, rotating + gz', 'filesink', psl_filesink(maxSize=0.05, roll=5, compress='gz')),
         Case('pysimplelog, file text, no flush', 'pysimplelog noflush', psl_unflushed('text')),
         Case('pysimplelog, file JSON, no flush', 'pysimplelog noflush', psl_unflushed(None)),
         Case('pysimplelog, level off', 'pysimplelog', psl_disabled),

@@ -882,6 +882,23 @@ class _Sink(object):
         """Returns what the spool of this sink holds and what its delivery did, or None when it has no spool."""
         return None if self.durable is None else self.durable.stats()
 
+    def maintain(self):
+        """
+        Does the housekeeping of the handler and of the spool, if there is one.
+
+        :Returns:
+            #. result (dict, None): What the handler did, and under ``spool`` what the spool did, or None when there was nothing
+               to do.
+        """
+        result = self.handler.maintain()
+        spool = None if self.durable is None else self.durable.maintain()
+        if result is None and spool is None:
+            return None
+        merged = {} if result is None else dict(result)
+        if spool is not None:
+            merged['spool'] = spool
+        return merged
+
     def set_handler(self, handler):
         """
         Sets the Sink object that receives the records.
@@ -1475,6 +1492,7 @@ class Logger(object):
         self.__fileFormatter = fileFormatter
         # processors rewrite the LogRecord that the sinks receive, they run for every record
         self.__processors = []
+        self.__maintainWarned = set()
         self.__failedProcessors = set()
         self.__processorFailures = 0
         self.__processorLock = threading.Lock()
@@ -2159,6 +2177,49 @@ class Logger(object):
         if sink.durable is None:
             raise ValueError("sink %r has no spool" % (name,))
         return sink.durable.adopt_orphans(timeout)
+
+    def maintain(self):
+        """
+        Does the housekeeping of every sink, now: files that are too many or too old are deleted and rotated files are queued
+        for compression, a spool drops the segments that are too old and tries again to delete files that were in use.
+
+        Nothing happens on its own for a sink that is not written to, so call this from a scheduler, or from a thread of your
+        own, if files must go on time whether or not anything is logged. It never sends or loses a record that is not already
+        past its limit, it is safe to call at any time and from any thread, and an error in one sink is reported once and does
+        not stop the others. Each sink can be asked separately with its own ``maintain()``. :meth:`flush` is the one that
+        pushes data out.
+
+        :Returns:
+            #. results (dict): For each sink that had something to do, by the name it is known by (``CONSOLE_SINK``,
+               ``FILE_SINK`` or the name given to ``add_sink``), what it did. For a file sink ``files_deleted``, for a spool
+               under ``spool``: ``dropped`` and ``undeleted``.
+
+        .. code-block:: python
+
+            ## A thread of your own that tidies up every hour, until stop.set() is called
+            def keep_tidy(logger, everySeconds=3600):
+                stop = threading.Event()
+                def run():
+                    while not stop.wait(everySeconds):
+                        logger.maintain()
+                threading.Thread(target=run, daemon=True).start()
+                return stop
+        """
+        results = {}
+        for name, sink in list(self.__sinks.items()):
+            try:
+                result = sink.maintain()
+            except Exception as error:
+                with self.__processorLock:
+                    isNew = name not in self.__maintainWarned
+                    self.__maintainWarned.add(name)
+                if isNew:
+                    sys.stderr.write(f"pysimplelog WARNING: the housekeeping of sink {name!r} failed. "
+                                     f"Error: {type(error).__name__}: {error}\n")
+                result = {'error': type(error).__name__}
+            if result is not None:
+                results[name] = result
+        return results
 
     def set_sink_filter(self, name, recordFilter):
         """

@@ -92,6 +92,10 @@ be written to a local file and resent in order once the collector is back,
 surviving restarts. Open design points: spool size limit and rotation, ordering,
 and duplicate handling after a crash during replay.
 
+## Log files
+
+A `FileSink` rotates by size, keeps a number of files (`roll`) and deletes rotated files older than `maxAge`, and can compress rotated files to `.gz` (`compress='gz'`), in a thread of its own. There is no monitor thread: the age is tested when something happens, and `logger.maintain()` does the housekeeping of every sink on demand, for a scheduler. See *Log files* in the documentation.
+
 ## Durable delivery
 
 `spool=` on a sink keeps its records on disk until the sink has delivered them: a collector that is down, or a crash, loses nothing that was written. Delivery is in order, retried, and at-least-once, with a stable `event_id` on every record so a receiver can recognise a repeat. A process that died leaves its files for another to send. See *Durable delivery* in the documentation and `examples/10_durable_delivery.py`.

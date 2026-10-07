@@ -911,6 +911,45 @@ class TestFileInUse(SpoolTestCase):
         self.assertLessEqual(len(self.segment_files(path)), 1)
 
 
+class TestMaintain(SpoolTestCase):
+
+    def test_maintain_drops_expired_segments_at_once_and_says_how_many_records(self):
+        spool = self.make_spool(segmentBytes=700, maxAge=5 * 3600)
+        for index in range(12):
+            spool.append(make_record(index))
+        names = self.segment_files(spool.path)
+        self.assertGreater(len(names), 2)
+        old = time.time() - 10 * 3600
+        for name in names[:-1]:
+            os.utime(os.path.join(spool.path, name), (old, old))
+        buffer, previous = self.capture_stderr()
+        try:
+            result = spool.maintain()            # not waiting for the append that would test it once a second
+        finally:
+            sys.stderr = previous
+        self.assertEqual(self.segment_files(spool.path), names[-1:])
+        self.assertEqual(result['dropped'], spool.stats()['dropped'])
+        self.assertGreater(result['dropped'], 0)
+        self.assertEqual(spool.maintain(), {'dropped': 0, 'undeleted': 0})
+
+    def test_maintain_tries_again_to_delete_a_file_that_was_in_use(self):
+        spool = self.make_spool(segmentBytes=700)
+        for index in range(12):
+            spool.append(make_record(index))
+        real = os.remove
+
+        def refusing(path, *arguments, **options):
+            if path.endswith('.spool'):
+                raise PermissionError(13, 'in use by another process')
+            return real(path, *arguments, **options)
+
+        with mock.patch.object(spool_module.os, 'remove', side_effect=refusing):
+            spool.ack(12)
+            self.assertGreater(spool.maintain()['undeleted'], 0)
+        self.assertEqual(spool.maintain()['undeleted'], 0)
+        self.assertEqual(len(self.segment_files(spool.path)), 1)
+
+
 class TestReadBatch(SpoolTestCase):
 
     def test_reading_a_backlog_in_batches_does_not_read_the_same_lines_again(self):

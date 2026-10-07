@@ -1,7 +1,10 @@
 """Sinks deliver one rendered LogRecord to one destination and never raise into the application."""
 
+import collections
+import gzip
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -20,6 +23,12 @@ except ImportError:
 
 FLUSH_MODES = (None, 'none', 'flush', 'fsync', 'fullsync')
 MEGABYTE = 1024 ** 2
+# Formats a rotated log file can be compressed to. None keeps it as it is
+COMPRESS_FORMATS = (None, 'gz')
+# gzip level: 6 is the usual balance of size and time
+COMPRESS_LEVEL = 6
+# Seconds close() waits for a file that is being compressed
+COMPRESS_JOIN_SECONDS = 10.0
 
 # What deliver() answers: the record went through, it can be tried again later, or it can never be delivered
 DELIVERED = 'delivered'
@@ -138,6 +147,28 @@ def _check_roll(roll):
         if roll < 1:
             raise ValueError("roll must be at least 1")
     return roll
+
+
+def _check_compress(compress):
+    """Returns the compression format of rotated files, or None for none, after checking it."""
+    if compress is None:
+        return None
+    if not isinstance(compress, str):
+        raise TypeError("compress must be None or a string")
+    if compress not in COMPRESS_FORMATS:
+        raise ValueError(f"compress must be one of {COMPRESS_FORMATS}, got {compress!r}")
+    return compress
+
+
+def _check_max_age(maxAge):
+    """Returns the age in seconds after which rotated files are deleted, or None for never, after checking it."""
+    if maxAge is None:
+        return None
+    if not _is_number(maxAge):
+        raise TypeError("maxAge must be None or a number of seconds")
+    if maxAge <= 0:
+        raise ValueError("maxAge must be positive")
+    return maxAge
 
 
 def _check_first_number(firstNumber):
@@ -338,6 +369,18 @@ class Sink:
 
     def flush(self):
         """Pushes buffered data to the destination. Does nothing here, sinks that buffer override it."""
+
+    def maintain(self):
+        """
+        Does the housekeeping this sink needs, such as deleting old files. Does nothing here, sinks that need it override it.
+
+        It never sends or loses a record. It is safe to call at any time, from any thread, also while the sink is in use.
+        :meth:`pysimplelog.SimpleLog.Logger.maintain` calls it for every sink.
+
+        :Returns:
+            #. result (dict, None): What was done, as counts, or None when the sink has no housekeeping.
+        """
+        return None
 
     def close(self):
         """Releases what the sink owns. Does nothing here, sinks that open resources override it."""
@@ -597,6 +640,14 @@ class FileSink(Sink):
            None means files are never deleted.
         #. firstNumber (None, int): Number of the first file, at least 0. None means the first file has no
            number and the second one is numbered 0.
+        #. compress (None, str): ``gz`` compresses a file when it has been rotated out, ``app_3.log`` becomes
+           ``app_3.log.gz``. None leaves it as it is. It needs *maxSize*, because without it nothing is rotated out.
+           A thread of its own does it, so the thread that logs never waits, and the original is deleted only after the
+           compressed file is complete. Compressed files count for *roll* and keep their numbers.
+        #. maxAge (None, int, float): Seconds after which a rotated file is deleted, counted from its last change. None
+           keeps them. The file being written is never deleted. It is tested when a file is rotated out, when the sink
+           starts, at most once a minute while records are written, and when :meth:`enforce_retention` is called, so a sink
+           that is not written to keeps old files until one of those. There is no timer or thread for it.
 
     :Raises:
         #. TypeError: If an argument has the wrong type. A boolean is not accepted where a number is expected.
@@ -611,9 +662,11 @@ class FileSink(Sink):
     """
 
     SPOOLABLE = False
+    # Seconds between two tests of the age of the files while records are written
+    RETENTION_CHECK_SECONDS = 60.0
 
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
-                 maxSize=None, roll=None, firstNumber=0):
+                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None):
         super().__init__(formatter, terminator)
         self.__basename = _check_basename(basename)
         self.__extension = _check_extension(extension)
@@ -621,15 +674,45 @@ class FileSink(Sink):
         self.__maxBytes = _check_max_size(maxSize)
         self.__roll = _check_roll(roll)
         self.__firstNumber = _check_first_number(firstNumber)
+        self.__compress = _check_compress(compress)
+        self.__maxAge = _check_max_age(maxAge)
+        if self.__compress is not None and self.__maxBytes is None:
+            raise ValueError("compress needs maxSize: without it no file is ever rotated out, so nothing would be compressed")
         self.__lock = threading.Lock()
         self.__stream = None
         self.__size = 0
+        # The process that owns the compression thread, a forked child has none
+        self.__pid = os.getpid()
+        self.__workLock = threading.Lock()
+        self.__compressQueue = collections.deque()
+        self.__busy = set()
+        self.__worker = None
+        self.__isFailingToCompress = False
+        self.__nextCheck = 0.0
+        self.__counters = {'files_deleted': 0, 'files_compressed': 0, 'compress_failed': 0}
+        # The file being written is not chosen yet, and the choice already looks at it
+        self.__path = None
         self.__path = self._choose_path()
 
     def _reset_after_fork(self):
-        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        """Gives a forked process locks of its own, and no compression in progress, see :func:`pysimplelog.forking.register_for_fork_reset`."""
         super()._reset_after_fork()
         self.__lock = threading.Lock()
+        self.__workLock = threading.Lock()
+        self.__compressQueue = collections.deque()
+        self.__busy = set()
+        self.__worker = None
+
+    @property
+    def stats(self):
+        """
+        What the sink did, as :attr:`Sink.stats` says, and ``files_deleted`` (by *roll* or *maxAge*), ``files_compressed`` and
+        ``compress_failed``.
+        """
+        stats = dict(super().stats)
+        with self.__workLock:
+            stats.update(self.__counters)
+        return stats
 
     @property
     def path(self):
@@ -660,6 +743,11 @@ class FileSink(Sink):
             self.__stream.write(data)
             self.__size += len(data)
             _apply_flush(self.__stream, self.__flushMode)
+            if self.__maxAge is not None:
+                now = time.monotonic()
+                if now >= self.__nextCheck:
+                    self.__nextCheck = now + self.RETENTION_CHECK_SECONDS
+                    self._tidy(self.__path)
 
     def flush(self):
         """
@@ -709,6 +797,8 @@ class FileSink(Sink):
         """
         maxBytes = _check_max_size(maxSize)
         with self.__lock:
+            if maxBytes is None and self.__compress is not None:
+                raise ValueError("maxSize cannot be removed while compress is on, turn compress off first")
             self.__maxBytes = maxBytes
 
     def set_roll(self, roll):
@@ -726,6 +816,39 @@ class FileSink(Sink):
         roll = _check_roll(roll)
         with self.__lock:
             self.__roll = roll
+
+    def set_compress(self, compress):
+        """
+        Changes the compression of rotated files. It applies from the next rotation or start.
+
+        :Parameters:
+            #. compress (None, str): ``gz`` or None, see the class.
+
+        :Raises:
+            #. TypeError: If compress is not a string or None.
+            #. ValueError: If compress is not a format, or is given when there is no *maxSize*.
+        """
+        compress = _check_compress(compress)
+        with self.__lock:
+            if compress is not None and self.__maxBytes is None:
+                raise ValueError("compress needs maxSize: without it no file is ever rotated out")
+            self.__compress = compress
+
+    def set_max_age(self, maxAge):
+        """
+        Changes the age after which rotated files are deleted. The next record tests it.
+
+        :Parameters:
+            #. maxAge (None, int, float): Seconds, or None to keep files whatever their age.
+
+        :Raises:
+            #. TypeError: If maxAge is not a number or None.
+            #. ValueError: If maxAge is not positive.
+        """
+        maxAge = _check_max_age(maxAge)
+        with self.__lock:
+            self.__maxAge = maxAge
+            self.__nextCheck = 0.0
 
     def set_first_number(self, firstNumber):
         """
@@ -759,13 +882,15 @@ class FileSink(Sink):
 
     def close(self):
         """
-        Closes the file. A record written afterwards opens it again.
+        Closes the file, and waits for the compression of a rotated file that is in progress. A record written afterwards
+        opens it again.
 
         :Raises:
             #. OSError: If the buffered data cannot be written.
         """
         with self.__lock:
             self._close_stream()
+        self._stop_compression()
 
     def _open_stream(self):
         """Opens the current file for appending and starts the size count from what it already holds."""
@@ -785,9 +910,13 @@ class FileSink(Sink):
         return f"{self.__basename}_{number}.{self.__extension}"
 
     def _list_existing(self):
-        """Returns ``(number, path)`` of the log files that exist, oldest first. The file without a number is the oldest."""
+        """
+        Returns ``(number, path)`` of the log files that exist, oldest first. The file without a number is the oldest.
+
+        A compressed file is listed with its path ending in ``.gz``, and it counts like any other file.
+        """
         directory, stem = os.path.split(self.__basename)
-        pattern = re.compile(rf"^{re.escape(stem)}(?:_(\d+))?\.{re.escape(self.__extension)}$")
+        pattern = re.compile(rf"^{re.escape(stem)}(?:_(\d+))?\.{re.escape(self.__extension)}(?:\.gz)?$")
         files = []
         for fileName in os.listdir(directory if len(directory) > 0 else '.'):
             match = pattern.match(fileName)
@@ -807,14 +936,209 @@ class FileSink(Sink):
         if self.__roll is None:
             return number
         while len(files) > self.__roll:
-            self._delete(files.pop(0)[1])
+            self._remove(files.pop(0)[1])
         if len(files) == self.__roll and self.__maxBytes is not None:
-            if self._size_of(files[-1][1]) >= self.__maxBytes:
+            isFull = files[-1][1].endswith('.gz') or self._size_of(files[-1][1]) >= self.__maxBytes
+            if isFull:
                 # Deleting the oldest makes room for the file about to be started
-                self._delete(files.pop(0)[1])
+                self._remove(files.pop(0)[1])
                 if number is not None:
                     number += 1
         return number
+
+    def enforce_retention(self):
+        """
+        Deletes the rotated files that are too many or too old, now, and queues the ones that are to be compressed.
+
+        It is what happens at a rotation, only it can be called at any moment, from any thread, also while records are written.
+        Call it from a scheduler when files must go on time even if nothing is logged. The file being written is never
+        deleted.
+
+        :Returns:
+            #. deleted (int): The number of files deleted.
+        """
+        with self.__lock:
+            with self.__workLock:
+                before = self.__counters['files_deleted']
+            self._remove_twins()
+            self._prune_by_count(self.__path)
+            self._tidy(self.__path)
+            with self.__workLock:
+                return self.__counters['files_deleted'] - before
+
+    def maintain(self):
+        """
+        Does the housekeeping of the files, see :meth:`enforce_retention`.
+
+        :Returns:
+            #. result (dict): ``files_deleted``, the number of files deleted by this call.
+        """
+        return {'files_deleted': self.enforce_retention()}
+
+    def _prune_by_count(self, active):
+        """Deletes the oldest files until no more than *roll* remain, the file being written and files being compressed stay."""
+        if self.__roll is None:
+            return
+        files = self._list_existing()
+        with self.__workLock:
+            busy = set(self.__busy)
+        for number, path in list(files):
+            if len(files) <= self.__roll:
+                break
+            if path == active or path in busy:
+                continue
+            files.remove((number, path))
+            self._remove(path)
+
+    def _tidy(self, active):
+        """
+        Deletes the rotated files that are too old and queues the plain ones for compression.
+
+        :Parameters:
+            #. active (str): The file being written, or about to be. It is left alone.
+        """
+        if self.__maxAge is None and self.__compress is None:
+            return
+        with self.__workLock:
+            busy = set(self.__busy)
+        now = time.time()
+        for _, path in self._list_existing():
+            if path == active or path in busy:
+                continue
+            if self.__maxAge is not None and now - self._modified_at(path, now) > self.__maxAge:
+                self._remove(path)
+            elif self.__compress is not None and not path.endswith('.gz'):
+                self._schedule_compress(path)
+
+    def _remove_twins(self):
+        """
+        Deletes the leftovers of a compression that did not finish.
+
+        A plain file that has a compressed twin: a crash, or Windows holding the file, between making the compressed file and
+        deleting the original. The compressed file is complete, it only gets its name when it is. And a temporary file of
+        a compression that a crash cut short, whose file is not being compressed now.
+        """
+        paths = {path for _, path in self._list_existing()}
+        with self.__workLock:
+            busy = set(self.__busy)
+        for path in paths:
+            if path.endswith('.gz'):
+                plain = path[:-3]
+                if plain in paths and plain not in busy and plain != self.__path:
+                    self._remove(plain)
+        directory, stem = os.path.split(self.__basename)
+        pattern = re.compile(rf"^{re.escape(stem)}(?:_\d+)?\.{re.escape(self.__extension)}\.gz\.tmp$")
+        for fileName in os.listdir(directory if len(directory) > 0 else '.'):
+            if pattern.match(fileName):
+                temporary = os.path.join(directory, fileName)
+                if temporary[:-7] not in busy:
+                    try:
+                        os.remove(temporary)
+                    except OSError:
+                        pass
+
+    @staticmethod
+    def _modified_at(path, default):
+        """Returns the time a file was last changed, or *default* when it cannot be read, so that it is not taken to be old."""
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return default
+
+    def _remove(self, path):
+        """
+        Deletes a file and counts it. A failure is ignored: an old file that stays is harmless and must not stop logging, and it
+        is found again at the next test.
+        """
+        try:
+            os.remove(path)
+        except OSError:
+            return False
+        with self.__workLock:
+            self.__counters['files_deleted'] += 1
+        return True
+
+    def _schedule_compress(self, path):
+        """Queues a rotated file for compression and starts the thread if it is not running. A forked child does not."""
+        if os.getpid() != self.__pid:
+            return
+        with self.__workLock:
+            if path in self.__busy:
+                return
+            self.__busy.add(path)
+            self.__compressQueue.append(path)
+            if self.__worker is None:
+                self.__worker = threading.Thread(target=self._compress_worker, name='pysimplelog-file-compress', daemon=True)
+                self.__worker.start()
+
+    def _compress_worker(self):
+        """Compresses the queued files one after the other, and ends when there are none left."""
+        while True:
+            with self.__workLock:
+                if len(self.__compressQueue) == 0:
+                    self.__worker = None
+                    return
+                path = self.__compressQueue.popleft()
+            try:
+                self._compress_file(path)
+                self.__isFailingToCompress = False
+            except Exception as error:
+                with self.__workLock:
+                    self.__counters['compress_failed'] += 1
+                if not self.__isFailingToCompress:
+                    self.__isFailingToCompress = True
+                    try:
+                        sys.stderr.write(f"pysimplelog WARNING: could not compress {path}, it is kept as it is and tried again "
+                                         f"later. Error: {type(error).__name__}: {error}\n")
+                    except (OSError, ValueError):
+                        # The error stream is closed or broken, the count is still there
+                        pass
+            finally:
+                with self.__workLock:
+                    self.__busy.discard(path)
+
+    def _compress_file(self, path):
+        """
+        Makes ``<path>.gz`` from a rotated file and deletes the original.
+
+        The compressed file is written under a temporary name and renamed when it is complete, with the modification time of
+        the original so that its age does not start again. The original is deleted last.
+        """
+        compressed = f"{path}.gz"
+        temporary = f"{compressed}.tmp"
+        try:
+            modified = os.stat(path).st_mtime
+        except FileNotFoundError:
+            # Deleted by someone else, there is nothing to compress
+            return
+        try:
+            with open(path, 'rb') as source, gzip.open(temporary, 'wb', compresslevel=COMPRESS_LEVEL) as target:
+                shutil.copyfileobj(source, target, 64 * 1024)
+            os.utime(temporary, (modified, modified))
+            os.replace(temporary, compressed)
+        except BaseException:
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+            raise
+        with self.__workLock:
+            self.__counters['files_compressed'] += 1
+        try:
+            os.remove(path)
+        except OSError:
+            # Windows does not delete a file that is open elsewhere. The twin is removed at the next test
+            pass
+
+    def _stop_compression(self):
+        """Drops the files that wait for compression, they are queued again at the next start, and waits for the one in progress."""
+        with self.__workLock:
+            for path in self.__compressQueue:
+                self.__busy.discard(path)
+            self.__compressQueue.clear()
+            worker = self.__worker
+        if worker is not None and os.getpid() == self.__pid and worker is not threading.current_thread():
+            worker.join(COMPRESS_JOIN_SECONDS)
 
     @staticmethod
     def _size_of(path):
@@ -824,19 +1148,12 @@ class FileSink(Sink):
         except OSError:
             return 0
 
-    @staticmethod
-    def _delete(path):
-        """Deletes a file. A failure is ignored: an old file that stays is harmless and must not stop logging."""
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
     def _choose_path(self):
         """Creates the directory if needed, applies retention, and returns the path of the file to write to."""
         directory = os.path.dirname(self.__basename)
         if len(directory) > 0:
             os.makedirs(directory, exist_ok=True)
+        self._remove_twins()
         files = self._list_existing()
         number = files[-1][0] if len(files) > 0 else self.__firstNumber
         number = self._enforce_retention(files, number)
@@ -847,7 +1164,9 @@ class FileSink(Sink):
         else:
             path = self._numbered_path(number)
         if self.__maxBytes is not None:
-            while os.path.isfile(path) and self._size_of(path) >= self.__maxBytes:
+            # A number whose file was compressed is taken: writing to it again would put two files under one number
+            while (os.path.isfile(path) and self._size_of(path) >= self.__maxBytes) or os.path.isfile(f"{path}.gz"):
                 number += 1
                 path = self._numbered_path(number)
+        self._tidy(path)
         return path

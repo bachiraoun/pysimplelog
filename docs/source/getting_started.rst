@@ -174,6 +174,58 @@ The standard levels map to the log types ``debug``, ``info``, ``warn``, ``error`
 the standard logger had, so the records reach only pysimplelog. ``StandardLoggingHandler(l)`` can also be added to
 any standard logger by hand.
 
+Log files: rotation, retention, compression and housekeeping
+------------------------------------------------------------
+
+A log file that is never limited grows for ever. A ``FileSink`` limits it with three rules:
+
+* ``maxSize`` (megabytes): when the file reaches it, a new file is started, ``app_0.log``, ``app_1.log`` and so on.
+* ``roll``: at most that many files are kept, the older ones are deleted.
+* ``maxAge`` (seconds): a rotated file older than that, counted from its last change, is deleted. The file being written never is.
+* ``compress='gz'``: a file that has been rotated out becomes ``app_3.log.gz``. It needs ``maxSize``.
+
+.. code-block:: python
+
+    from pysimplelog import Logger, FileSink
+
+    logger = Logger("app", logToFile=False)          ## no file of the logger itself
+    logger.add_sink("file", FileSink("logs/app", maxSize=10, roll=14, maxAge=14 * 86400, compress="gz"))
+
+``roll`` and ``maxAge`` both apply: a file goes when there are too many or it is too old, compressed or not. Compression is done
+by a thread of its own, so the thread that logs never waits for it. The original is deleted only after the compressed file is
+complete and has the modification time of the original, so its age does not start again. A crash leaves the original, and the
+compression is made at the next start. Closing the sink waits for the one in progress.
+
+**When is the age tested?** There is no timer and no thread for it. It is tested when a file is rotated out, when the sink starts,
+when a record is written (at most once a minute), and when you call ``sink.enforce_retention()`` or ``logger.maintain()``. A
+program that logs nothing keeps its old files until one of those, which does not matter for the size of the folder, since nothing
+is being added. If files must go on time whatever happens, call ``logger.maintain()`` from your scheduler, or from a thread of
+your own:
+
+.. code-block:: python
+
+    import threading
+
+    def keep_tidy(logger, everySeconds=3600):
+        stop = threading.Event()
+        def run():
+            while not stop.wait(everySeconds):
+                logger.maintain()
+        threading.Thread(target=run, daemon=True).start()
+        return stop                                  ## stop.set() ends it
+
+``logger.maintain()`` does the housekeeping of every sink: it enforces ``roll`` and ``maxAge`` of the file sinks (also the file of
+the logger itself), and a spool drops its segments older than ``maxAge`` and tries again to delete files that were in use. It
+sends nothing, it is safe from any thread, and it reports for each sink what it did. ``flush()`` is the call that pushes data out.
+
+Limits to know:
+
+* A tool such as ``logrotate`` that renames the file being written is not noticed: the sink goes on writing to the renamed file until
+  its own limit. Use the rotation of the sink, or close the sink after the other tool has moved the file.
+* Two processes writing the same rotating file each count their own size, so they rotate independently. Give each its own files.
+* Compressing a file replaces ``app_3.log`` by ``app_3.log.gz``: a program that follows the plain file does not see the compressed one.
+* A forked child does not compress. The files stay plain until a process starts the sink and compresses them.
+
 Formatters
 ----------
 

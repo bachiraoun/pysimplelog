@@ -932,12 +932,12 @@ class Spool:
                 pass
             self.__undeleted.discard(path)
 
-    def _expire_old(self):
-        """Deletes closed segments older than maxAge, checked at most once a second."""
+    def _expire_old(self, isForced=False):
+        """Deletes closed segments older than maxAge, checked at most once a second unless *isForced*."""
         if self.__maxAge is None:
             return
         now = time.monotonic()
-        if now - self.__lastExpireTime < 1.0:
+        if not isForced and now - self.__lastExpireTime < 1.0:
             return
         self.__lastExpireTime = now
         while self._closed_count() > 0:
@@ -1094,6 +1094,22 @@ class Spool:
         """Keeps where a read ended, so that the next one starts there."""
         with self.__condition:
             self.__cursor = (firstSeq, offset, nextSeq)
+
+    def maintain(self):
+        """
+        Does the housekeeping now: deletes the closed segments older than *maxAge*, and tries again to delete the files that
+        were in use. No record is sent and none is kept back: expired records are counted as dropped, like when the spool is full.
+
+        :Returns:
+            #. result (dict): ``dropped`` (records thrown away by this call because their segment expired) and ``undeleted``
+               (files that could not be deleted yet).
+        """
+        with self.__condition:
+            self._check_usable()
+            droppedBefore = self.__counters['dropped']
+            self._expire_old(isForced=True)
+            self._retry_undeleted()
+            return {'dropped': self.__counters['dropped'] - droppedBefore, 'undeleted': len(self.__undeleted)}
 
     @property
     def depth(self):

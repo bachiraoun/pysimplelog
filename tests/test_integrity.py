@@ -53,7 +53,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from SimpleLog import Logger  # noqa: E402
+from SimpleLog import Logger, FILE_SINK  # noqa: E402
 
 
 # ── tuning ──────────────────────────────────────────────────────────────────
@@ -398,17 +398,19 @@ class TestFileSinkIntegrity(unittest.TestCase):
 
     def setUp(self):
         self._tmpBase = tempfile.mktemp(suffix='.log')
+        self._fileLoggers = []
 
     def tearDown(self):
+        # Windows cannot delete a file that is still open, so the logger lets go of its file first
+        for logger in self._fileLoggers:
+            logger.flush()
+            logger.sinks[FILE_SINK].close()
         base = self._tmpBase.replace('.log', '')
         for f in glob.glob(base + '*.log'):
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+            os.unlink(f)
 
     def _make_file_logger(self, enqueue=False):
-        return Logger(
+        logger = Logger(
             name        = 'integrity',
             logToFile   = True,
             logFile     = self._tmpBase,
@@ -416,10 +418,12 @@ class TestFileSinkIntegrity(unittest.TestCase):
             stdout      = io.StringIO(),
             enqueue     = enqueue,
         )
+        self._fileLoggers.append(logger)
+        return logger
 
     def _read_file_lines(self, logger):
         """Read the log file and return stripped, non-empty lines."""
-        with open(logger.logFileName) as fh:
+        with open(logger.logFileName, encoding='utf-8') as fh:
             return [l.rstrip('\n') for l in fh if l.strip()]
 
     def test_file_sync_each_line_is_one_complete_record(self):
