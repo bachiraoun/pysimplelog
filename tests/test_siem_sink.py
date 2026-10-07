@@ -301,7 +301,7 @@ class TestAttachDetach(unittest.TestCase):
         transport = _FakeTransport()
         sink = siem_sink.attach(logger, transport)
         try:
-            self.assertTrue(logger.sinks['siem'].threaded)
+            self.assertIsNotNone(logger.sink_stats('siem')['queue'])
         finally:
             siem_sink.detach(logger, sink)
 

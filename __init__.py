@@ -29,7 +29,7 @@ try:
     from .processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
     from .filters import sample
     from .log_context import context, current_context
-    from .queues import BoundedQueue, QueueFull, validate_queue_policy
+    from .queues import QueueFull, validate_queue_policy
     from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
@@ -40,8 +40,20 @@ except ImportError:
     from processors import redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
     from filters import sample
     from log_context import context, current_context
-    from queues import BoundedQueue, QueueFull, validate_queue_policy
+    from queues import QueueFull, validate_queue_policy
     from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
+
+__all__ = [
+    'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK',
+    'LogRecord', 'ExceptionInfo', 'CallerInfo', 'validate_record',
+    'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'register_formatter', 'resolve_formatter',
+    'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
+    'redact_fields', 'redact_text', 'DEFAULT_SENSITIVE_NAMES', 'sample',
+    'context', 'current_context',
+    'QueueFull', 'validate_queue_policy',
+    'StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging',
+    'get_version', 'get_author', 'get_email', 'get_doc', 'get_repository', 'get_pypi',
+]
 
 
 def get_version():

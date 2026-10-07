@@ -82,7 +82,7 @@ def main():
 
     # 1. A dedicated logType, separate from the built-in 'error'.
     logger.add_log_type('admin_error', name='ADMIN_ERROR',
-                         level=logger.logLevels['error'], color='red', attributes=['bold'])
+                         level=logger.logTypeLevels['error'], color='red', attributes=['bold'])
 
     # 2. SIEM sink is opt-in (defaultFlag=False) and only 'admin_error' is
     #    switched on -- every other logType stays purely local.

@@ -488,6 +488,7 @@ Processors
 """
 # python standard distribution imports
 import os, sys, copy, re, atexit, threading, traceback, functools, inspect, collections, time
+from types import MappingProxyType
 from datetime import datetime, timedelta, timezone as FixedOffsetTimezone
 
 
@@ -1767,11 +1768,6 @@ class Logger(object):
         return list(self.__logTypeNames)
 
     @property
-    def logLevels(self):
-        """Dictionary copy of all defined log type levels. Alias for logTypeLevels."""
-        return copy.deepcopy(self.__logTypeLevels)
-
-    @property
     def logTypeFileFlags(self):
         """Dictionary copy of all defined log types logging to a file flags."""
         return copy.deepcopy(self.__logTypeFileFlags)
@@ -1870,24 +1866,13 @@ class Logger(object):
 
     @property
     def sinks(self):
-        """Shallow-copy snapshot of the unified sink registry.
+        """Read-only snapshot of the sinks by name, with the handler each one writes to.
 
-        Keys: ``_SINK_STDOUT`` (-1) and ``_SINK_FILE`` (0) for the two
-        built-in sinks; string keys for any user-added sinks.
-        Values are live ``_Sink`` instances — do not mutate them directly;
-        use the public setter API to change routing configuration.
+        Keys are ``CONSOLE_SINK`` and ``FILE_SINK`` for the two built-in sinks, and the name given to
+        ``add_sink()`` for the others. A value is the :class:`pysimplelog.sinks.Sink` or the handler that was
+        added. Routing is changed with the setters of the logger, and what a sink did is in :meth:`sink_stats`.
         """
-        return dict(self.__sinks)
-
-    @property
-    def activeSinks(self):
-        """Read-only snapshot of the active-sink cache.
-
-        Returns a dict mapping each log-type name to the list of ``_Sink``
-        instances that will receive messages of that type. The cache is
-        rebuilt automatically whenever routing configuration changes.
-        """
-        return {lt: list(sinks) for lt, sinks in self.__activeSinks.items()}
+        return MappingProxyType({name: sink.handler for name, sink in self.__sinks.items()})
 
     @property
     def logFileName(self):

@@ -21,7 +21,7 @@ TestUserSinkBasic       -- add_sink / remove_sink / clear_sinks, routing, ANSI-f
 TestUserSinkEnabled     -- enabled flag at add time and via set_log_to_stdout_flag
 TestUserSinkLogTypeFlags -- per-type flags on a user sink
 TestUserSinkLevelFilter -- minLevel / maxLevel via add_sink and set_minimum/maximum_level
-TestRebuildActiveSinks  -- white-box: __activeSinks cache structure after every change
+TestRoutingByType       -- which sinks receive which log types after every configuration change
 TestUserSinkIndependence -- user sink receives a type suppressed globally for stdout
 TestSinkApiValidation   -- bad inputs to add/remove/clear sinks
 TestLevelMethods        -- set_minimum/maximum_level for built-ins and sinks=
@@ -113,8 +113,6 @@ class TestLoggerInit(unittest.TestCase):
         opens are attempted by the sink (file sink is disabled)."""
         L, _ = make_logger(logToFile=False)
         self.assertFalse(L.logToFile)
-        # file sink must be marked disabled in the sinks dict
-        self.assertFalse(L.sinks[_SINK_FILE].enabled)
 
     def test_enqueue_mode_enabled(self):
         L, _ = make_logger(enqueue=True)
@@ -582,99 +580,77 @@ class TestUserSinkLevelFilter(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 11 — __rebuild_active_sinks white-box verification
+# 11 — Routing by log type
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestRebuildActiveSinks(unittest.TestCase):
+class TestRoutingByType(unittest.TestCase):
     """
-    Accesses _Logger__activeSinks directly (name-mangled) to verify the
-    cache structure is correct after configuration changes.
-
-    These tests prove that __rebuild_active_sinks uses the enabled flag,
-    logTypeFlags, and minLevel/maxLevel — not just one of the three.
+    Checks from the outside which sinks receive which log types after
+    configuration changes: the enabled flag, logTypeFlags, and
+    minLevel/maxLevel are all honoured.
     """
 
-    def _active(self, logger, log_type):
-        """Return the list of active _Sink objects for a given log type."""
-        return logger._Logger__activeSinks.get(log_type, [])
+    def _receives(self, logger, sink, logType):
+        """Return True when a record of *logType* reaches *sink*."""
+        sink.lines.clear()
+        logger.log(logType, 'probe')
+        logger.flush()
+        return sink.contains('probe')
 
-    def test_disabled_user_sink_absent_from_cache(self):
+    def test_disabled_user_sink_receives_nothing(self):
         L, _ = make_logger(logToStdout=False)
         sink = _CaptureSink()
         L.add_sink('s', sink, enabled=False)
         for lt in L.logTypeLevels:
-            self.assertFalse(
-                any(s.sinkType == 'user' for s in self._active(L, lt)),
-                f'disabled sink appeared in activeSinks for {lt}'
-            )
+            self.assertFalse(self._receives(L, sink, lt),
+                             f'disabled sink received {lt}')
 
-    def test_enabled_user_sink_present_in_cache(self):
+    def test_enabled_user_sink_receives_every_type(self):
         L, _ = make_logger(logToStdout=False)
-        L.add_sink('s', _CaptureSink(), enabled=True)
+        sink = _CaptureSink()
+        L.add_sink('s', sink, enabled=True)
         for lt in L.logTypeLevels:
-            types = [s.sinkType for s in self._active(L, lt)]
-            self.assertIn('user', types)
+            self.assertTrue(self._receives(L, sink, lt), f'{lt} not received')
 
-    def test_logTypeFlag_false_removes_type_from_cache(self):
+    def test_logTypeFlag_false_removes_type(self):
         L, _ = make_logger(logToStdout=False)
-        L.add_sink('s', _CaptureSink(), logTypeFlags={'debug': False})
-        debug_sinks = self._active(L, 'debug')
-        self.assertFalse(any(s.sinkType == 'user' for s in debug_sinks))
-        info_sinks = self._active(L, 'info')
-        self.assertTrue(any(s.sinkType == 'user' for s in info_sinks))
+        sink = _CaptureSink()
+        L.add_sink('s', sink, logTypeFlags={'debug': False})
+        self.assertFalse(self._receives(L, sink, 'debug'))
+        self.assertTrue(self._receives(L, sink, 'info'))
 
-    def test_minLevel_removes_low_types_from_cache(self):
+    def test_minLevel_removes_low_types(self):
         L, _ = make_logger(logToStdout=False)
-        warnLevel = L.logTypeLevels['warn']
-        L.add_sink('s', _CaptureSink(), minLevel=warnLevel)
-        # debug and info are below warnLevel — must be absent
+        sink = _CaptureSink()
+        L.add_sink('s', sink, minLevel=L.logTypeLevels['warn'])
         for lt in ('debug', 'info'):
-            self.assertFalse(
-                any(s.sinkType == 'user' for s in self._active(L, lt)),
-                f'{lt} (below minLevel) found in activeSinks'
-            )
-        # warn, error, critical are at-or-above — must be present
+            self.assertFalse(self._receives(L, sink, lt), f'{lt} is below minLevel')
         for lt in ('warn', 'error', 'critical'):
-            self.assertTrue(
-                any(s.sinkType == 'user' for s in self._active(L, lt)),
-                f'{lt} (at/above minLevel) missing from activeSinks'
-            )
+            self.assertTrue(self._receives(L, sink, lt), f'{lt} is at or above minLevel')
 
-    def test_maxLevel_removes_high_types_from_cache(self):
+    def test_maxLevel_removes_high_types(self):
         L, _ = make_logger(logToStdout=False)
-        infoLevel = L.logTypeLevels['info']
-        L.add_sink('s', _CaptureSink(), maxLevel=infoLevel)
+        sink = _CaptureSink()
+        L.add_sink('s', sink, maxLevel=L.logTypeLevels['info'])
         for lt in ('warn', 'error', 'critical'):
-            self.assertFalse(
-                any(s.sinkType == 'user' for s in self._active(L, lt)),
-                f'{lt} (above maxLevel) found in activeSinks'
-            )
+            self.assertFalse(self._receives(L, sink, lt), f'{lt} is above maxLevel')
         for lt in ('debug', 'info'):
-            self.assertTrue(
-                any(s.sinkType == 'user' for s in self._active(L, lt)),
-                f'{lt} (at/below maxLevel) missing from activeSinks'
-            )
+            self.assertTrue(self._receives(L, sink, lt), f'{lt} is at or below maxLevel')
 
     def test_stdout_sink_enabled_flag_respected(self):
-        L, _ = make_logger()
+        L, buf = make_logger()
         L.set_log_to_stdout_flag(False)
         for lt in L.logTypeLevels:
-            self.assertFalse(
-                any(s.sinkType == 'stdout' for s in self._active(L, lt)),
-                f'disabled stdout sink appeared in activeSinks for {lt}'
-            )
+            L.log(lt, 'probe')
+        self.assertEqual(buf.getvalue(), '')
 
-    def test_rebuild_triggered_by_add_and_remove(self):
+    def test_routing_follows_add_and_remove(self):
         L, _ = make_logger(logToStdout=False)
         sink = _CaptureSink()
         L.add_sink('s', sink)
-        # after add — user sink must appear
-        self.assertTrue(any(s.sinkType == 'user'
-                            for s in self._active(L, 'info')))
+        self.assertTrue(self._receives(L, sink, 'info'))
         L.remove_sink('s')
-        # after remove — user sink must be gone
-        self.assertFalse(any(s.sinkType == 'user'
-                             for s in self._active(L, 'info')))
+        self.assertFalse(self._receives(L, sink, 'info'))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1113,7 +1089,7 @@ class TestThreadedSink(unittest.TestCase):
     def test_threaded_defaults_to_false(self):
         L, _ = make_logger()
         L.add_sink('s', _CaptureSink())
-        self.assertFalse(L.sinks['s'].threaded)
+        self.assertIsNone(L.sink_stats('s')['queue'])
         L.remove_sink('s')
 
     def test_threaded_sink_delivers(self):
