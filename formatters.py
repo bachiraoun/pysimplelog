@@ -17,6 +17,9 @@ JSON_SEPARATORS = (',', ':')
 RESERVED_KEYS = frozenset({'schema', 'timestamp', 'severity', 'log_type', 'level', 'logger', 'message',
                            'fields', 'context', 'exception', 'caller', 'process', 'thread'})
 
+# Nesting deeper than this is written as a placeholder, which also stops a structure that contains itself
+MAX_JSON_DEPTH = 20
+
 # (second and utc offset, ISO date-time text, readable date-time text, offset text) of the last
 # timestamp. Rebuilt only when the second changes. It is replaced as one tuple, never edited, so
 # threads can share it without a lock.
@@ -53,6 +56,57 @@ def _format_caller(caller):
     return f"{caller.fileName}:{caller.line} in {caller.function}"
 
 
+def safe_str(value):
+    """
+    Returns the text of a value, or a placeholder when the value cannot be turned into text.
+
+    A value can raise from its own ``__str__``. The placeholder names the type and the class of the error, never
+    the error message, because that message can hold sensitive text.
+
+    :Parameters:
+        #. value (object): Any value.
+
+    :Returns:
+        #. text (str): ``str(value)``, or ``<unprintable TypeName: ErrorClass>``.
+    """
+    try:
+        return str(value)
+    except Exception as error:
+        return f"<unprintable {type(value).__name__}: {type(error).__name__}>"
+
+
+def _safe_repr(value):
+    """Returns ``repr(value)``, or the placeholder of safe_str when the value cannot give one. JSON uses it for unknown types."""
+    try:
+        return repr(value)
+    except Exception as error:
+        return f"<unprintable {type(value).__name__}: {type(error).__name__}>"
+
+
+def _to_jsonable(value, depth):
+    """
+    Returns a copy of a value that json can always write: keys become text, and a structure nested too deep,
+    or containing itself, is replaced by a placeholder.
+    """
+    if depth > MAX_JSON_DEPTH:
+        return '<too deep>'
+    if isinstance(value, dict):
+        return {key if isinstance(key, str) else safe_str(key): _to_jsonable(item, depth + 1)
+                for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_jsonable(item, depth + 1) for item in value]
+    return value
+
+
+def _dumps(value):
+    """Returns the JSON text of a value, using repr for what JSON cannot represent, and never raising for a bad value."""
+    try:
+        return json.dumps(value, default=_safe_repr, separators=JSON_SEPARATORS)
+    except (TypeError, ValueError):
+        # A key that is not text, or a structure that contains itself: rewrite it, then write it
+        return json.dumps(_to_jsonable(value, 0), default=_safe_repr, separators=JSON_SEPARATORS)
+
+
 def _require_record(record):
     """Raises TypeError with a clear message when record is not a LogRecord."""
     if not isinstance(record, LogRecord):
@@ -79,7 +133,7 @@ def _json_value(value):
     """Returns the JSON text of any value, using repr for what JSON cannot represent."""
     text = _json_scalar(value)
     if text is None:
-        text = json.dumps(value, default=repr, separators=JSON_SEPARATORS)
+        text = _dumps(value)
     return text
 
 
@@ -90,7 +144,7 @@ def _mapping_to_json(mapping):
         text = _json_scalar(value)
         if text is None:
             # One encoder call for the whole mapping is cheaper than one call per complex value
-            return json.dumps(dict(mapping), default=repr, separators=JSON_SEPARATORS)
+            return _dumps(dict(mapping))
         entries.append(f"{encode_basestring_ascii(key)}:{text}")
     return '{' + ','.join(entries) + '}'
 
@@ -103,7 +157,8 @@ class JsonFormatter:
     ``severity``, ``log_type``, ``level``, ``logger``, ``message``, ``process`` and ``thread``
     are always present. ``exception``, ``caller``, ``context`` and ``fields``
     are present only when they have content. Values that JSON cannot represent
-    are written with ``repr``.
+    are written with ``repr``. A key that is not text is written as its text, and a value that cannot give
+    a ``repr`` is written as ``<unprintable TypeName: ErrorClass>``, so a bad value never loses the record.
 
     :Parameters:
         #. flatten (bool): When True, ``fields`` and ``context`` entries are written at the top level
@@ -217,21 +272,45 @@ class TextFormatter:
             #. TypeError: If record is not a LogRecord.
         """
         _require_record(record)
+        try:
+            return self._render(record, str)
+        except Exception:
+            # A value that cannot become text must not lose the record, so it is rendered again with a placeholder
+            return self._render(record, safe_str)
+
+    @staticmethod
+    def _render(record, convert):
+        """Builds the text of a record, turning every field and context value into text with *convert*."""
         parts = [f"{_format_timestamp_text(record.timestamp)} - {record.logger} <{record.severity}> "]
         if record.caller is not None:
             parts.append(f"[{_format_caller(record.caller)}] ")
         if len(record.context) > 0:
-            pairs = ' '.join(f"{key}={value}" for key, value in record.context.items())
+            pairs = ' '.join(f"{key}={convert(value)}" for key, value in record.context.items())
             parts.append(f"[{pairs}] ")
         parts.append(record.message)
         for key, value in record.fields.items():
             if key != 'data':
-                parts.append(f" {key}={value}")
+                parts.append(f" {key}={convert(value)}")
         if 'data' in record.fields:
-            parts.append(f"\n{record.fields['data']}")
+            parts.append(f"\n{convert(record.fields['data'])}")
         if record.exception is not None:
             parts.append(f"\n{record.exception.stacktrace}")
         return ''.join(parts)
+
+
+class _SafeValue:
+    """Wraps a value so that formatting it never raises: a value that cannot be formatted gives the placeholder."""
+
+    __slots__ = ('value',)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __format__(self, spec):
+        try:
+            return format(self.value, spec)
+        except Exception:
+            return format(safe_str(self.value) if not isinstance(self.value, str) else self.value, spec)
 
 
 class _TemplateView(dict):
@@ -282,6 +361,16 @@ class TemplateFormatter:
             #. TypeError: If record is not a LogRecord.
         """
         _require_record(record)
+        view = self._build_view(record)
+        try:
+            return self.__template.format_map(view)
+        except Exception:
+            # A value that cannot be formatted must not lose the record, so it is rendered again with a placeholder
+            return self.__template.format_map(_TemplateView({key: _SafeValue(value) for key, value in view.items()}))
+
+    @staticmethod
+    def _build_view(record):
+        """Returns the names a template can use, with the value of each for this record."""
         view = _TemplateView()
         view.update(record.context)
         view.update(record.fields)
@@ -298,7 +387,7 @@ class TemplateFormatter:
                      'process': record.processId,
                      'thread': record.threadId,
                      'thread_name': record.threadName})
-        return self.__template.format_map(view)
+        return view
 
 
 # Keyword to formatter factory. Add more with register_formatter

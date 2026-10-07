@@ -42,9 +42,11 @@ from datetime import datetime, timezone
 try:
     from ..formatters import TextFormatter
     from ..sinks import Sink
+    from ..forking import register_for_fork_reset
 except ImportError:
     from formatters import TextFormatter
     from sinks import Sink
+    from forking import register_for_fork_reset
 
 __all__ = [
     'SeverityMap', 'RFC5424Formatter', 'CircuitBreaker', 'SiemForwardSink',
@@ -230,6 +232,11 @@ class CircuitBreaker:
         self._failures = 0
         self._openedAt = None
         self._lock = threading.Lock()
+        register_for_fork_reset(self)
+
+    def _reset_after_fork(self):
+        """Gives a forked process a lock of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        self._lock = threading.Lock()
 
     def allow(self):
         """
@@ -357,12 +364,16 @@ class SiemForwardSink(Sink):
         :Parameters:
             #. text (str): The RFC 5424 line, rendered by this sink.
             #. record (LogRecord): The record that was rendered, its log type and level give the severity.
+
+        :Returns:
+            #. isDelivered (bool, None): ``False`` when the record was dropped, after ``onDrop`` was called, so a spool
+               keeps it for another try. None when it was sent.
         """
         severity = self._severityMap.resolve(record.logType, record.level)
         item = (text, record.logType, severity)
         if not self._breaker.allow():
             self._record_drop(item)
-            return
+            return False
         payload = text.encode('utf-8')
         attempt = 0
         while True:
@@ -377,13 +388,34 @@ class SiemForwardSink(Sink):
                     self._safe_callback(self._onError, exc, item)
                 if attempt > self._maxRetries or not self._breaker.allow():
                     self._record_drop(item)
-                    return
+                    return False
                 time.sleep(min(self._retryBackoffBase * (2 ** (attempt - 1)), self._retryBackoffMax))
                 continue
             self._breaker.record_success()
             with self._statsLock:
                 self._counts['sent'] += 1
             return
+
+    def _reset_after_fork(self):
+        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        super()._reset_after_fork()
+        self._statsLock = threading.Lock()
+
+    def spool_destination(self):
+        """
+        Returns where the transport sends, to identify the receiver of a spool, see
+        :meth:`pysimplelog.sinks.Sink.spool_destination`.
+
+        :Raises:
+            #. TypeError: If the transport has no destination to say, such as the console transport, or does not
+               have a ``describe_destination`` method.
+        """
+        try:
+            describe = self._transport.describe_destination
+        except AttributeError:
+            raise TypeError(f"{type(self._transport).__name__} does not say where it sends: give the destination as "
+                            "text when the spool is set up") from None
+        return describe()
 
     def _record_drop(self, item):
         """Counts a dropped record and notifies the onDrop callback."""
@@ -400,14 +432,11 @@ class SiemForwardSink(Sink):
         except Exception:
             pass  # a broken user callback must never take down the calling thread
 
-    def close(self, timeout=5.0):
+    def close(self):
         """Close the transport.
 
-        :Parameters:
-            #. timeout (float): Accepted for backward compatibility, unused --
-               there is no internal queue or thread left to drain here. If this
-               sink is registered threaded, call ``logger.flush(timeout=...)``
-               first to wait for pysimplelog's own per-sink queue to drain.
+        If this sink is registered threaded, call ``logger.flush(timeout=...)`` first to wait for the queue of the sink to
+        drain, or use :func:`detach`, which does it.
         """
         self._transport.close()
 
@@ -421,7 +450,7 @@ class SiemForwardSink(Sink):
 def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
            enabled=True, minLevel=None, maxLevel=None,
            logTypeFlags=None, defaultFlag=True, threaded=True, threadQueueSize=1000,
-           threadQueuePolicy='drop_oldest', threadBlockTimeout=None,
+           threadQueuePolicy='drop_oldest', threadBlockTimeout=None, spool=None,
            **sinkKwargs):
     """Wire a SIEM (Security Information and Event Management) forwarder
     into a pysimplelog ``Logger`` as a single sink.
@@ -464,6 +493,9 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
         #. threadQueuePolicy (str): Forwarded to ``add_sink()``: what the private queue does with a record
            when it is full, ``block``, ``drop_newest``, ``drop_oldest`` (default) or ``reject``.
         #. threadBlockTimeout (None, number): Forwarded to ``add_sink()``: seconds the ``block`` policy waits.
+        #. spool (SpoolConfig, dict, None): Forwarded to ``add_sink()``: the settings that keep the records on disk until
+           the collector has them, see :class:`pysimplelog.spool.SpoolConfig`. The destination of the spool is the one of
+           the transport. Needs ``threaded=True``.
         #. sinkKwargs: Forwarded to ``SiemForwardSink()`` (retries,
            breaker tuning, callbacks...).
 
@@ -509,7 +541,7 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
     logger.add_sink(sinkName, sink, enabled=enabled, minLevel=minLevel, maxLevel=maxLevel,
                      logTypeFlags=logTypeFlags, defaultFlag=defaultFlag,
                      threaded=threaded, threadQueueSize=threadQueueSize,
-                     threadQueuePolicy=threadQueuePolicy, threadBlockTimeout=threadBlockTimeout)
+                     threadQueuePolicy=threadQueuePolicy, threadBlockTimeout=threadBlockTimeout, spool=spool)
     return sink
 
 
@@ -531,7 +563,7 @@ def detach(logger, sink, sinkName='siem', close=True, timeout=5.0):
     except (ValueError, TypeError):
         pass
     if close:
-        sink.close(timeout=timeout)
+        sink.close()
 
 
 def quick_attach(logger, protocol, host=None, port=None, url=None,

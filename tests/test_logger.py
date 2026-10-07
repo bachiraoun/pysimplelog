@@ -38,6 +38,7 @@ TestThreadedSink        -- opt-in per-sink queue+thread, no-leak lifecycle, over
 
 import glob
 import io
+import json
 import os
 import sys
 import tempfile
@@ -47,6 +48,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from SimpleLog import Logger, _SINK_STDOUT, _SINK_FILE  # noqa: E402
+from sinks import StreamSink  # noqa: E402
+from formatters import safe_str  # noqa: E402
+from log_context import context  # noqa: E402
 
 
 # ─────────────────────────── helpers ────────────────────────────────────────
@@ -983,6 +987,95 @@ class TestSanitize(unittest.TestCase):
         L, buf = make_logger(maxDataSize=5)
         L.info('msg', data='X' * 50)
         self.assertIn('[truncated]', buf.getvalue())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 19b — Values that cannot be turned into text
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestUnprintableValues(unittest.TestCase):
+    """A value that cannot be turned into text must never cost the record."""
+
+    class Unprintable:
+        """A value whose own conversion to text raises, with a message that must never be written."""
+
+        def __str__(self):
+            raise RuntimeError('secret-in-error-message')
+
+        __repr__ = __str__
+
+    def _deliver(self, formatter, value):
+        """Logs *value* as a field, as data and as context, and returns the written text and the sink statistics."""
+        logger = Logger('unprintable', logToFile=False, logToStdout=False)
+        stream = io.StringIO()
+        logger.add_sink('s', StreamSink(stream, formatter=formatter))
+        errorStream, savedStderr = io.StringIO(), sys.stderr
+        sys.stderr = errorStream
+        try:
+            with context(scope=value):
+                logger.info('message', field=value, data=value)
+        finally:
+            sys.stderr = savedStderr
+        return stream.getvalue(), logger.sink_stats('s')['delivery'], errorStream.getvalue()
+
+    def _values(self):
+        cycle = {}
+        cycle['self'] = cycle
+        return {'raising str': self.Unprintable(), 'nested raising str': {'a': [self.Unprintable()]},
+                'tuple key': {(1, 2): 3}, 'object key': {object(): 1}, 'cycle': cycle}
+
+    def test_every_format_delivers_every_bad_value(self):
+        for formatter in (None, 'text', '{message} {field} {scope}'):
+            for label, value in self._values().items():
+                with self.subTest(formatter=formatter, value=label):
+                    text, stats, warnings = self._deliver(formatter, value)
+                    self.assertEqual((stats['processed'], stats['failed']), (1, 0))
+                    self.assertEqual(warnings, '')
+                    self.assertIn('message', text)
+
+    def test_placeholder_names_the_type_and_never_the_error_message(self):
+        for formatter in (None, 'text', '{message} {field} {scope}'):
+            with self.subTest(formatter=formatter):
+                text, _, _ = self._deliver(formatter, self.Unprintable())
+                self.assertIn('<unprintable Unprintable: RuntimeError>', text)
+                self.assertNotIn('secret-in-error-message', text)
+
+    def test_json_stays_valid_json(self):
+        for label, value in self._values().items():
+            with self.subTest(value=label):
+                text, _, _ = self._deliver(None, value)
+                document = json.loads(text)
+                self.assertEqual(document['message'], 'message')
+
+    def test_json_writes_a_key_that_is_not_text_as_its_text(self):
+        text, _, _ = self._deliver(None, {(1, 2): 3})
+        self.assertEqual(json.loads(text)['fields']['field'], {'(1, 2)': 3})
+
+    def test_json_replaces_a_structure_that_contains_itself(self):
+        cycle = {}
+        cycle['self'] = cycle
+        text, _, _ = self._deliver(None, cycle)
+        self.assertIn('<too deep>', text)
+
+    def test_ordinary_values_are_written_as_before(self):
+        text, stats, _ = self._deliver('text', {'a': 1})
+        self.assertIn('field={\'a\': 1}', text)
+        self.assertTrue(text.endswith("\n{'a': 1}\n"))
+        text, _, _ = self._deliver(None, {1, 2})
+        self.assertEqual(json.loads(text)['fields']['field'], '{1, 2}')
+        text, _, _ = self._deliver('{field}', 'plain')
+        self.assertEqual(text.strip(), 'plain')
+
+    def test_template_format_spec_still_applies(self):
+        logger = Logger('spec', logToFile=False, logToStdout=False)
+        stream = io.StringIO()
+        logger.add_sink('s', StreamSink(stream, formatter='{ratio}'))
+        logger.info('m', ratio=0.5)
+        self.assertEqual(stream.getvalue().strip(), '0.5')
+
+    def test_safe_str(self):
+        self.assertEqual(safe_str(5), '5')
+        self.assertEqual(safe_str(self.Unprintable()), '<unprintable Unprintable: RuntimeError>')
 
 
 # ═══════════════════════════════════════════════════════════════════════════

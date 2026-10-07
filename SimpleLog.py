@@ -535,12 +535,18 @@ try:
     from .log_context import CURRENT_CONTEXT, context as open_context
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
     from .queues import BoundedQueue, QueueFull, validate_queue_policy
+    from .forking import register_for_fork_reset
+    from .spool import SpoolConfig
+    from .durable import DurableDelivery, resolve_target_id
 except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo
     from formatters import resolve_formatter
     from log_context import CURRENT_CONTEXT, context as open_context
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
     from queues import BoundedQueue, QueueFull, validate_queue_policy
+    from forking import register_for_fork_reset
+    from spool import SpoolConfig
+    from durable import DurableDelivery, resolve_target_id
 
 
 # sentinel object used to signal the enqueue worker thread to stop
@@ -758,12 +764,14 @@ class _Sink(object):
            counts the records it skipped.
         #. isWrapped (bool): True when the handler is a StreamSink that the logger made around
            a file-like object given to add_sink(), so the logger keeps its flush mode up to date.
+        #. durable (DurableDelivery, None): When given, the records of this sink are kept on disk and delivered by it,
+           and the private queue and worker of a threaded sink are not made. *threaded* must be True.
     """
 
     def __init__(self, handler, enabled, logTypeFlags,
                  minLevel=None, maxLevel=None, sinkType='stdout',
                  defaultFlag=True, threaded=False, threadQueueSize=1000, recordFilter=None, isWrapped=False,
-                 threadQueuePolicy='drop_oldest', threadBlockTimeout=None):
+                 threadQueuePolicy='drop_oldest', threadBlockTimeout=None, durable=None):
         self.recordFilter  = recordFilter
         self.filteredCount = 0
         self.isWrapped    = isWrapped
@@ -775,9 +783,12 @@ class _Sink(object):
         self.defaultFlag  = defaultFlag   # fallback for logTypes missing from logTypeFlags
         self.set_handler(handler)
         self.threaded = threaded
+        self.durable = durable
+        # The process that owns the queue and the worker thread: a forked child has neither
+        self._pid = os.getpid()
         self._queue = None
         self._thread = None
-        if threaded:
+        if threaded and durable is None:
             self._queue = BoundedQueue(threadQueueSize, threadQueuePolicy, threadBlockTimeout, name='sink queue')
             self._thread = threading.Thread(
                 target=self._worker, name='pysimplelog-sink-worker', daemon=True,
@@ -793,8 +804,16 @@ class _Sink(object):
             #. record (LogRecord): The record to deliver on the worker thread.
 
         :Raises:
-            #. QueueFull: If the queue is full and the policy is ``reject``.
+            #. QueueFull: If the queue is full and the policy is ``reject``, or the spool is full and its policy is
+               ``reject``.
         """
+        if self.durable is not None:
+            self.durable.submit(record)
+            return
+        if os.getpid() != self._pid:
+            # In a forked child the worker thread does not exist, so nothing would ever take the record from the queue
+            self.handler.emit(record)
+            return
         self._queue.put(record)
 
     def _worker(self):
@@ -827,6 +846,11 @@ class _Sink(object):
         """
         if not self.threaded:
             return
+        if self.durable is not None:
+            self.durable.flush(timeout)
+            return
+        if os.getpid() != self._pid:
+            return
         self._queue.join(timeout)
 
     def stop_threaded(self, timeout=5.0):
@@ -838,13 +862,25 @@ class _Sink(object):
         """
         if not self.threaded:
             return
+        if self.durable is not None:
+            self.durable.stop(timeout)
+            return
+        if os.getpid() != self._pid:
+            # The worker belongs to the parent, which stops it
+            return
         self.flush_threaded(timeout=timeout)
         self._queue.put_last(_QUEUE_STOP)
         self._thread.join(timeout=timeout)
 
     def queue_stats(self):
         """Returns the counters of the private queue, or None when the sink is not threaded."""
+        if self.durable is not None:
+            return self.durable.queue_stats()
         return None if self._queue is None else self._queue.stats()
+
+    def spool_stats(self):
+        """Returns what the spool of this sink holds and what its delivery did, or None when it has no spool."""
+        return None if self.durable is None else self.durable.stats()
 
     def set_handler(self, handler):
         """
@@ -867,11 +903,6 @@ class _Sink(object):
             self.handler.close()
         except Exception as closeError:
             sys.stderr.write('pysimplelog WARNING: sink close failed. Error: %s\n' % closeError)
-
-    @property
-    def isFileSink(self):
-        """Backward-compatible read-only property. True when sinkType is 'file'."""
-        return self.sinkType == 'file'
 
     def __repr__(self):
         return (
@@ -1410,6 +1441,8 @@ class Logger(object):
         if not isinstance(enqueue, bool):
             raise TypeError("enqueue must be a boolean")
         self.__enqueue          = enqueue
+        # The process that owns the queue and the worker thread: a forked child has neither
+        self.__ownerPid         = os.getpid()
         self.__logQueue         = None
         self.__logWorker        = None
         # validate and store queue policy settings via setters so all
@@ -1452,6 +1485,7 @@ class Logger(object):
         self.__filterFailures = 0
         self.__filteredRecords = 0
         self.__filterLock = threading.Lock()
+        register_for_fork_reset(self)
         # ── unified sink registry ─────────────────────────────────────────
         # Both built-in sinks are always created. The logTypeFlags dicts
         # are the SAME objects as __logTypeStdoutFlags/__logTypeFileFlags
@@ -1613,6 +1647,11 @@ class Logger(object):
         attributes = dict( [(attrNames[idx],attrCode[idx]) for idx in range(len(attrCode))] )
         return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
 
+    def _reset_after_fork(self):
+        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        self.__processorLock = threading.Lock()
+        self.__filterLock = threading.Lock()
+
     def _flush_atexit_logfile(self):
         """Drain the queue and flush all open streams at Python interpreter shutdown.
 
@@ -1625,7 +1664,7 @@ class Logger(object):
         too, to avoid leaving a thread running past interpreter shutdown.
         Non-threaded user sinks are simply flushed, as before.
         """
-        if self.__enqueue and self.__logQueue is not None:
+        if self.__enqueue and self.__logQueue is not None and os.getpid() == self.__ownerPid:
             self.__logQueue.put_last(_QUEUE_STOP)
             self.__logWorker.join(timeout=5)
         # every sink is flushed and closed, a threaded sink's private thread is stopped first.
@@ -2063,6 +2102,12 @@ class Logger(object):
         * ``queue``: the counters of the private queue of a threaded sink, None for a sink written to on the calling
           thread. They are ``policy``, ``capacity``, ``depth`` (records waiting now), ``queued`` (records accepted so
           far), ``dropped`` (records thrown away so far) and ``rejected`` (records refused so far).
+        * ``spool``: what the spool of the sink holds and what its delivery did, None for a sink without a spool.
+          It has ``depth`` (records not delivered), ``bytes``, ``segments``, ``spooled`` (records kept), ``dropped``,
+          ``rejected``, ``dead`` (records parked in the ``dead`` file), ``retries``, ``replayed`` and
+          ``orphans_adopted`` and ``orphans_skipped`` (slots of other processes), ``refused`` (records not kept
+          because a forked child does not own the spool), ``errors``, ``torn``, ``corrupt``, ``lost`` and ``slot``.
+          The ``queue`` of such a sink is the queue of hints: a hint that was dropped lost no record.
         * ``filtered``: the number of records the filter of the sink skipped, see :meth:`set_sink_filter`.
         * ``delivery``: what the sink itself reports, see ``Sink.stats``: ``processed``, ``failed``, ``last_error``,
           ``latency_mean`` and ``latency_max`` in seconds, and what a particular sink adds, such as ``sent`` for
@@ -2083,7 +2128,37 @@ class Logger(object):
         if name not in self.__sinks:
             raise ValueError("sink %r is not registered" % (name,))
         sink = self.__sinks[name]
-        return {'queue': sink.queue_stats(), 'filtered': sink.filteredCount, 'delivery': sink.handler.stats}
+        return {'queue': sink.queue_stats(), 'spool': sink.spool_stats(), 'filtered': sink.filteredCount,
+                'delivery': sink.handler.stats}
+
+    def adopt_orphans(self, name, timeout=30.0):
+        """
+        Sends, once, what the spool slots left behind by dead processes hold, through one sink.
+
+        Only slots made for the same spool id, sink class and target are taken, a slot made for something else is left
+        alone and counted. Slots that a live process holds are skipped. The worker of the sink does the sending, one
+        record at a time and in order, and stops at the first record that cannot be delivered. Setting
+        ``adoptOrphans=True`` in the spool settings makes the sink do the same on its own, every ``adoptInterval``
+        seconds, when it is idle.
+
+        :Parameters:
+            #. name (str): The name of a sink that was added with a spool.
+            #. timeout (int, float): Seconds to wait for the worker to be done.
+
+        :Returns:
+            #. result (dict, None): ``replayed`` (records sent), ``orphans_adopted`` (slots emptied) and
+               ``orphans_skipped`` (slots left alone), as counts since the sink was added. None when the worker was not
+               done in time.
+
+        :Raises:
+            #. ValueError: If no sink is registered under *name*, or it has no spool.
+        """
+        if name not in self.__sinks:
+            raise ValueError("sink %r is not registered" % (name,))
+        sink = self.__sinks[name]
+        if sink.durable is None:
+            raise ValueError("sink %r has no spool" % (name,))
+        return sink.durable.adopt_orphans(timeout)
 
     def set_sink_filter(self, name, recordFilter):
         """
@@ -2266,22 +2341,6 @@ class Logger(object):
             return logType in self.__logTypeNames
         except Exception:
             return False
-
-    def is_logType(self, logType):
-        """Deprecated alias for is_log_type().
-
-        .. deprecated::
-            Use ``is_log_type(logType)`` instead. This camelCase alias will
-            be removed in the next major version.
-        """
-        import warnings
-        warnings.warn(
-            "is_logType() is deprecated and will be removed in the next major "
-            "version. Use is_log_type() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.is_log_type(logType)
 
     def update(self, **kwargs):
         """Update logger general parameters using key value pairs.
@@ -2989,7 +3048,7 @@ class Logger(object):
     def add_sink(self, name, handler, enabled=True,
                  minLevel=None, maxLevel=None, logTypeFlags=None,
                  defaultFlag=True, threaded=False, threadQueueSize=1000, recordFilter=None,
-                 threadQueuePolicy='drop_oldest', threadBlockTimeout=None):
+                 threadQueuePolicy='drop_oldest', threadBlockTimeout=None, spool=None):
         """Add a user-supplied output sink to the logger.
 
         The sink receives every log record whose type passes the routing
@@ -3048,6 +3107,20 @@ class Logger(object):
             #. recordFilter (callable, None): ``f(record) -> bool`` that decides which
                records this sink receives, after the routing by level and log type. None
                means all of them. See :meth:`set_sink_filter`.
+            #. spool (SpoolConfig, dict, None): The settings that keep the records of this sink on disk until the sink
+               has delivered them, see :class:`pysimplelog.spool.SpoolConfig`. A dictionary with the same names is
+               accepted. None, the default, keeps nothing: the sink delivers what it gets as fast as it can, and what is
+               waiting in memory is lost with the process.
+
+               A spool needs ``threaded=True`` and a :class:`pysimplelog.sinks.Sink` object that writes to something
+               outside this process and says where it sends, or a ``target`` in the settings. The record is written to
+               the spool in the thread that logs it, which costs the caller about 30 microseconds more than a threaded
+               sink without a spool, and up to about 90 while the worker delivers at the same time (measured with
+               ``flush='flush'`` on one machine, treat it as an order of magnitude), more with ``fsync`` or ``fullsync``.
+               Delivery is at-least-once: after a crash a few records can be sent twice, and
+               each carries the same ``event_id`` field each time so a receiver can tell.
+               *threadQueueSize* is then the size of the queue of hints, and *threadQueuePolicy* and *threadBlockTimeout*
+               are ignored: a hint that is dropped loses no record, the worker finds it on disk.
 
         :Raises:
             #. TypeError: If *name* is not a string, if *handler* has no ``write()``
@@ -3058,6 +3131,8 @@ class Logger(object):
             #. ValueError: If *threadQueuePolicy* is not one of the four policies, or *threadBlockTimeout* is
                not positive.
             #. ValueError: If *name* is empty or already registered as a sink.
+            #. TypeError, ValueError: If *spool* is wrong, if the handler cannot be spooled, or if *threaded* is False
+               with a spool. These are raised here, when the sink is added, never while logging.
         """
         if not isinstance(name, str):
             raise TypeError("sink name must be a non-empty string")
@@ -3099,6 +3174,14 @@ class Logger(object):
         isWrapped = not isinstance(handler, Sink)
         if isWrapped:
             handler = StreamSink(handler, formatter='text', flush=self.__plain_flush_mode(handler))
+        spoolConfig = SpoolConfig.coerce(spool)
+        durable = None
+        if spoolConfig is not None:
+            if not threaded:
+                raise ValueError("a spool needs threaded=True: the records are delivered by the thread of the sink")
+            if isWrapped:
+                raise TypeError("a spool needs a Sink object, a file-like object cannot be kept for later")
+            durable = DurableDelivery(handler, spoolConfig, resolve_target_id(handler, spoolConfig), threadQueueSize)
         self.__sinks[name] = _Sink(
             handler      = handler,
             enabled      = enabled,
@@ -3113,6 +3196,7 @@ class Logger(object):
             isWrapped    = isWrapped,
             threadQueuePolicy  = threadQueuePolicy,
             threadBlockTimeout = threadBlockTimeout,
+            durable      = durable,
         )
         self.__update_sink_filter_flag()
         self.__rebuild_active_sinks()
@@ -3656,23 +3740,32 @@ class Logger(object):
             try:
                 if item is _QUEUE_STOP:
                     return
-                if len(item) == 2:
-                    sinks, record = item
-                    try:
-                        self.__dispatch_sinks_sync(sinks, record)
-                    except QueueFull:
-                        # A sink refused it, its own queue counted that, and the caller is no longer here to be told
-                        pass
-                else:
-                    # force_log() path, bypasses routing
-                    toStdout, toFile, record = item
-                    if record is not None:
-                        if toStdout:
-                            self.__sinks[_SINK_STDOUT].handler.emit(record)
-                        if toFile:
-                            self.__sinks[_SINK_FILE].handler.emit(record)
+                self.__process_item(item)
             finally:
                 self.__logQueue.task_done()
+
+    def __process_item(self, item):
+        """
+        Delivers one item of the queue of the enqueue mode.
+
+        :Parameters:
+            #. item (tuple): ``(sinks, record)`` from a normal log call, or ``(toStdout, toFile, record)`` from force_log().
+        """
+        if len(item) == 2:
+            sinks, record = item
+            try:
+                self.__dispatch_sinks_sync(sinks, record)
+            except QueueFull:
+                # A sink refused it, its own queue counted that, and the caller is no longer here to be told
+                pass
+        else:
+            # force_log() path, bypasses routing
+            toStdout, toFile, record = item
+            if record is not None:
+                if toStdout:
+                    self.__sinks[_SINK_STDOUT].handler.emit(record)
+                if toFile:
+                    self.__sinks[_SINK_FILE].handler.emit(record)
 
     def __put_to_queue(self, item):
         """Put one item on the queue of the enqueue mode, honouring the overflow policy.
@@ -3685,9 +3778,14 @@ class Logger(object):
             #. item (tuple): ``(sinks, record)`` from a normal log call, or
                ``(toStdout, toFile, record)`` from force_log().
 
+        In a forked child the worker thread does not exist, so the item is delivered at once by the calling thread.
+
         :Raises:
             #. QueueFull: If the queue is full and the policy is ``reject``.
         """
+        if os.getpid() != self.__ownerPid:
+            self.__process_item(item)
+            return
         self.__logQueue.put(item)
 
     def __make_file_sink(self):
@@ -4071,7 +4169,7 @@ class Logger(object):
             #. timeout (float): Seconds to wait for each threaded
                sink's private queue to drain. Ignored for non-threaded sinks.
         """
-        if self.__enqueue and self.__logQueue is not None:
+        if self.__enqueue and self.__logQueue is not None and os.getpid() == self.__ownerPid:
             self.__logQueue.join(timeout)
         # flush every registered sink
         for sink in self.__sinks.values():

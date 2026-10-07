@@ -30,6 +30,7 @@ try:
     from .filters import sample
     from .log_context import context, current_context
     from .queues import QueueFull, validate_queue_policy
+    from .spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
@@ -41,6 +42,7 @@ except ImportError:
     from filters import sample
     from log_context import context, current_context
     from queues import QueueFull, validate_queue_policy
+    from spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 
 __all__ = [
@@ -51,6 +53,7 @@ __all__ = [
     'redact_fields', 'redact_text', 'DEFAULT_SENSITIVE_NAMES', 'sample',
     'context', 'current_context',
     'QueueFull', 'validate_queue_policy',
+    'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError',
     'StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging',
     'get_version', 'get_author', 'get_email', 'get_doc', 'get_repository', 'get_pypi',
 ]

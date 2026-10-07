@@ -7,12 +7,27 @@ import threading
 import time
 
 try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
     from .formatters import resolve_formatter
+    from .forking import register_for_fork_reset
 except ImportError:
     from formatters import resolve_formatter
+    from forking import register_for_fork_reset
 
-FLUSH_MODES = (None, 'none', 'flush', 'fsync')
+FLUSH_MODES = (None, 'none', 'flush', 'fsync', 'fullsync')
 MEGABYTE = 1024 ** 2
+
+# What deliver() answers: the record went through, it can be tried again later, or it can never be delivered
+DELIVERED = 'delivered'
+RETRY = 'retry'
+REJECTED = 'rejected'
+
+# macOS only: the call that makes the drive empty its own cache, which fsync does not do there
+_FULLSYNC = getattr(fcntl, 'F_FULLFSYNC', None)
 
 
 def validate_flush_mode(flush):
@@ -22,11 +37,14 @@ def validate_flush_mode(flush):
     ``none`` leaves the data in the buffer of the stream, and None means the same. ``flush``
     pushes it to the operating system after every record, which survives a crash of the
     application and lets other programs read the lines at once. ``fsync`` also forces it to
-    the disk, which survives a crash of the operating system or a power loss and costs
-    several times more per record.
+    the disk, which survives a crash of the operating system and costs several times more per record.
+    On macOS ``fsync`` leaves the data in the cache of the drive, so a power loss can still lose it.
+    ``fullsync`` also empties that cache, which survives a power loss, and costs thousands of times
+    more per record than ``flush`` on a Mac, about 19 milliseconds on the one it was measured on. Anywhere but
+    macOS ``fullsync`` is the same as ``fsync``.
 
     :Parameters:
-        #. flush (str, None): One of ``none``, ``flush``, ``fsync``, or None for ``none``.
+        #. flush (str, None): One of ``none``, ``flush``, ``fsync``, ``fullsync``, or None for ``none``.
 
     :Returns:
         #. flush (str): The checked mode, always a string: None becomes ``none``.
@@ -55,12 +73,31 @@ def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def sync_descriptor(descriptor, isFull=False):
+    """
+    Forces what was written to a file onto the drive.
+
+    :Parameters:
+        #. descriptor (int): The file descriptor.
+        #. isFull (bool): When True, on macOS the drive is also asked to empty its own cache, see
+           :func:`validate_flush_mode`. Elsewhere, and when a file system does not support it, plain ``fsync`` is used.
+    """
+    if isFull and _FULLSYNC is not None:
+        try:
+            fcntl.fcntl(descriptor, _FULLSYNC)
+            return
+        except OSError:
+            # Some file systems, network ones for example, do not support it, and fsync is the best they give
+            pass
+    os.fsync(descriptor)
+
+
 def _apply_flush(stream, flushMode):
     """Flushes the stream as the flush mode says, ``flushMode`` is already checked."""
     if flushMode != 'none':
         stream.flush()
-    if flushMode == 'fsync':
-        os.fsync(stream.fileno())
+    if flushMode in ('fsync', 'fullsync'):
+        sync_descriptor(stream.fileno(), flushMode == 'fullsync')
 
 
 def _check_basename(basename):
@@ -113,6 +150,21 @@ def _check_first_number(firstNumber):
     return firstNumber
 
 
+def ensure_spoolable(sink):
+    """
+    Checks that a sink writes to something outside this process, so that its records can be kept for later.
+
+    :Parameters:
+        #. sink (Sink): The sink.
+
+    :Raises:
+        #. TypeError: If the sink writes to something that exists only inside this process, such as a stream.
+    """
+    if not sink.SPOOLABLE:
+        raise TypeError(f"{type(sink).__name__} writes to something that exists only inside this process, "
+                        "so its records cannot be kept for later")
+
+
 class Sink:
     """
     Base class of every sink: renders a record with its own formatter and delivers it.
@@ -120,7 +172,12 @@ class Sink:
     :meth:`emit` is what the logger calls. It never raises: when the formatter or
     :meth:`write` fails, the record is dropped, the failure is counted in :attr:`stats`,
     and one warning is written to the standard error stream for each run of failures.
-    To make a sink, subclass this class and implement :meth:`write`.
+    To make a sink, subclass this class and implement :meth:`write`. A :meth:`write` that returns ``False``
+    says the record could not be delivered, for example after the sink gave up on a send and already
+    reported it. Returning nothing, or anything else, means it was delivered.
+
+    A sink can have its record kept on disk until it is delivered, see :meth:`spool_destination` for what a
+    sink must say about where its records go.
 
     :Parameters:
         #. formatter (None, str, callable): How a record becomes text. None gives JSON, see
@@ -139,6 +196,11 @@ class Sink:
                 self.lines.append(text)
     """
 
+    # False for a sink that writes to something that exists only inside this process, such as a stream
+    SPOOLABLE = True
+    # Names of the attributes that say where the records go, for example ('host', 'port'). Not credentials
+    SPOOL_DESTINATION = ()
+
     def __init__(self, formatter=None, terminator='\n'):
         if not isinstance(terminator, str):
             raise TypeError("terminator must be a string")
@@ -151,6 +213,11 @@ class Sink:
         self.__isFailing = False
         self.__latencyTotal = 0.0
         self.__latencyMax = 0.0
+        register_for_fork_reset(self)
+
+    def _reset_after_fork(self):
+        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        self.__statsLock = threading.Lock()
 
     def set_formatter(self, formatter):
         """
@@ -185,13 +252,36 @@ class Sink:
         :Parameters:
             #. record (LogRecord): The record to deliver.
         """
+        self.deliver(record)
+
+    def deliver(self, record):
+        """
+        Renders a record and delivers it like :meth:`emit`, and says how it went. It never raises an exception.
+
+        :Parameters:
+            #. record (LogRecord): The record to deliver.
+
+        :Returns:
+            #. result (str): ``delivered``, when :meth:`write` returned normally. ``retry``, when it raised an exception
+               or returned ``False``: the record was not delivered and trying again can work. ``rejected``, when the
+               formatter raised an exception: this record can never be delivered, whatever the destination does.
+               The constants are ``DELIVERED``, ``RETRY`` and ``REJECTED`` of :mod:`pysimplelog.sinks`.
+        """
         started = time.perf_counter()
         try:
             text = self.__renderer(record) + self.__terminator
-            self.write(text, record)
         except Exception as error:
             self._record_failure(error)
-            return
+            return REJECTED
+        try:
+            written = self.write(text, record)
+        except Exception as error:
+            self._record_failure(error)
+            return RETRY
+        if written is False:
+            # The sink gave up on this record and has already reported it in its own way, so no warning is added
+            self._record_failure(None)
+            return RETRY
         elapsed = time.perf_counter() - started
         with self.__statsLock:
             self.__processed += 1
@@ -199,6 +289,7 @@ class Sink:
             self.__latencyTotal += elapsed
             if elapsed > self.__latencyMax:
                 self.__latencyMax = elapsed
+        return DELIVERED
 
     def write(self, text, record):
         """
@@ -208,10 +299,42 @@ class Sink:
             #. text (str): The rendered record, with the terminator.
             #. record (LogRecord): The record that was rendered, for sinks that also need its fields.
 
+        :Returns:
+            #. isDelivered (bool, None): ``False`` when the record could not be delivered and is to be kept for another
+               try. None, or anything else, when it was delivered.
+
         :Raises:
             #. NotImplementedError: Always, in this base class.
         """
         raise NotImplementedError(f"{type(self).__name__} must implement write")
+
+    def spool_destination(self):
+        """
+        Says where this sink sends its records, as the values that identify the receiver.
+
+        A spool keeps the records of a sink on disk, and hands them only to a sink with the same destination: a
+        record meant for one receiver must never go to another. The values are the protocol, the host, the port, the
+        path, whatever makes the receiver what it is. Credentials, timeouts, retry settings and formatters are not
+        part of it, because changing them does not change the receiver.
+
+        A sink says it with the names of the attributes in ``SPOOL_DESTINATION``, or by overriding this method.
+
+        :Returns:
+            #. destination (dict): The names and values, each value a str, an int, a bool or None.
+
+        :Raises:
+            #. TypeError: If the sink cannot be spooled, or does not say where it sends its records. In the second
+               case the destination can be given as text when the spool is set up.
+        """
+        ensure_spoolable(self)
+        if len(self.SPOOL_DESTINATION) == 0:
+            raise TypeError(f"{type(self).__name__} does not say where it sends its records: set SPOOL_DESTINATION, "
+                            "override spool_destination(), or give the destination as text when the spool is set up")
+        try:
+            return {name: getattr(self, name) for name in self.SPOOL_DESTINATION}
+        except AttributeError as error:
+            raise TypeError(f"{type(self).__name__}.SPOOL_DESTINATION names an attribute the sink does not have: "
+                            f"{error}") from None
 
     def flush(self):
         """Pushes buffered data to the destination. Does nothing here, sinks that buffer override it."""
@@ -220,13 +343,18 @@ class Sink:
         """Releases what the sink owns. Does nothing here, sinks that open resources override it."""
 
     def _record_failure(self, error):
-        """Counts a failure and writes one warning for each run of failures."""
+        """
+        Counts a failure and writes one warning for each run of failures.
+
+        An *error* of None is a record the sink reported itself: it is counted, with no warning and no new last error.
+        """
         with self.__statsLock:
             self.__failed += 1
-            self.__lastError = error
+            if error is not None:
+                self.__lastError = error
             isFirstOfRun = not self.__isFailing
             self.__isFailing = True
-        if isFirstOfRun:
+        if isFirstOfRun and error is not None:
             try:
                 sys.stderr.write(f"pysimplelog WARNING: sink {type(self).__name__} failed, record dropped. "
                                  f"Error: {type(error).__name__}: {error}\n")
@@ -243,7 +371,7 @@ class StreamSink(Sink):
         #. stream (file-like): Any object with a ``write(str)`` method. It needs a ``flush()`` method
            when *flush* is not ``none``, and a file descriptor (``fileno()``) when *flush* is ``fsync``.
         #. formatter (None, str, callable): How a record becomes text. None gives JSON.
-        #. flush (str, None): ``none`` (or None), ``flush`` or ``fsync``, see :func:`validate_flush_mode`.
+        #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
         #. terminator (str): Text appended to every rendered record.
 
     :Raises:
@@ -256,22 +384,29 @@ class StreamSink(Sink):
         sink = StreamSink(open('app.log', 'a'), formatter='text', flush='fsync')
     """
 
+    SPOOLABLE = False
+
     def __init__(self, stream, formatter=None, flush='flush', terminator='\n'):
         super().__init__(formatter, terminator)
         if not hasattr(stream, 'write'):
             raise TypeError("stream must have a write method")
         self.__flushMode = validate_flush_mode(flush)
-        if self.__flushMode == 'fsync':
+        if self.__flushMode in ('fsync', 'fullsync'):
             try:
                 stream.fileno()
             except (AttributeError, OSError, ValueError):
-                raise ValueError("flush='fsync' needs a stream with a file descriptor") from None
+                raise ValueError(f"flush={self.__flushMode!r} needs a stream with a file descriptor") from None
         self.__stream = stream
+        self.__writeLock = threading.Lock()
+
+    def _reset_after_fork(self):
+        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        super()._reset_after_fork()
         self.__writeLock = threading.Lock()
 
     @property
     def flushMode(self):
-        """The flush mode: ``none``, ``flush`` or ``fsync``."""
+        """The flush mode: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
         return self.__flushMode
 
     @property
@@ -284,7 +419,7 @@ class StreamSink(Sink):
         Changes the flush mode. The next record is written with it.
 
         :Parameters:
-            #. flush (str, None): ``none`` (or None), ``flush`` or ``fsync``, see :func:`validate_flush_mode`.
+            #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
 
         :Raises:
             #. TypeError: If flush is not a string or None.
@@ -295,11 +430,11 @@ class StreamSink(Sink):
         stream = self._get_stream()
         if flush != 'none' and not hasattr(stream, 'flush'):
             raise ValueError(f"flush={flush!r} needs a stream with a flush method")
-        if flush == 'fsync':
+        if flush in ('fsync', 'fullsync'):
             try:
                 stream.fileno()
             except (AttributeError, OSError, ValueError):
-                raise ValueError("flush='fsync' needs a stream with a file descriptor") from None
+                raise ValueError(f"flush={flush!r} needs a stream with a file descriptor") from None
         with self.__writeLock:
             self.__flushMode = flush
 
@@ -363,8 +498,8 @@ class ConsoleSink(StreamSink):
     """
 
     def __init__(self, stream=None, formatter='text', flush='flush', terminator='\n', decorate=None):
-        if flush == 'fsync':
-            raise ValueError("flush='fsync' is not supported on a console")
+        if flush in ('fsync', 'fullsync'):
+            raise ValueError(f"flush={flush!r} is not supported on a console")
         if decorate is not None and not callable(decorate):
             raise TypeError("decorate must be callable or None")
         self.__decorate = decorate
@@ -455,7 +590,7 @@ class FileSink(Sink):
         #. extension (str): File extension. A leading or trailing dot is ignored.
         #. formatter (None, str, callable): How a record becomes text. The default ``'text'`` gives a
            readable line. None gives JSON.
-        #. flush (str, None): ``none`` (or None), ``flush`` or ``fsync``, see :func:`validate_flush_mode`.
+        #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
         #. terminator (str): Text appended to every rendered record.
         #. maxSize (None, int, float): Largest size of a file in megabytes. None means a file grows without limit.
         #. roll (None, int): Largest number of files to keep, at least 1. Older files are deleted for good.
@@ -475,6 +610,8 @@ class FileSink(Sink):
         sink = FileSink('logs/audit', formatter=None, flush='fsync')
     """
 
+    SPOOLABLE = False
+
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
                  maxSize=None, roll=None, firstNumber=0):
         super().__init__(formatter, terminator)
@@ -489,6 +626,11 @@ class FileSink(Sink):
         self.__size = 0
         self.__path = self._choose_path()
 
+    def _reset_after_fork(self):
+        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        super()._reset_after_fork()
+        self.__lock = threading.Lock()
+
     @property
     def path(self):
         """Path of the file the next record is written to."""
@@ -496,7 +638,7 @@ class FileSink(Sink):
 
     @property
     def flushMode(self):
-        """The flush mode: ``none``, ``flush`` or ``fsync``."""
+        """The flush mode: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
         return self.__flushMode
 
     def write(self, text, record):
@@ -605,7 +747,7 @@ class FileSink(Sink):
         Changes the flush mode. The next record is written with it.
 
         :Parameters:
-            #. flush (str, None): ``none`` (or None), ``flush`` or ``fsync``, see :func:`validate_flush_mode`.
+            #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
 
         :Raises:
             #. TypeError: If flush is not a string or None.

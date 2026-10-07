@@ -44,6 +44,10 @@ Records, Formatters and Sinks
     :members:
     :show-inheritance:
 
+.. automodule:: pysimplelog.spool
+    :members:
+    :show-inheritance:
+
 SIEM / Syslog Forwarding (pysimplelog.contrib)
 -----------------------------------------------
 

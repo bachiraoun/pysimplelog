@@ -6,6 +6,11 @@ import sys
 import threading
 import time
 
+try:
+    from .forking import register_for_fork_reset
+except ImportError:
+    from forking import register_for_fork_reset
+
 QUEUE_POLICIES = ('block', 'drop_newest', 'drop_oldest', 'reject')
 
 
@@ -53,13 +58,15 @@ class BoundedQueue:
         #. blockTimeout (None, int, float): Seconds the ``block`` policy waits for a free place. None waits as long
            as it takes.
         #. name (str): How the queue is called in the warning.
+        #. warn (bool): False to write no warning when records are thrown away. They are still counted. For a queue whose
+           records are kept somewhere else, so that throwing one away loses nothing.
 
     :Raises:
         #. TypeError: If an argument has the wrong type.
         #. ValueError: If maxSize or blockTimeout is not positive, or policy is not one of the four.
     """
 
-    def __init__(self, maxSize=None, policy='block', blockTimeout=None, name='queue'):
+    def __init__(self, maxSize=None, policy='block', blockTimeout=None, name='queue', warn=True):
         self.__condition = threading.Condition()
         self.__items = collections.deque()
         self.__unfinished = 0
@@ -68,12 +75,18 @@ class BoundedQueue:
         self.__rejected = 0
         self.__isDropping = False
         self.__name = name
+        self.__warn = warn
         self.__maxSize = None
         self.__policy = None
         self.__blockTimeout = None
         self.set_max_size(maxSize)
         self.set_policy(policy)
         self.set_block_timeout(blockTimeout)
+        register_for_fork_reset(self)
+
+    def _reset_after_fork(self):
+        """Gives a forked process a lock of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        self.__condition = threading.Condition()
 
     def set_max_size(self, maxSize):
         """
@@ -281,6 +294,8 @@ class BoundedQueue:
         self.__dropped += 1
         if not self.__isDropping:
             self.__isDropping = True
+            if not self.__warn:
+                return
             try:
                 sys.stderr.write(f"pysimplelog WARNING: the {self.__name} is full, records are being dropped "
                                  f"(policy {self.__policy}, {self.__dropped} dropped so far)\n")

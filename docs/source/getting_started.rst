@@ -281,3 +281,88 @@ in the core ``Logger`` is touched:
 See :doc:`api_reference` for the full ``contrib`` API (UDP and HTTP/Splunk-HEC
 transports, retry/backoff tuning, circuit breaker, drop/error callbacks), and
 the ``examples/`` directory in the source distribution for runnable scripts.
+
+Forked processes
+----------------
+
+A process made by ``os.fork``, or by ``multiprocessing`` where it forks, gets a copy of the logger, but not of its threads.
+So that it works, and does not wait for a thread that is not there:
+
+* A threaded sink, and the ``enqueue`` mode, deliver in the thread that logs, in the child. Nothing is queued for a worker
+  that does not exist, and ``flush`` and the exit of the child do not wait for one.
+* The locks of the package are replaced by new ones in the child. A fork copies a lock as it is, and one that another thread
+  held at that moment would stay held for ever in the copy.
+* A TCP connection to a SIEM is not shared: the child opens its own, because two processes writing into one stream would mix
+  their messages.
+* A sink with a spool sends its records at once without it, see *Durable delivery*.
+
+The parent is not affected. Processes that are started by spawning, the default on macOS and Windows, import the code
+again and make their own logger, so none of this applies to them.
+
+Durable delivery
+----------------
+
+A sink can keep its records on disk until it has delivered them, so a collector that is down for an hour, or a
+program that crashes, does not lose them. This is a spool. It is off unless you give the sink ``spool=``, which is a
+``SpoolConfig`` or a dictionary with the same names:
+
+.. code-block:: python
+
+    from pysimplelog import Logger
+    from pysimplelog.contrib import siem_sink
+
+    MB = 1024 ** 2
+    logger = Logger("billing")
+    siem_sink.quick_attach(
+        logger, "tcps", host="siem.example.org", port=6514,
+        spool={"path": "/var/spool/billing/siem",   ## fixed in the application, the same in every run
+               "id": "billing-siem",                ## the label of this spool, fixed too
+               "maxBytes": 100 * MB,                ## largest size of this process's files, required
+               "totalMaxBytes": 500 * MB,           ## largest size of all the processes' files, required
+               "adoptOrphans": True})               ## also send what a crashed process left behind
+
+    logger.error("payment failed", order_id=123)    ## on disk before this call returns
+
+A record is written to the spool in the thread that logs it, after the processors and filters, so what is on disk is
+already redacted. A worker thread of the sink then delivers the records in order. A send that fails is tried again after a
+growing wait, and nothing after it is sent first. A record the formatter cannot render goes to a ``dead`` file at once.
+Records are delivered at-least-once: a crash can make the last few arrive twice, and each record carries the same
+``event_id`` field every time it is sent, so a receiver can tell. Delivered records are deleted, and a clean shutdown
+leaves no file behind.
+
+Each process writes to a slot of its own under the base folder, so processes never share files. A slot whose process died
+is sent by another one, when it is idle (``adoptOrphans=True``) or when you call ``logger.adopt_orphans(name)``, but only
+by a sink made for the same ``id``, sink class and destination: records meant for one receiver never go to another. A
+sink says where it sends with ``SPOOL_DESTINATION``, the SIEM sink takes it from its transport, and any other sink gives
+a ``target`` text in the settings. A stream, console or file sink cannot be spooled.
+
+What you can set: ``flush`` (``none``, ``flush``, ``fsync``, ``fullsync``), what a full spool does (``policy``:
+``drop_oldest``, ``drop_newest``, ``block``, ``reject``), ``maxAge``, ``segmentBytes``, how often the position is saved
+(``ackEvery``, ``ackInterval``), the wait between tries (``retryBackoffBase``, ``retryBackoffMax``), when to give up
+(``maxAttempts``, never by default) and how orphans are adopted. See ``SpoolConfig``. ``logger.sink_stats(name)["spool"]``
+says what the spool holds and what it lost.
+
+Things to know:
+
+* The record is written by the thread that logs, which costs it about 30 to 90 microseconds more than a threaded sink
+  without a spool (it is the system call of ``flush``, and the worker thread competing for the interpreter), and more with
+  ``fsync`` or ``fullsync``. ``python3 pysimplelog/benchmarks/bench_logging.py`` measures it on your machine, next to the
+  standard ``logging`` module, Loguru and structlog when they are installed. On macOS ``fsync`` does not survive a power cut and ``fullsync`` does,
+  at about 19 milliseconds a record.
+* Do not use ``enqueue=True`` when you need the guarantee: that queue is in memory, and a record in it is lost in a crash.
+* Order is kept for each process. Between processes it is only by timestamp.
+* UDP gives no confirmation, so a spool over UDP only proves that a datagram left.
+* A process made by ``fork`` does not own the spool of its parent. Its records are sent at once, by the thread that logs and
+  without the spool, and counted as ``unspooled``. Make the logger in the new process to give it a spool of its own.
+* On Windows the lock is ``msvcrt.locking``, and the permission bits given to the spool folder are ignored, so the folder is
+  as private as its parent: put it where only the account that runs the program can read. A file that Windows will not
+  delete because another program has it open, a virus scanner for example, is deleted at a later acknowledgement and does
+  not stop the sink. The author could only run the Windows path through the continuous integration of the repository
+  (``.github/workflows/tests.yml``), see its results before relying on it.
+
+API stability
+-------------
+
+From 6.0 the names in ``pysimplelog.__all__``, the public methods and properties of ``Logger``, and the
+arguments of ``Logger()`` and ``add_sink()`` are stable. Later 6.x releases only add to them. A removal
+or a change of meaning waits for 7.0.

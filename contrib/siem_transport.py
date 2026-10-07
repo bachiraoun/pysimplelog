@@ -32,7 +32,13 @@ import socket
 import ssl
 import sys
 import threading
+import urllib.parse
 import urllib.request
+
+try:
+    from ..forking import register_for_fork_reset
+except ImportError:
+    from forking import register_for_fork_reset
 
 __all__ = [
     'Transport', 'TCPSyslogTransport', 'UDPSyslogTransport', 'HTTPTransport',
@@ -55,6 +61,20 @@ class Transport:
 
     def close(self):
         """Release any held resources (sockets, connections). Idempotent."""
+
+    def describe_destination(self):
+        """
+        Says where this transport sends, as the values that identify the receiver, for the identity of a spool.
+
+        Credentials, headers, timeouts and TLS settings are not part of it.
+
+        :Returns:
+            #. destination (dict): The protocol, the host and so on, each value a str or an int.
+
+        :Raises:
+            #. TypeError: If the transport has no destination to say, as the console transport.
+        """
+        raise TypeError(f"{type(self).__name__} has no destination to keep records for")
 
 
 class TCPSyslogTransport(Transport):
@@ -93,6 +113,16 @@ class TCPSyslogTransport(Transport):
         self.sendTimeout = sendTimeout
         self._sock = None
         self._lock = threading.Lock()
+        register_for_fork_reset(self)
+
+    def _reset_after_fork(self):
+        """A forked process opens a connection of its own: two processes writing into one stream would mix their frames."""
+        self._lock = threading.Lock()
+        self._sock = None
+
+    def describe_destination(self):
+        """Returns the protocol (``tcps`` with TLS, ``tcp`` without), the host and the port."""
+        return {'protocol': 'tcps' if self.useTls else 'tcp', 'host': str(self.host).lower(), 'port': int(self.port)}
 
     def _connect(self):
         """Opens the TCP socket, wrapping it in TLS when useTls is True."""
@@ -156,6 +186,10 @@ class UDPSyslogTransport(Transport):
         self.addr = (host, port)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+    def describe_destination(self):
+        """Returns the protocol, the host and the port. UDP gives no confirmation, so a spool only proves that a datagram left."""
+        return {'protocol': 'udp', 'host': str(self.addr[0]).lower(), 'port': int(self.addr[1])}
+
     def send(self, payload):
         """Fire *payload* as a single UDP datagram. Never raises on
         delivery -- UDP has no delivery confirmation, so a send() success
@@ -197,6 +231,19 @@ class HTTPTransport(Transport):
         self.headers.setdefault('Content-Type', 'application/json')
         self.timeout = timeout
         self.payloadBuilder = payloadBuilder or self._default_payload_builder
+
+    def describe_destination(self):
+        """
+        Returns the scheme, the host, the port and the path of the URL.
+
+        The user and password, the query and the fragment are left out, because they can hold a token and changing
+        them does not change the receiver.
+        """
+        parts = urllib.parse.urlsplit(self.url)
+        scheme = parts.scheme.lower()
+        defaultPort = 443 if scheme == 'https' else 80
+        return {'protocol': scheme, 'host': (parts.hostname or '').lower(), 'port': parts.port or defaultPort,
+                'path': parts.path or '/'}
 
     @staticmethod
     def _default_payload_builder(raw):

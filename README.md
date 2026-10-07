@@ -92,6 +92,20 @@ be written to a local file and resent in order once the collector is back,
 surviving restarts. Open design points: spool size limit and rotation, ordering,
 and duplicate handling after a crash during replay.
 
+## Durable delivery
+
+`spool=` on a sink keeps its records on disk until the sink has delivered them: a collector that is down, or a crash, loses nothing that was written. Delivery is in order, retried, and at-least-once, with a stable `event_id` on every record so a receiver can recognise a repeat. A process that died leaves its files for another to send. See *Durable delivery* in the documentation and `examples/10_durable_delivery.py`.
+
+## Benchmark
+
+`python3 pysimplelog/benchmarks/bench_logging.py` measures the cost of one log call for pysimplelog, the standard `logging` module, and Loguru and structlog when they are installed. The numbers belong to the machine they are measured on.
+
+## API stability
+
+From 6.0 the names in `pysimplelog.__all__`, the public methods and properties of `Logger`, and the
+arguments of `Logger()` and `add_sink()` are stable. Later 6.x releases only add to them. A removal
+or a change of meaning waits for 7.0.
+
 ## Author
 
 Bachir Aoun
