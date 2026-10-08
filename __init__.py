@@ -23,6 +23,7 @@ Python's site-packages directory.
 try:
     from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from .simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from .default_logger import logger
     from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
@@ -35,6 +36,7 @@ try:
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
+    from default_logger import logger
     from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
@@ -46,7 +48,7 @@ except ImportError:
     from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
 
 __all__ = [
-    'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK',
+    'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK', 'logger',
     'LogRecord', 'ExceptionInfo', 'CallerInfo', 'TraceInfo', 'validate_record',
     'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'register_formatter', 'resolve_formatter',
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',

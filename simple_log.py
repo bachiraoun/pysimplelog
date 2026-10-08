@@ -533,6 +533,7 @@ try:
     from .record import LogRecord, ExceptionInfo, CallerInfo
     from .tracing import read_current_trace, trace_api_available
     from .formatters import resolve_formatter
+    from .message_format import render_message
     from .log_context import CURRENT_CONTEXT, context as open_context
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
     from .queues import BoundedQueue, QueueFull, validate_queue_policy
@@ -543,6 +544,7 @@ except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo
     from tracing import read_current_trace, trace_api_available
     from formatters import resolve_formatter
+    from message_format import render_message
     from log_context import CURRENT_CONTEXT, context as open_context
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
     from queues import BoundedQueue, QueueFull, validate_queue_policy
@@ -593,11 +595,14 @@ def _normalize_path(path):
 _THIS_FILE = os.path.abspath(__file__)
 
 
-def _get_caller_info():
+def _get_caller_info(depth=0):
     """
     Walks the call stack and returns where the user code made the log call.
 
     Finds the first frame whose file is not simple_log.py. Only called when Logger.callerInfo is True.
+
+    :Parameters:
+        #. depth (int): How many user frames to skip above the log call, for a wrapper around the logger.
 
     :Returns:
         #. caller (CallerInfo, None): The file, line, function and module of the log call, or None
@@ -608,12 +613,51 @@ def _get_caller_info():
         while frame is not None:
             fileName = frame.f_code.co_filename
             if os.path.abspath(fileName) != _THIS_FILE:
+                if depth > 0:
+                    depth -= 1
+                    frame = frame.f_back
+                    continue
                 return CallerInfo(os.path.basename(fileName), frame.f_lineno, frame.f_code.co_name,
                                   frame.f_globals.get('__name__', ''))
             frame = frame.f_back
     except Exception:
         pass
     return None
+
+
+def _call_lazy(value):
+    """
+    Returns the result of a callable value, and any other value as it is.
+
+    :Parameters:
+        #. value (object): A value given to a log call made with ``opt(lazy=True)``.
+
+    :Returns:
+        #. result (object): What the callable returned, or ``<lazy ErrorClass>`` when it raised. The text names the
+           class of the error and never its message, which can hold sensitive text.
+    """
+    if not callable(value):
+        return value
+    try:
+        return value()
+    except Exception as error:
+        return f"<lazy {type(error).__name__}>"
+
+
+def _evaluate_lazy(args, fields):
+    """
+    Calls every callable among the positional arguments and the field values, once each.
+
+    :Parameters:
+        #. args (tuple): The positional arguments of the log call.
+        #. fields (dict): The field values of the log call.
+
+    :Returns:
+        #. args (tuple): The arguments with the callables replaced by their results.
+        #. fields (dict): A new dictionary with the callables replaced by their results.
+    """
+    return (tuple(_call_lazy(argument) for argument in args),
+            {name: _call_lazy(value) for name, value in fields.items()})
 
 
 def _caller_tag(caller):
@@ -1053,7 +1097,7 @@ class _BoundLogger(object):
 
     # ── core logging ─────────────────────────────────────────────────
 
-    def log(self, logType, message, *, exc_info=None, countConstraint=None, **fields):
+    def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
         """Log a message at the given logType, with the bound values in the context of the record.
 
         Delegates entirely to parent.log(). All level filtering, count constraints,
@@ -1062,6 +1106,7 @@ class _BoundLogger(object):
         :Parameters:
             #. logType (string): A defined log type.
             #. message (string): The message to log.
+            #. args (tuple): Positional arguments that fill the ``{}`` placeholders of *message*, see Logger.log().
             #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record, see Logger.log().
             #. countConstraint (None, number): Max times to log this message.
             #. fields: Named values stored in the record, see Logger.log().
@@ -1072,11 +1117,11 @@ class _BoundLogger(object):
         previous = CURRENT_CONTEXT.get()
         token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
         try:
-            return self.__parent.log(logType, message, exc_info=exc_info, countConstraint=countConstraint, **fields)
+            return self.__parent.log(logType, message, *args, exc_info=exc_info, countConstraint=countConstraint, **fields)
         finally:
             CURRENT_CONTEXT.reset(token)
 
-    def force_log(self, logType, message, *, exc_info=None, stdout=True, file=True, **fields):
+    def force_log(self, logType, message, *args, exc_info=None, stdout=True, file=True, **fields):
         """Force-log a message, bypassing level checks, with the bound values in the context of the record.
 
         Delegates to parent.force_log().
@@ -1084,6 +1129,7 @@ class _BoundLogger(object):
         :Parameters:
             #. logType (string): A defined log type.
             #. message (string): The message to log.
+            #. args (tuple): Positional arguments that fill the ``{}`` placeholders of *message*, see Logger.log().
             #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record, see Logger.log().
             #. stdout (boolean): Whether to force stdout output.
             #. file (boolean): Whether to force file output.
@@ -1095,39 +1141,52 @@ class _BoundLogger(object):
         previous = CURRENT_CONTEXT.get()
         token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
         try:
-            return self.__parent.force_log(logType, message, exc_info=exc_info, stdout=stdout, file=file, **fields)
+            return self.__parent.force_log(logType, message, *args, exc_info=exc_info, stdout=stdout, file=file, **fields)
         finally:
             CURRENT_CONTEXT.reset(token)
 
     # ── shortcut methods (mirrors Logger shortcuts) ──────────────────
 
-    def info(self, message, **kwargs):
+    def info(self, message, *args, **kwargs):
         """Log at info level, with the bound values in the context."""
-        return self.log('info', message, **kwargs)
+        return self.log('info', message, *args, **kwargs)
 
-    def information(self, message, **kwargs):
+    def information(self, message, *args, **kwargs):
         """Log at info level (alias for info)."""
-        return self.log('info', message, **kwargs)
+        return self.log('info', message, *args, **kwargs)
 
-    def warn(self, message, **kwargs):
+    def warn(self, message, *args, **kwargs):
         """Log at warn level, with the bound values in the context."""
-        return self.log('warn', message, **kwargs)
+        return self.log('warn', message, *args, **kwargs)
 
-    def warning(self, message, **kwargs):
+    def warning(self, message, *args, **kwargs):
         """Log at warn level (alias for warn)."""
-        return self.log('warn', message, **kwargs)
+        return self.log('warn', message, *args, **kwargs)
 
-    def error(self, message, **kwargs):
+    def error(self, message, *args, **kwargs):
         """Log at error level, with the bound values in the context."""
-        return self.log('error', message, **kwargs)
+        return self.log('error', message, *args, **kwargs)
 
-    def critical(self, message, **kwargs):
+    def critical(self, message, *args, **kwargs):
         """Log at critical level, with the bound values in the context."""
-        return self.log('critical', message, **kwargs)
+        return self.log('critical', message, *args, **kwargs)
 
-    def debug(self, message, **kwargs):
+    def debug(self, message, *args, **kwargs):
         """Log at debug level, with the bound values in the context."""
-        return self.log('debug', message, **kwargs)
+        return self.log('debug', message, *args, **kwargs)
+
+    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
+        """Logs with the bound values in the context, see :meth:`Logger._log_call`."""
+        previous = CURRENT_CONTEXT.get()
+        token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
+        try:
+            return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint, isLazy, depth)
+        finally:
+            CURRENT_CONTEXT.reset(token)
+
+    def opt(self, *, lazy=False, exception=None, depth=0):
+        """Returns a logger that applies options to the calls made through it, see :meth:`Logger.opt`."""
+        return _OptLogger(self, lazy, exception, depth)
 
     # ── exception capture ────────────────────────────────────────────
 
@@ -1196,6 +1255,67 @@ class _BoundLogger(object):
             #. result (dict): Copy of the bound key-value pairs.
         """
         return dict(self.__context)
+
+
+class _OptLogger(object):
+    """
+    Logs with options that apply to the calls made through it, see :meth:`Logger.opt`. It holds no state besides the options.
+
+    :Parameters:
+        #. parent (Logger, _BoundLogger): The logger that does the work.
+        #. isLazy (boolean): Whether callable arguments and field values are called when the message is wanted.
+        #. exception (None, bool, BaseException, tuple): The exception to record when the call gives no ``exc_info``.
+        #. depth (int): How many user frames to skip when the caller is looked for.
+
+    :Raises:
+        #. TypeError: If *isLazy* is not a boolean.
+        #. ValueError: If *depth* is not a non-negative integer.
+    """
+
+    def __init__(self, parent, isLazy, exception, depth):
+        if not isinstance(isLazy, bool):
+            raise TypeError("lazy must be a boolean")
+        if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+            raise ValueError("depth must be an integer that is not negative")
+        self.__parent = parent
+        self.__isLazy = isLazy
+        self.__exception = None if exception is False else exception
+        self.__depth = depth
+
+    def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
+        """Logs a message of a log type with the options, see :meth:`Logger.log`."""
+        if exc_info is None:
+            exc_info = self.__exception
+        return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint,
+                                       self.__isLazy, self.__depth)
+
+    def info(self, message, *args, **kwargs):
+        """Logs at info level with the options."""
+        return self.log("info", message, *args, **kwargs)
+
+    def information(self, message, *args, **kwargs):
+        """Logs at info level with the options (alias for info)."""
+        return self.log("info", message, *args, **kwargs)
+
+    def warn(self, message, *args, **kwargs):
+        """Logs at warn level with the options."""
+        return self.log("warn", message, *args, **kwargs)
+
+    def warning(self, message, *args, **kwargs):
+        """Logs at warn level with the options (alias for warn)."""
+        return self.log("warn", message, *args, **kwargs)
+
+    def error(self, message, *args, **kwargs):
+        """Logs at error level with the options."""
+        return self.log("error", message, *args, **kwargs)
+
+    def critical(self, message, *args, **kwargs):
+        """Logs at critical level with the options."""
+        return self.log("critical", message, *args, **kwargs)
+
+    def debug(self, message, *args, **kwargs):
+        """Logs at debug level with the options."""
+        return self.log("debug", message, *args, **kwargs)
 
 
 class Logger(object):
@@ -4000,7 +4120,7 @@ class Logger(object):
         return bool(self.__activeSinks.get(logType))
 
 
-    def log(self, logType, message, *, exc_info=None, countConstraint=None, **fields):
+    def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
         """
         Log a message of the specified log type.
 
@@ -4011,9 +4131,19 @@ class Logger(object):
         ``exc_info`` and ``countConstraint`` belong to this method, so they cannot be field names, and ``fields`` and
         ``tback``, which older versions took as arguments, are rejected.
 
+        Placeholders are filled when the call has positional arguments or fields:
+        ``logger.info("User {} logged in", userId)`` and ``logger.info("Order {orderId}", orderId=7)``.
+        Nothing is formatted otherwise, so a message with braces is written as it is, and a template that
+        does not fit its values is written unchanged: a log call never raises for it. A placeholder cannot
+        reach inside a value (``{0.name}`` is refused). The message is rendered before the processors run,
+        so ``redact_fields``, which works by name, cannot see a positional value: use ``redact_text`` for
+        the text of the message, or pass the secret as a field.
+
         :Parameters:
            #. logType (string): A defined logging type.
            #. message (string): Any message to log.
+           #. args (tuple): Positional arguments that fill the ``{}`` and ``{0}`` placeholders of *message*. They are
+              text only, they are not stored as fields. Keyword arguments fill ``{name}`` and stay fields.
            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record. ``True`` records the
               exception being handled, an exception object or a ``sys.exc_info()`` tuple records its type, message and
               traceback, a string is the text of a traceback made elsewhere, and a list of
@@ -4030,6 +4160,10 @@ class Logger(object):
             #. TypeError: If *message* is callable. Use ``is_enabled(logType)`` to
                guard expensive message construction instead of passing a callable.
         """
+        return self._log_call(logType, message, args, fields, exc_info, countConstraint, False, 0)
+
+    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
+        """Does the work of :meth:`log` and of the loggers made by :meth:`opt`, see :meth:`log`."""
         # reject callables -- the logger is a passive recorder, not an executor.
         # to defer expensive message construction use is_enabled(logType) instead:
         #   if logger.is_enabled('debug'): logger.debug(expensive_fn())
@@ -4053,10 +4187,14 @@ class Logger(object):
             self.__logMessagesCounter[message] += 1
             if countConstraint<=self.__logMessagesCounter[message]:
                 return message
+        # Rendered after the routing check, so a message no sink wants costs nothing
+        if isLazy:
+            args, fields = _evaluate_lazy(args, fields)
+        message = render_message(message, args, fields)
         # build on caller thread so timestamp is captured at call time
         # capture caller frame BEFORE any internal calls so the stack depth
         # is minimal and the user frame is as close to the top as possible
-        caller = _get_caller_info() if self.__callerInfo else None
+        caller = _get_caller_info(depth) if self.__callerInfo else None
         record = self._build_record(logType, message, fields, exc_info, caller)
         self.__deliver(logType, record, activeSinks)
         # always return logged message
@@ -4129,13 +4267,15 @@ class Logger(object):
             self.__lastRecords[logType] = record
             self.__lastRecord           = record
 
-    def force_log(self, logType, message, *, exc_info=None, stdout=True, file=True, **fields):
+    def force_log(self, logType, message, *args, exc_info=None, stdout=True, file=True, **fields):
         """
         Force logging a message of a certain logtype whether logtype level is allowed or not.
 
         :Parameters:
            #. logType (string): A defined logging type.
            #. message (string): Any message to log.
+           #. args (tuple): Positional arguments that fill the ``{}`` and ``{0}`` placeholders of *message*. They are
+              text only, they are not stored as fields. Keyword arguments fill ``{name}`` and stay fields.
            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record, see :meth:`log`.
            #. stdout (boolean): Whether to force logging to standard output.
            #. file (boolean): Whether to force logging to file.
@@ -4157,6 +4297,7 @@ class Logger(object):
             )
         _check_field_names(fields)
         logType, message = self._resolve_log_type(logType, message)
+        message = render_message(message, args, fields)
         # build on caller thread so timestamp is captured at call time
         caller = _get_caller_info() if self.__callerInfo else None
         record = self._build_record(logType, message, fields, exc_info, caller)
@@ -4175,6 +4316,34 @@ class Logger(object):
             self.__lastRecord           = record
         # always return logged message
         return message
+
+    def opt(self, *, lazy=False, exception=None, depth=0):
+        """
+        Returns a logger that applies options to the calls made through it.
+
+        .. code-block:: python
+
+            logger.opt(lazy=True).debug("Result: {}", lambda: slow())
+            logger.opt(exception=True).error("Payment failed")
+            logger.opt(depth=1).info("Done")
+
+        :Parameters:
+            #. lazy (boolean): When True, the positional arguments and field values that are callable are called, once,
+               in the calling thread, and only when a sink wants the log type. Filters and processors read the
+               finished record, so a message they drop has been computed already.
+            #. exception (None, bool, BaseException, tuple): The exception to record, as ``exc_info`` of :meth:`log`.
+               An ``exc_info`` given to the call wins.
+            #. depth (int): How many frames of the program to skip when the caller is looked for, for a wrapper
+               around the logger. It only matters when the logger was made with ``callerInfo=True``.
+
+        :Returns:
+            #. optLogger (_OptLogger): It has ``log`` and the shortcuts ``info``, ``warn``, ``error``, ``critical`` and ``debug``.
+
+        :Raises:
+            #. TypeError: If *lazy* is not a boolean.
+            #. ValueError: If *depth* is not a non-negative integer.
+        """
+        return _OptLogger(self, lazy, exception, depth)
 
     def catch(self, func=None, logType='error', reraise=False,
               message='An exception was caught'):
@@ -4295,33 +4464,33 @@ class Logger(object):
             except Exception as flushError:
                 sys.stderr.write('pysimplelog WARNING: sink flush failed. Error: %s\n' % flushError)
 
-    def info(self, message, **kwargs):
+    def info(self, message, *args, **kwargs):
         """Log at information level (alias for log('info', ...))."""
-        return self.log("info", message, **kwargs)
+        return self.log("info", message, *args, **kwargs)
 
-    def information(self, message, **kwargs):
+    def information(self, message, *args, **kwargs):
         """Log at information level (alias for log('info', ...))."""
-        return self.log("info", message, **kwargs)
+        return self.log("info", message, *args, **kwargs)
 
-    def warn(self, message, **kwargs):
+    def warn(self, message, *args, **kwargs):
         """Log at warning level (alias for log('warn', ...))."""
-        return self.log("warn", message, **kwargs)
+        return self.log("warn", message, *args, **kwargs)
 
-    def warning(self, message, **kwargs):
+    def warning(self, message, *args, **kwargs):
         """Log at warning level (alias for log('warn', ...))."""
-        return self.log("warn", message, **kwargs)
+        return self.log("warn", message, *args, **kwargs)
 
-    def error(self, message, **kwargs):
+    def error(self, message, *args, **kwargs):
         """Log at error level (alias for log('error', ...))."""
-        return self.log("error", message, **kwargs)
+        return self.log("error", message, *args, **kwargs)
 
-    def critical(self, message, **kwargs):
+    def critical(self, message, *args, **kwargs):
         """Log at critical level (alias for log('critical', ...))."""
-        return self.log("critical", message, **kwargs)
+        return self.log("critical", message, *args, **kwargs)
 
-    def debug(self, message, **kwargs):
+    def debug(self, message, *args, **kwargs):
         """Log at debug level (alias for log('debug', ...))."""
-        return self.log("debug", message, **kwargs)
+        return self.log("debug", message, *args, **kwargs)
 
 
 
