@@ -284,7 +284,8 @@ class OtlpHttpTransport:
                     # The connection is reused only when the reply was read to its end. One that is too long, one that stopped
                     # early, and one the receiver said to close all end up here
                     mustClose = not reply.isclosed()
-                except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError, http.client.CannotSendRequest) as error:
+                except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError, ConnectionAbortedError,
+                        http.client.CannotSendRequest) as error:
                     self._close_connection()
                     if isReused and attempt == 1:
                         continue
