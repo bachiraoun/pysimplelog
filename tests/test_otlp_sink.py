@@ -953,6 +953,9 @@ class TestWithASpool(LoggerCase):
         found = 0
         for folder, _, names in os.walk(self.root):
             for name in names:
+                # The lock file is held by the spool, Windows refuses to read it, and it holds no record
+                if name == 'lock':
+                    continue
                 with open(os.path.join(folder, name), 'rb') as stream:
                     self.assertNotIn(TOKEN.encode(), stream.read(), os.path.join(folder, name))
                 found += 1

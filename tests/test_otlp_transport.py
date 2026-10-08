@@ -514,7 +514,8 @@ class TestConnection(ReceiverCase):
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
         sock.close()
-        transport = OtlpHttpTransport(f'http://127.0.0.1:{port}', timeout=2)
+        # Windows reports a refused connection only after about 2 seconds, so the timeout must be longer
+        transport = OtlpHttpTransport(f'http://127.0.0.1:{port}', timeout=5)
         self.transports.append(transport)
         response = transport.send(BODY)
         self.assertEqual((response.outcome, response.status, response.message), (RETRY, None, 'ConnectionRefusedError'))

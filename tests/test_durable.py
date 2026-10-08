@@ -445,6 +445,7 @@ class TestFailures(DurableTestCase):
         logger.flush(timeout=WAIT_SECONDS)
         self.assertEqual(sink.messages(), ['patient'])
 
+    @unittest.skipIf(os.name == 'nt', 'a folder with open files cannot be deleted on Windows')
     def test_no_failure_of_the_sink_or_the_disk_reaches_the_caller(self):
         buffer, previous = io.StringIO(), sys.stderr
         sys.stderr = buffer
