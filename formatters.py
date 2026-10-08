@@ -2,6 +2,8 @@
 
 import json
 import math
+import os
+import re
 from datetime import timezone
 from json.encoder import encode_basestring_ascii
 from string import Formatter
@@ -74,6 +76,39 @@ def safe_str(value):
         return str(value)
     except Exception as error:
         return f"<unprintable {type(value).__name__}: {type(error).__name__}>"
+
+
+# Everything but the tab: the line breaks of any kind, the escape character that starts colour codes, and the other controls
+_CONTROL_RE = re.compile('[\\x00-\\x08\\x0a-\\x1f\\x7f\\x85\\u2028\\u2029]')
+_CONTROL_NAMES = {'\n': '\\n', '\r': '\\r'}
+
+
+def _escape_control(match):
+    """Returns the escaped text of one control character."""
+    character = match.group()
+    name = _CONTROL_NAMES.get(character)
+    if name is not None:
+        return name
+    code = ord(character)
+    return f"\\x{code:02x}" if code <= 0xff else f"\\u{code:04x}"
+
+
+def escape_control_characters(text):
+    """
+    Writes the line breaks and the other control characters of a text as visible escapes such as ``\\n`` and ``\\x1b``.
+
+    A value written on one ``key=value`` line must not be able to start a new line or paint the terminal. The
+    tab is kept.
+
+    :Parameters:
+        #. text (str): Any text.
+
+    :Returns:
+        #. escapedText (str): The text, unchanged when it has no control character.
+    """
+    if _CONTROL_RE.search(text) is None:
+        return text
+    return _CONTROL_RE.sub(_escape_control, text)
 
 
 def _safe_repr(value):
@@ -301,17 +336,156 @@ class TextFormatter:
         if record.caller is not None:
             parts.append(f"[{_format_caller(record.caller)}] ")
         if len(record.context) > 0:
-            pairs = ' '.join(f"{key}={convert(value)}" for key, value in record.context.items())
+            pairs = ' '.join(f"{key}={escape_control_characters(convert(value))}" for key, value in record.context.items())
             parts.append(f"[{pairs}] ")
         parts.append(record.message)
         for key, value in record.fields.items():
             if key != 'data':
-                parts.append(f" {key}={convert(value)}")
+                parts.append(f" {key}={escape_control_characters(convert(value))}")
         if 'data' in record.fields:
             parts.append(f"\n{convert(record.fields['data'])}")
         if record.exception is not None:
             parts.append(f"\n{record.exception.stacktrace}")
         return ''.join(parts)
+
+
+SGR_RESET = '\x1b[0m'
+SGR_DIM = '\x1b[2m'
+TRACEBACK_STYLES = ('full', 'compact')
+DEFAULT_SEVERITY_COLORS = {'DEBUG': '\x1b[36m', 'INFO': '\x1b[32m', 'WARNING': '\x1b[33m',
+                           'ERROR': '\x1b[31m', 'CRITICAL': '\x1b[1;31m'}
+
+
+def stream_supports_color(stream):
+    """
+    Says whether colour codes belong in a stream.
+
+    They do when the stream is a terminal, the user did not refuse colour with the ``NO_COLOR`` variable, and the
+    terminal is not ``dumb``. A pipe, a file or a CI log is not a terminal, so it stays plain.
+
+    :Parameters:
+        #. stream (file-like): The stream the text will be written to.
+
+    :Returns:
+        #. isColored (bool): True when colour codes can be written to the stream.
+    """
+    if os.environ.get('NO_COLOR', '') != '' or os.environ.get('TERM') == 'dumb':
+        return False
+    isTerminal = getattr(stream, 'isatty', None)
+    if isTerminal is None:
+        return False
+    try:
+        return isTerminal() is True
+    except Exception:
+        return False
+
+
+class ConsoleFormatter:
+    """
+    Renders a record as a tidy line of columns for a console, in colour when it is asked to.
+
+    The layout is ``timestamp | SEVERITY | logger | message``, with a ``file:line in function`` column before
+    the message when the record has a caller. The context and the fields follow the message as ``key=value``,
+    a field named ``data`` goes on its own line, and the traceback comes last. The text has no trailing newline.
+
+    .. code-block:: python
+
+        ## 2026-10-08 08:42:17 | INFO     | api.users | User authenticated user_id=7
+        formatter = ConsoleFormatter()
+        ## The same with colours, only for a terminal
+        formatter = ConsoleFormatter(colors=stream_supports_color(sys.stdout))
+
+    :Parameters:
+        #. colors (bool): Whether to write colour codes. The default False never does.
+        #. severityColors (None, dict): ``{SEVERITY: escape code}`` that replaces the colour of a severity, for
+           example ``{'INFO': '\\x1b[34m'}``. None keeps the defaults.
+        #. traceback (str): 'full' writes Python's traceback as it is. 'compact' drops the source lines and the
+           'Traceback (most recent call last):' line, and dims the rest, so only the file, line and function of
+           each frame and the exception line remain.
+
+    :Raises:
+        #. TypeError: If *colors* is not a boolean, or *severityColors* is not a dictionary of strings.
+        #. ValueError: If *traceback* is not 'full' or 'compact'.
+    """
+
+    def __init__(self, colors=False, severityColors=None, traceback='full'):
+        if not isinstance(colors, bool):
+            raise TypeError("colors must be a boolean")
+        if traceback not in TRACEBACK_STYLES:
+            raise ValueError(f"traceback must be one of {TRACEBACK_STYLES}")
+        self.__traceback = traceback
+        colorMap = dict(DEFAULT_SEVERITY_COLORS)
+        if severityColors is not None:
+            if not isinstance(severityColors, dict) or not all(
+                    isinstance(key, str) and isinstance(value, str) for key, value in severityColors.items()):
+                raise TypeError("severityColors must be a dictionary of strings")
+            colorMap.update(severityColors)
+        self.__colors = colors
+        self.__severityColors = colorMap
+
+    def __call__(self, record):
+        """
+        Renders a record as columns of text.
+
+        :Parameters:
+            #. record (LogRecord): The record to render.
+
+        :Returns:
+            #. text (str): The text without a trailing newline.
+
+        :Raises:
+            #. TypeError: If record is not a LogRecord.
+        """
+        _require_record(record)
+        try:
+            return self._render(record, str)
+        except Exception:
+            # A value that cannot become text must not lose the record, so it is rendered again with a placeholder
+            return self._render(record, safe_str)
+
+    def _render(self, record, convert):
+        """Builds the text of a record, turning every field and context value into text with *convert*."""
+        columns = [self._dim(_format_timestamp_text(record.timestamp)),
+                   self._paint(f"{record.severity:<8}", record.severity),
+                   record.logger]
+        if record.caller is not None:
+            columns.append(_format_caller(record.caller))
+        parts = [' | '.join(columns), ' | ', record.message]
+        pairs = [f"{key}={escape_control_characters(convert(value))}" for key, value in record.context.items()]
+        pairs.extend(f"{key}={escape_control_characters(convert(value))}"
+                     for key, value in record.fields.items() if key != 'data')
+        if len(pairs) > 0:
+            parts.append(' ' + self._dim(' '.join(pairs)))
+        if 'data' in record.fields:
+            parts.append(f"\n{convert(record.fields['data'])}")
+        if record.exception is not None:
+            parts.append(f"\n{self._traceback_text(record.exception)}")
+        return ''.join(parts)
+
+    def _traceback_text(self, exception):
+        """Returns the traceback as the formatter was asked to write it."""
+        if self.__traceback == 'full' or exception.typeName is None:
+            # A text made elsewhere has no known layout, so it is never cut
+            return exception.stacktrace
+        kept = []
+        for line in exception.stacktrace.splitlines():
+            isFrame = line.startswith('  File "')
+            isSourceLine = line.startswith(' ')
+            if line.startswith('Traceback (most recent call last):') or (isSourceLine and not isFrame):
+                continue
+            kept.append(self._dim(line) if isFrame else line)
+        return '\n'.join(kept)
+
+    def _dim(self, text):
+        """Returns the text dimmed when colours are on."""
+        return f"{SGR_DIM}{text}{SGR_RESET}" if self.__colors else text
+
+    def _paint(self, text, severity):
+        """Returns the text in the colour of a severity when colours are on and the severity has one."""
+        code = self.__severityColors.get(severity)
+        if not self.__colors or code is None:
+            return text
+        return f"{code}{text}{SGR_RESET}"
 
 
 class _SafeValue:
@@ -393,8 +567,10 @@ class TemplateFormatter:
     def _build_view(record):
         """Returns the names a template can use, with the value of each for this record."""
         view = _TemplateView()
-        view.update(record.context)
-        view.update(record.fields)
+        # Like the text layouts, a text value must not start a new line, and data is meant to be multi-line
+        for source in (record.context, record.fields):
+            view.update({key: escape_control_characters(value) if isinstance(value, str) and key != 'data' else value
+                         for key, value in source.items()})
         view.update({'timestamp': _format_timestamp(record.timestamp),
                      'severity': record.severity,
                      'log_type': record.logType,
@@ -412,7 +588,7 @@ class TemplateFormatter:
 
 
 # Keyword to formatter factory. Add more with register_formatter
-FORMATTERS = {'json': JsonFormatter, 'jsonl': JsonFormatter, 'text': TextFormatter}
+FORMATTERS = {'json': JsonFormatter, 'jsonl': JsonFormatter, 'text': TextFormatter, 'pretty': ConsoleFormatter}
 
 
 def register_formatter(name, factory):

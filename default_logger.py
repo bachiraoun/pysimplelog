@@ -6,14 +6,17 @@ import threading
 
 try:
     from .simple_log import Logger
+    from .environment import read_environment
 except ImportError:
     from simple_log import Logger
+    from environment import read_environment
 
 
 class _DefaultLogger:
     """
     A stand-in for the shared default logger, which is made when the first attribute is read.
 
+    It reads ``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and ``PYSIMPLELOG_COLOR`` when it is made.
     Every module that imports it shares the same logger, so a library should make its own
     :class:`Logger` instead of configuring this one.
 
@@ -33,7 +36,10 @@ class _DefaultLogger:
         """The real :class:`Logger`, made on first access. It writes to the console and not to a file."""
         with self.__lock:
             if self.__instance is None:
-                self.__instance = Logger(name="pysimplelog", logToFile=False)
+                # 'pretty' is the library default, so a PYSIMPLELOG_FORMAT value replaces it
+                consoleFormatter = read_environment().get('consoleFormatter', 'pretty')
+                self.__instance = Logger(name="pysimplelog", logToFile=False, env=True,
+                                         consoleFormatter=consoleFormatter)
             return self.__instance
 
     def __getattr__(self, attributeName):

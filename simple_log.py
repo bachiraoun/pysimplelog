@@ -532,10 +532,14 @@ def _now_local():
 try:
     from .record import LogRecord, ExceptionInfo, CallerInfo
     from .tracing import read_current_trace, trace_api_available
-    from .formatters import resolve_formatter
+    from .formatters import resolve_formatter, ConsoleFormatter, stream_supports_color
     from .message_format import render_message
+    from .diagnose import DIAGNOSE_MODES, format_exception_with_values
     from .log_context import CURRENT_CONTEXT, context as open_context
-    from .sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
+    from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
+    from .sink_options import build_file_sink
+    from .environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
+    from .namespaces import is_disabled
     from .queues import BoundedQueue, QueueFull, validate_queue_policy
     from .forking import register_for_fork_reset
     from .spool import SpoolConfig
@@ -543,10 +547,14 @@ try:
 except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo
     from tracing import read_current_trace, trace_api_available
-    from formatters import resolve_formatter
+    from formatters import resolve_formatter, ConsoleFormatter, stream_supports_color
     from message_format import render_message
+    from diagnose import DIAGNOSE_MODES, format_exception_with_values
     from log_context import CURRENT_CONTEXT, context as open_context
-    from sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
+    from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
+    from sink_options import build_file_sink
+    from environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
+    from namespaces import is_disabled
     from queues import BoundedQueue, QueueFull, validate_queue_policy
     from forking import register_for_fork_reset
     from spool import SpoolConfig
@@ -692,7 +700,7 @@ def _check_field_names(fields):
                         "arguments, and the exception as exc_info")
 
 
-def _exception_info(excInfo):
+def _exception_info(excInfo, diagnose=False, diagnoseRedact=()):
     """
     Turns what a caller gives as ``exc_info`` into the exception information of a record.
 
@@ -702,6 +710,8 @@ def _exception_info(excInfo):
            ``(type, value, traceback)``, as ``sys.exc_info()`` returns, does the same. A string is the text of a
            traceback made elsewhere. A list of ``(filename, lineno, name, line)`` tuples, as
            ``traceback.extract_stack()`` returns, is formatted like a standard Python traceback.
+        #. diagnose (boolean, str): False, 'summary' or 'full', see Logger.set_diagnose().
+        #. diagnoseRedact (tuple): Sensitive variable names added to the default ones.
 
     :Returns:
         #. exception (ExceptionInfo, None): None when there is nothing to record, for example ``True`` when no
@@ -718,7 +728,10 @@ def _exception_info(excInfo):
         if excType is None:
             return None
         try:
-            text = ''.join(traceback.format_exception(excType, excValue, excTraceback)).rstrip('\n')
+            if diagnose is False:
+                text = ''.join(traceback.format_exception(excType, excValue, excTraceback)).rstrip('\n')
+            else:
+                text = format_exception_with_values(excType, excValue, excTraceback, diagnose, diagnoseRedact)
             return ExceptionInfo(excType.__name__, str(excValue), text)
         except Exception:
             # An exception whose own text cannot be made must not make the log call fail
@@ -1032,7 +1045,7 @@ class _CatchContext(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
-            msg = '%s: %s' % (self._message, exc_val)
+            msg = f"{self._message}: {exc_val}"
             self._logger.log(self._logType, msg, exc_info=(exc_type, exc_val, exc_tb))
             return not self._reraise   # True suppresses; False re-raises
         return False
@@ -1175,6 +1188,10 @@ class _BoundLogger(object):
         """Log at debug level, with the bound values in the context."""
         return self.log('debug', message, *args, **kwargs)
 
+    def exception(self, message, *args, logType='error', **fields):
+        """Logs the exception being handled, with the bound values in the context."""
+        return self.log(logType, message, *args, exc_info=True, **fields)
+
     def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
         """Logs with the bound values in the context, see :meth:`Logger._log_call`."""
         previous = CURRENT_CONTEXT.get()
@@ -1316,6 +1333,10 @@ class _OptLogger(object):
     def debug(self, message, *args, **kwargs):
         """Logs at debug level with the options."""
         return self.log("debug", message, *args, **kwargs)
+
+    def exception(self, message, *args, logType='error', **fields):
+        """Logs the exception being handled, with the options."""
+        return self.log(logType, message, *args, exc_info=True, **fields)
 
 
 class Logger(object):
@@ -1497,6 +1518,12 @@ class Logger(object):
           existing callers pay zero overhead. Can be toggled at runtime
           via set_caller_info(). Does not apply to bound loggers
           created with bind() — those inherit the parent setting.
+       #. diagnose (boolean, string): False (default) writes Python's plain traceback. 'summary' adds the
+          variables used on each frame's source line, with containers and objects shown by type and length.
+          'full' shows the ``repr`` of every value. Values reach every sink, so use it in development.
+          Names that contain password, token, authorization, api_key, ssn, credit_card or secret are
+          always shown as ``<redacted>``. Can be updated at runtime via set_diagnose().
+       #. diagnoseRedact (tuple, list): Sensitive variable names added to the default ones.
        #. unknownLogTypePolicy (string): What log() and force_log() do with a log
           type that is not defined. 'raise' (default) raises KeyError. 'fallback'
           logs the message under *fallbackLogType* with the text
@@ -1510,10 +1537,17 @@ class Logger(object):
           reaches any sink, in the order they run. Each function is ``f(record) -> record``.
           Same as calling add_processor() for each one, after custom_init and the *logTypes* argument.
        #. consoleFormatter (None, string, callable): How a record becomes the text of the console. The colours
-          of its log type are added to the ``'text'`` layout only. The default ``'text'`` is the readable line. None gives JSON, a
+          of its log type are added to the ``'text'`` layout only. The default ``'text'`` is the readable line, unless *env* is True and ``PYSIMPLELOG_FORMAT`` is set. ``'pretty'`` is a tidy
+          column layout, in colour when the console is a terminal. None gives JSON, a
           string with ``{name}`` placeholders is a template, and a function ``f(record) -> str`` is used as it
           is. See :mod:`pysimplelog.formatters`. Change it later with set_sink_formatter().
        #. fileFormatter (None, string, callable): The same, for the log file.
+       #. consoleColor (None, string): ``'auto'`` colours the console only when it is a terminal and ``NO_COLOR``
+          is not set, ``'always'`` colours it, ``'never'`` does not. None leaves the choice to ``PYSIMPLELOG_COLOR``
+          when *env* is True, then to ``'auto'``. It applies to the ``'pretty'`` and ``'text'`` layouts.
+       #. env (boolean): When True, the console takes ``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and
+          ``PYSIMPLELOG_COLOR`` from the environment for every setting the arguments leave out. An argument that is
+          given always wins. The level applies when *stdoutMinLevel* is None. The variables are read once.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -1547,8 +1581,21 @@ class Logger(object):
                        callerInfo=False,
                        unknownLogTypePolicy='raise', fallbackLogType=None,
                        processors=None,
-                       consoleFormatter='text', fileFormatter='text',
+                       consoleFormatter=NOT_GIVEN, fileFormatter='text',
+                       diagnose=False, diagnoseRedact=(),
+                       consoleColor=None, env=False,
                        *args, **kwargs):
+        # The environment fills only what the caller left out, so an explicit argument always wins
+        if not isinstance(env, bool):
+            raise TypeError("env must be a boolean")
+        if consoleColor is not None and consoleColor not in COLOR_MODES:
+            raise ValueError(f"consoleColor must be None or one of {COLOR_MODES}")
+        environment = read_environment() if env else {}
+        if consoleFormatter is NOT_GIVEN:
+            consoleFormatter = environment.get('consoleFormatter', 'text')
+        if consoleColor is None:
+            consoleColor = environment.get('consoleColor', 'auto')
+        envLevel = environment.get('stdoutMinLevel') if stdoutMinLevel is None else None
         # set last logged message
         self.__lastRecords   = {}
         self.__lastRecord    = None
@@ -1614,6 +1661,13 @@ class Logger(object):
         self.add_log_type("warn",     name="WARNING",  level=20,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("error",    name="ERROR",    level=30,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
+        # The level of the environment can be a log type name, so it is set once the default types exist
+        if envLevel is not None:
+            try:
+                envMinLevel = self.__resolve_add_level(envLevel)
+            except ValueError:
+                raise ValueError(f"{ENV_PREFIX}LEVEL must be a number or a defined log type, got {envLevel!r}") from None
+            self.set_minimum_level(envMinLevel, stdoutFlag=True, fileFlag=False)
         # enqueue mode — validate policy params first so errors surface early
         if not isinstance(enqueue, bool):
             raise TypeError("enqueue must be a boolean")
@@ -1643,12 +1697,15 @@ class Logger(object):
         if not isinstance(callerInfo, bool):
             raise TypeError("callerInfo must be a boolean")
         self.__callerInfo = callerInfo
+        # diagnose — validate and store
+        self.set_diagnose(diagnose, diagnoseRedact)
         # unknown log type policy
         self.__unknownLogTypePolicy = 'raise'
         self.__fallbackLogType      = None
         self.set_unknown_log_type_policy(unknownLogTypePolicy, fallbackLogType)
         # how the two built-in sinks turn a record into text
         self.__consoleFormatter = consoleFormatter
+        self.__consoleColor = consoleColor
         self.__fileFormatter = fileFormatter
         # processors rewrite the LogRecord that the sinks receive, they run for every record
         self.__processors = []
@@ -1896,6 +1953,11 @@ class Logger(object):
     def enqueue(self):
         """Whether non-blocking enqueue mode is active."""
         return self.__enqueue
+
+    @property
+    def consoleColor(self):
+        """'auto', 'always' or 'never': whether the console is written in colour."""
+        return self.__consoleColor
 
     @property
     def callerInfo(self):
@@ -2163,6 +2225,40 @@ class Logger(object):
         if not isinstance(callerInfo, bool):
             raise TypeError("callerInfo must be a boolean")
         self.__callerInfo = callerInfo
+
+    def set_diagnose(self, diagnose, diagnoseRedact=()):
+        """
+        Sets whether tracebacks show the values of the variables, and which variable names are hidden.
+
+        Safe to call at any time. It takes effect on the next record with an exception.
+
+        :Parameters:
+            #. diagnose (boolean, str): False for Python's plain traceback. 'summary' adds the variables used
+               on each source line, with containers and objects shown by type and length. 'full' shows the
+               ``repr`` of every value.
+            #. diagnoseRedact (tuple, list): Names added to the default sensitive names. A variable whose name
+               contains one of them shows ``<redacted>``.
+
+        :Raises:
+            #. ValueError: If *diagnose* is not False, 'summary' or 'full'.
+            #. TypeError: If *diagnoseRedact* is not a tuple or list of strings.
+        """
+        if diagnose is not False and diagnose not in DIAGNOSE_MODES:
+            raise ValueError(f"diagnose must be False or one of {DIAGNOSE_MODES}")
+        if not isinstance(diagnoseRedact, (tuple, list)) or not all(isinstance(name, str) for name in diagnoseRedact):
+            raise TypeError("diagnoseRedact must be a tuple or list of strings")
+        self.__diagnose = diagnose
+        self.__diagnoseRedact = tuple(diagnoseRedact)
+
+    @property
+    def diagnose(self):
+        """False, 'summary' or 'full': whether tracebacks show variable values, see :meth:`set_diagnose`."""
+        return self.__diagnose
+
+    @property
+    def diagnoseRedact(self):
+        """The sensitive variable names added to the default ones, as a tuple."""
+        return self.__diagnoseRedact
 
     def add_processor(self, func):
         """
@@ -2629,6 +2725,9 @@ class Logger(object):
             self.set_queue_block_timeout(kwargs["queueBlockTimeout"])
         if "callerInfo" in kwargs:
             self.set_caller_info(kwargs["callerInfo"])
+        if "diagnose" in kwargs or "diagnoseRedact" in kwargs:
+            self.set_diagnose(kwargs.get("diagnose", self.__diagnose),
+                              kwargs.get("diagnoseRedact", self.__diagnoseRedact))
         if "unknownLogTypePolicy" in kwargs or "fallbackLogType" in kwargs:
             self.set_unknown_log_type_policy(kwargs.get("unknownLogTypePolicy", self.__unknownLogTypePolicy),
                                              kwargs.get("fallbackLogType", self.__fallbackLogType))
@@ -2674,6 +2773,8 @@ class Logger(object):
                 "queueFullPolicy":self.__queueFullPolicy,
                 "queueBlockTimeout":self.__queueBlockTimeout,
                 "callerInfo":self.__callerInfo,
+                "diagnose":self.__diagnose,
+                "diagnoseRedact":self.__diagnoseRedact,
                 "unknownLogTypePolicy":self.__unknownLogTypePolicy,
                 "fallbackLogType":self.__fallbackLogType,
                 "userSinks":userSinks}
@@ -3272,6 +3373,92 @@ class Logger(object):
         if refusal is not None:
             raise refusal
 
+    def add(self, target, *, name=None, format=None, level=None, filter=None,
+            rotation=None, retention=None, compression=None, **sinkOptions):
+        """
+        Adds an output in one call: a file, a stream, a function or a ready sink.
+
+        It builds the sink and calls :meth:`add_sink`, so everything *add_sink* does applies.
+
+        .. code-block:: python
+
+            logger.add("logs/app.log", rotation="500 MB", retention="30 days", compression="gz")
+            logger.add("logs/events.jsonl", format="json", level="ERROR")
+            logger.add(sys.stderr, format="{timestamp} [{severity}] {message}")
+            logger.add(lambda text, record: alerts.push(text), level="CRITICAL")
+
+        :Parameters:
+            #. target (str, os.PathLike, file-like, callable, Sink): A path with an extension makes a rotating
+               file. An object with ``write(str)`` makes a stream sink, and the caller closes the stream. Any
+               other function is called as ``f(text, record)``. A :class:`pysimplelog.sinks.Sink` is used as it is.
+            #. name (None, str): The name of the sink. None gives ``sink-1``, ``sink-2``, and so on.
+            #. format (None, str, callable): How a record becomes text, see
+               :func:`pysimplelog.formatters.resolve_formatter`. None gives the ``'text'`` layout. It cannot be
+               given with a Sink, which has its own.
+            #. level (None, int, float, str): The lowest level the output receives. A log type key such as
+               ``'error'``, its name such as ``'ERROR'``, or a number. None means no floor.
+            #. filter (None, callable): ``f(record) -> bool`` that picks the records, see
+               :func:`pysimplelog.filters.match_logger`.
+            #. rotation (None, str, int, float): The size at which a file is rotated, ``"500 MB"`` or a number of
+               megabytes. Files only.
+            #. retention (None, str, int): ``"30 days"`` deletes rotated files that old. A whole number keeps that
+               many files. Files only.
+            #. compression (None, str): ``'gz'`` compresses a file when it is rotated. Files only.
+            #. sinkOptions: Any other argument of :meth:`add_sink`, for example ``threaded=True``.
+
+        :Returns:
+            #. name (str): The name of the sink, to give to :meth:`remove_sink`.
+
+        :Raises:
+            #. TypeError: If *target* is not one of the kinds above, if rotation, retention or compression is
+               given for something that is not a file, or if *format* is given with a Sink.
+            #. ValueError: If *level* is unknown, or a size, an age or a path is wrong.
+        """
+        isFile = isinstance(target, (str, os.PathLike))
+        if not isFile and (rotation is not None or retention is not None or compression is not None):
+            raise TypeError("rotation, retention and compression apply to a file path only")
+        minLevel = self.__resolve_add_level(level)
+        isBuilt = not isinstance(target, Sink)
+        if not isBuilt:
+            if format is not None:
+                raise TypeError("a Sink has its own formatter, so format cannot be given")
+            handler = target
+        else:
+            formatter = 'text' if format is None else format
+            if isFile:
+                handler = build_file_sink(target, formatter, rotation, retention, compression)
+            elif hasattr(target, 'write'):
+                handler = StreamSink(target, formatter=formatter, flush=self.__plain_flush_mode(target))
+            elif callable(target):
+                handler = CallbackSink(target, formatter=formatter)
+            else:
+                raise TypeError("target must be a path, a file-like object, a function or a Sink")
+        if name is None:
+            number = 1
+            while f"sink-{number}" in self.__sinks:
+                number += 1
+            name = f"sink-{number}"
+        try:
+            self.add_sink(name, handler, minLevel=minLevel, recordFilter=filter, **sinkOptions)
+        except Exception:
+            # A sink built here belongs to nobody if it was refused
+            if isBuilt:
+                handler.close()
+            raise
+        return name
+
+    def __resolve_add_level(self, level):
+        """Returns the number for a level given as None, a number, a log type key or a log type name."""
+        if level is None or _is_number(level):
+            return level
+        if isinstance(level, str):
+            if level in self.__logTypeLevels:
+                return self.__logTypeLevels[level]
+            for logType, logName in self.__logTypeNames.items():
+                if logName.lower() == level.lower():
+                    return self.__logTypeLevels[logType]
+        raise ValueError(f"level must be a number or a defined log type, got {level!r}")
+
     def add_sink(self, name, handler, enabled=True,
                  minLevel=None, maxLevel=None, logTypeFlags=None,
                  defaultFlag=True, threaded=False, threadQueueSize=1000, recordFilter=None,
@@ -3459,6 +3646,10 @@ class Logger(object):
         self.__update_trace_flag()
         self.__rebuild_active_sinks()
         sink.release(timeout=timeout)
+
+    def remove(self, name, timeout=5.0):
+        """Removes a sink by the name :meth:`add` returned, see :meth:`remove_sink`."""
+        return self.remove_sink(name, timeout)
 
     def clear_sinks(self, timeout=5.0):
         """Remove all user-added sinks.
@@ -3838,7 +4029,7 @@ class Logger(object):
             dataText = '%s' % (fields['data'],)
             if len(dataText) > self.__maxDataSize:
                 fields['data'] = dataText[:self.__maxDataSize] + '[truncated]'
-        exception = None if exc_info is None else _exception_info(exc_info)
+        exception = None if exc_info is None else _exception_info(exc_info, self.__diagnose, self.__diagnoseRedact)
         if origin is None:
             if self.__timezone is not None:
                 timestamp = datetime.now(self.__timezone)
@@ -4057,8 +4248,17 @@ class Logger(object):
         stream = self.__stdout
         isFlushed = self.__flush and hasattr(stream, 'flush')
         # colour codes would break any other layout, JSON for example, so only the text layout gets them
-        decorate = self.__decorate_console if self.__consoleFormatter == 'text' else None
-        return ConsoleSink(stream, formatter=self.__consoleFormatter, flush='flush' if isFlushed else 'none',
+        isTextColored = self.__consoleFormatter == 'text' and self.__consoleColor != 'never'
+        decorate = self.__decorate_console if isTextColored else None
+        formatter = self.__consoleFormatter
+        if formatter == 'pretty':
+            # The pretty layout colours itself, and by default only when the stream is a terminal
+            if self.__consoleColor == 'auto':
+                isColored = stream_supports_color(sys.stdout if stream is None else stream)
+            else:
+                isColored = self.__consoleColor == 'always'
+            formatter = ConsoleFormatter(colors=isColored)
+        return ConsoleSink(stream, formatter=formatter, flush='flush' if isFlushed else 'none',
                            decorate=decorate)
 
     def __decorate_console(self, text, record):
@@ -4175,6 +4375,9 @@ class Logger(object):
             )
         _check_field_names(fields)
         logType, message = self._resolve_log_type(logType, message)
+        # Wrong calls still fail above, a disabled namespace only stops the work below
+        if is_disabled(self.__name):
+            return message
         # routing comes first: read from the pre-computed active-sink cache (O(1) lookup), the
         # list contains only sinks whose enabled flag and logTypeFlags both pass for this logType.
         # A log type that no sink wants costs nothing more. An unknown log type is not in the
@@ -4225,6 +4428,10 @@ class Logger(object):
             #. message (string): the logged message
         """
         logType, message = self._resolve_log_type(logType, message)
+        # A bridged record keeps the name of its own logger in the field logger_name
+        bridgedName = None if fields is None else fields.get('logger_name')
+        if is_disabled(self.__name) or (isinstance(bridgedName, str) and is_disabled(bridgedName)):
+            return message
         activeSinks = self.__activeSinks.get(logType)
         if activeSinks is not None and len(activeSinks) == 0:
             return message
@@ -4491,6 +4698,25 @@ class Logger(object):
     def debug(self, message, *args, **kwargs):
         """Log at debug level (alias for log('debug', ...))."""
         return self.log("debug", message, *args, **kwargs)
+
+    def exception(self, message, *args, logType='error', **fields):
+        """
+        Logs a message with the exception being handled, at error level unless *logType* says otherwise.
+
+        .. code-block:: python
+
+            try:
+                charge(order)
+            except PaymentError:
+                logger.exception("Payment of {} failed", order.id)
+
+        :Parameters:
+            #. message (str): The message, a template when arguments are given, see :meth:`log`.
+            #. args: The positional values of the template.
+            #. logType (str): The log type of the record. A field of that name cannot be given.
+            #. fields: The structured values of the record.
+        """
+        return self.log(logType, message, *args, exc_info=True, **fields)
 
 
 
