@@ -81,6 +81,11 @@ class FileTestCase(unittest.TestCase):
         for index in range(first, first + count):
             sink.emit(make_record(line_of(index)))
 
+    def wait_for_compression(self, sink, expected=None):
+        wait_until(lambda: compression_threads() == [], 'the compression thread to end')
+        if expected is not None:
+            self.assertEqual(sink.stats['files_compressed'], expected)
+
     def names(self):
         return sorted(os.path.basename(path) for path in glob.glob(os.path.join(self.folder, '*')))
 
@@ -238,14 +243,11 @@ class TestAge(FileTestCase):
 
 class TestCompression(FileTestCase):
 
-    def wait_for_compression(self, sink, expected=None):
-        wait_until(lambda: compression_threads() == [], 'the compression thread to end')
-        if expected is not None:
-            self.assertEqual(sink.stats['files_compressed'], expected)
-
     def test_rotated_files_are_compressed_and_hold_the_same_text(self):
         sink = self.make_sink(compress='gz')
         self.write(sink, 0, 100)
+        # close() drops files still waiting to be compressed, so the thread must finish first
+        self.wait_for_compression(sink)
         sink.close()
         self.assertEqual(compression_threads(), [])
         names = self.names()
@@ -259,6 +261,9 @@ class TestCompression(FileTestCase):
     def test_compressed_files_keep_their_numbers_and_count_for_roll(self):
         sink = self.make_sink(compress='gz', roll=3)
         self.write(sink, 0, 200)
+        # Files being compressed are never pruned, so roll is applied once they are done
+        self.wait_for_compression(sink)
+        sink.enforce_retention()
         sink.close()
         names = self.names()
         self.assertLessEqual(len(names), 3)
@@ -506,6 +511,8 @@ class TestThreads(FileTestCase):
     def test_compressing_while_many_threads_write_loses_nothing(self):
         sink = self.make_sink(compress='gz')
         self.assertEqual(self._write_from_threads(sink), [])
+        # close() drops files still waiting to be compressed, so the thread must finish first
+        self.wait_for_compression(sink)
         sink.close()
         found = self._records()
         self.assertEqual(sorted(found), list(range(self.THREADS)))
@@ -516,6 +523,9 @@ class TestThreads(FileTestCase):
     def test_compressing_and_keeping_the_newest_files_keeps_a_whole_end_of_every_thread(self):
         sink = self.make_sink(compress='gz', roll=4)
         self.assertEqual(self._write_from_threads(sink), [])
+        # Files being compressed are never pruned, so roll is applied once they are done
+        self.wait_for_compression(sink)
+        sink.enforce_retention()
         sink.close()
         self.assertLessEqual(len(self.names()), 4)
         for thread, numbers in self._records().items():
@@ -525,6 +535,9 @@ class TestThreads(FileTestCase):
     def test_enforcing_retention_from_another_thread_while_logging_is_safe(self):
         sink = self.make_sink(compress='gz', roll=5, maxAge=HOUR)
         self.assertEqual(self._write_from_threads(sink, enforce=True), [])
+        # Files being compressed are never pruned, so roll is applied once they are done
+        self.wait_for_compression(sink)
+        sink.enforce_retention()
         sink.close()
         self.assertLessEqual(len(self.names()), 5)
         for thread, numbers in self._records().items():
