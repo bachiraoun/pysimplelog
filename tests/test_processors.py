@@ -208,7 +208,8 @@ class TestFailingClosed(unittest.TestCase):
             raise RuntimeError('boom')
         _, _, error = self._run(broken, count=10)
         self.assertEqual(error.count('WARNING'), 1)
-        self.assertIn('boom', error)
+        self.assertIn('RuntimeError', error)
+        self.assertNotIn('boom', error)
 
     def test_a_result_that_is_not_a_record_drops_it_too(self):
         for bad in (None, 'text', {}, tuple(make_record())):

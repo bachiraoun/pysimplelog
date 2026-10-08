@@ -831,13 +831,13 @@ class TestEnqueue(unittest.TestCase):
 
     def test_flush_is_callable(self):
         """Logger.flush() drains the queue (or is a no-op for sync loggers).
-        It must not raise, and must return None.
+        It must not raise, and must return True when nothing is left waiting.
         (Note: the @property 'flush' is shadowed by the method definition;
         the callable form is the externally visible API.)
         """
         L, _ = make_logger()
         result = L.flush()
-        self.assertIsNone(result)
+        self.assertIs(result, True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

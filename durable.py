@@ -9,11 +9,13 @@ from types import MappingProxyType
 try:
     from .queues import BoundedQueue, QueueFull
     from .forking import register_for_fork_reset
+    from .delivery_guard import mark_delivery_thread
     from .sinks import DELIVERED, REJECTED, SPLIT, ensure_spoolable
     from .spool import Spool, SpoolError, SpoolBusyError, SpoolMismatchError, target_id
 except ImportError:
     from queues import BoundedQueue, QueueFull
     from forking import register_for_fork_reset
+    from delivery_guard import mark_delivery_thread
     from sinks import DELIVERED, REJECTED, SPLIT, ensure_spoolable
     from spool import Spool, SpoolError, SpoolBusyError, SpoolMismatchError, target_id
 
@@ -266,6 +268,7 @@ class DurableDelivery:
 
     def _run(self):
         """The loop of the worker: serve the hints, and when idle send what other slots hold."""
+        mark_delivery_thread()
         handler = self.__handler
         isGrouped = handler.batchSize > 1
         while True:

@@ -15,10 +15,10 @@ except ImportError:
     fcntl = None
 
 try:
-    from .formatters import resolve_formatter
+    from .formatters import resolve_formatter, describe_error
     from .forking import register_for_fork_reset
 except ImportError:
-    from formatters import resolve_formatter
+    from formatters import resolve_formatter, describe_error
     from forking import register_for_fork_reset
 
 FLUSH_MODES = (None, 'none', 'flush', 'fsync', 'fullsync')
@@ -535,7 +535,7 @@ class Sink:
         if isFirstOfRun and error is not None:
             try:
                 sys.stderr.write(f"pysimplelog WARNING: sink {type(self).__name__} failed, record dropped. "
-                                 f"Error: {type(error).__name__}: {error}\n")
+                                 f"Error: {describe_error(error)}. The details are in sink_stats()\n")
             except (OSError, ValueError):
                 # The error stream itself is closed or broken, nothing more can be reported
                 pass

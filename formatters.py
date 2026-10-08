@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import traceback
 from datetime import timezone
 from json.encoder import encode_basestring_ascii
 from string import Formatter
@@ -109,6 +110,31 @@ def escape_control_characters(text):
     if _CONTROL_RE.search(text) is None:
         return text
     return _CONTROL_RE.sub(_escape_control, text)
+
+
+def describe_error(error):
+    """
+    Describes an error by its class and the place it was raised, never by its message.
+
+    The message of an error can hold sensitive text, such as a password in a connection string, so it must not be written to
+    the standard error stream. The details stay in the error object, for example in ``sink_stats``.
+
+    :Parameters:
+        #. error (BaseException): The error.
+
+    :Returns:
+        #. description (str): ``ClassName at file.py:12 in function``, or the class name when the error has no traceback.
+    """
+    name = type(error).__name__
+    if error.__traceback__ is None:
+        return name
+    frame = traceback.extract_tb(error.__traceback__)[-1]
+    return f"{name} at {os.path.basename(frame.filename)}:{frame.lineno} in {frame.name}"
+
+
+def _pair_text(key, value, convert):
+    """Returns ``key=value`` for one line: control characters in the key or in the value are written as escapes."""
+    return f"{escape_control_characters(str(key))}={escape_control_characters(convert(value))}"
 
 
 def _safe_repr(value):
@@ -336,12 +362,12 @@ class TextFormatter:
         if record.caller is not None:
             parts.append(f"[{_format_caller(record.caller)}] ")
         if len(record.context) > 0:
-            pairs = ' '.join(f"{key}={escape_control_characters(convert(value))}" for key, value in record.context.items())
+            pairs = ' '.join(_pair_text(key, value, convert) for key, value in record.context.items())
             parts.append(f"[{pairs}] ")
         parts.append(record.message)
         for key, value in record.fields.items():
             if key != 'data':
-                parts.append(f" {key}={escape_control_characters(convert(value))}")
+                parts.append(' ' + _pair_text(key, value, convert))
         if 'data' in record.fields:
             parts.append(f"\n{convert(record.fields['data'])}")
         if record.exception is not None:
@@ -451,9 +477,8 @@ class ConsoleFormatter:
         if record.caller is not None:
             columns.append(_format_caller(record.caller))
         parts = [' | '.join(columns), ' | ', record.message]
-        pairs = [f"{key}={escape_control_characters(convert(value))}" for key, value in record.context.items()]
-        pairs.extend(f"{key}={escape_control_characters(convert(value))}"
-                     for key, value in record.fields.items() if key != 'data')
+        pairs = [_pair_text(key, value, convert) for key, value in record.context.items()]
+        pairs.extend(_pair_text(key, value, convert) for key, value in record.fields.items() if key != 'data')
         if len(pairs) > 0:
             parts.append(' ' + self._dim(' '.join(pairs)))
         if 'data' in record.fields:

@@ -2,13 +2,16 @@
 
 import logging
 import os
+import sys
 
 try:
     from .record import CallerInfo
     from .simple_log import Logger
+    from .delivery_guard import is_delivering, enter_bridge, leave_bridge
 except ImportError:
     from record import CallerInfo
     from simple_log import Logger
+    from delivery_guard import is_delivering, enter_bridge, leave_bridge
 
 # Names of the attributes every standard record has. Any other attribute of a record was added by the
 # ``extra`` argument of the logging call, and becomes a field
@@ -39,6 +42,9 @@ class StandardLoggingHandler(logging.Handler):
     * the field ``stack`` when the call asked for ``stack_info``,
     * the exception, with its type, message and traceback, when the call has ``exc_info`` or is
       ``logging.exception``.
+
+    A record made by a sink or a transport while it delivers a record, for example by an HTTP library, is dropped and
+    counted in ``droppedRecords``, because it would be delivered again without end.
 
     This handler takes no lock of its own, because a pysimplelog Logger is already safe to use from many
     threads. If the logger cannot take a record, the handler reports it as the standard library does for any handler,
@@ -75,6 +81,7 @@ class StandardLoggingHandler(logging.Handler):
             if not logger.is_log_type(logType):
                 raise ValueError(f"levelMap log type {logType!r} is not a log type of the logger")
         self.__logTypes = {}
+        self.__droppedRecords = 0
         # Set by redirect_standard_logging, so restore_standard_logging can undo it
         self.targetLogger = None
         self.replacedHandlers = []
@@ -84,6 +91,11 @@ class StandardLoggingHandler(logging.Handler):
     def logger(self):
         """The pysimplelog Logger that receives the records."""
         return self.__logger
+
+    @property
+    def droppedRecords(self):
+        """How many records were refused because they were made while a record was being delivered."""
+        return self.__droppedRecords
 
     def createLock(self):
         """Gives the handler no lock, a pysimplelog Logger is already safe to use from many threads."""
@@ -113,6 +125,15 @@ class StandardLoggingHandler(logging.Handler):
         :Parameters:
             #. record (logging.LogRecord): The standard record.
         """
+        if is_delivering():
+            # A sink or a transport that logs through standard logging would send its own record back to itself, forever
+            self.__droppedRecords += 1
+            if self.__droppedRecords == 1:
+                sys.stderr.write("pysimplelog WARNING: a standard logging record made while a record was being delivered "
+                                 "was dropped, to stop a loop. Silence the library that makes it with "
+                                 "pysimplelog.disable(name)\n")
+            return
+        enter_bridge()
         try:
             caller = None
             if self.__logger.callerInfo:
@@ -124,6 +145,8 @@ class StandardLoggingHandler(logging.Handler):
                                        fields=self._fields_of(record))
         except Exception:
             self.handleError(record)
+        finally:
+            leave_bridge()
 
     def _log_type_of(self, record):
         """Returns the log type for the level of a standard record."""

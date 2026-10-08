@@ -30,7 +30,7 @@ try:
     from .processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from .secret import Secret
     from .filters import sample, match_logger, match_module, match_field
-    from .log_context import context, current_context
+    from .log_context import context, current_context, keep_context
     from .queues import QueueFull, validate_queue_policy
     from .spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
@@ -45,7 +45,7 @@ except ImportError:
     from processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from secret import Secret
     from filters import sample, match_logger, match_module, match_field
-    from log_context import context, current_context
+    from log_context import context, current_context, keep_context
     from queues import QueueFull, validate_queue_policy
     from spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
@@ -59,7 +59,7 @@ __all__ = [
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
     'add_context', 'redact_fields', 'redact_text', 'redact_patterns', 'hash_secrets', 'Secret', 'DEFAULT_SENSITIVE_NAMES',
     'sample', 'match_logger', 'match_module', 'match_field',
-    'context', 'current_context',
+    'context', 'current_context', 'keep_context',
     'QueueFull', 'validate_queue_policy',
     'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError',
     'StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging',

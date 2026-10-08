@@ -532,7 +532,7 @@ def _now_local():
 try:
     from .record import LogRecord, ExceptionInfo, CallerInfo
     from .tracing import read_current_trace, trace_api_available
-    from .formatters import resolve_formatter, ConsoleFormatter, stream_supports_color
+    from .formatters import resolve_formatter, ConsoleFormatter, stream_supports_color, describe_error
     from .message_format import render_message
     from .diagnose import DIAGNOSE_MODES, format_exception_with_values
     from .log_context import CURRENT_CONTEXT, context as open_context
@@ -540,6 +540,7 @@ try:
     from .sink_options import build_file_sink
     from .environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
     from .namespaces import is_disabled
+    from .delivery_guard import mark_delivery_thread
     from .queues import BoundedQueue, QueueFull, validate_queue_policy
     from .forking import register_for_fork_reset
     from .spool import SpoolConfig
@@ -547,7 +548,7 @@ try:
 except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo
     from tracing import read_current_trace, trace_api_available
-    from formatters import resolve_formatter, ConsoleFormatter, stream_supports_color
+    from formatters import resolve_formatter, ConsoleFormatter, stream_supports_color, describe_error
     from message_format import render_message
     from diagnose import DIAGNOSE_MODES, format_exception_with_values
     from log_context import CURRENT_CONTEXT, context as open_context
@@ -555,6 +556,7 @@ except ImportError:
     from sink_options import build_file_sink
     from environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
     from namespaces import is_disabled
+    from delivery_guard import mark_delivery_thread
     from queues import BoundedQueue, QueueFull, validate_queue_policy
     from forking import register_for_fork_reset
     from spool import SpoolConfig
@@ -889,6 +891,7 @@ class _Sink(object):
         Runs until stop_threaded() puts the stop marker at the end of the queue. A Sink never
         raises, and anything unexpected is reported by one warning line, never a crash of the thread.
         """
+        mark_delivery_thread()
         if self.handler.batchSize > 1:
             self._worker_of_groups()
             return
@@ -937,18 +940,21 @@ class _Sink(object):
         dispatched (if any) to finish -- a queue that looks empty while
         the worker is still mid-dispatch on the last item is not actually
         drained yet. No-op when threaded is False.
+
+        :Returns:
+            #. isDrained (bool): True when nothing is waiting any more, False when the timeout ended first.
         """
         if not self.threaded:
-            return
+            return True
         if self.durable is not None:
-            self.durable.flush(timeout)
-            return
+            return self.durable.flush(timeout)
         if os.getpid() != self._pid:
-            return
+            # The worker belongs to the parent, this process delivered its records itself
+            return True
         if self.handler.batchSize > 1:
             # The worker may be waiting for its group to fill, this makes it send what it has now
             self._queue.put_last(_QUEUE_FLUSH)
-        self._queue.join(timeout)
+        return self._queue.join(timeout)
 
     def stop_threaded(self, timeout=5.0):
         """Drain what fits in *timeout* seconds, then stop and join the worker thread.
@@ -968,6 +974,12 @@ class _Sink(object):
         self.flush_threaded(timeout=timeout)
         self._queue.put_last(_QUEUE_STOP)
         self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            waiting = max(self._queue.stats()['depth'] - 1, 0)
+            if waiting > 0:
+                sys.stderr.write(f"pysimplelog WARNING: {waiting} records were not written by the sink "
+                                 f"{type(self.handler).__name__} before the program ended. Raise shutdownTimeout "
+                                 "or call flush() before the end\n")
 
     def queue_stats(self):
         """Returns the counters of the private queue, or None when the sink is not threaded."""
@@ -1016,7 +1028,7 @@ class _Sink(object):
         try:
             self.handler.close()
         except Exception as closeError:
-            sys.stderr.write('pysimplelog WARNING: sink close failed. Error: %s\n' % closeError)
+            sys.stderr.write('pysimplelog WARNING: sink close failed. Error: %s\n' % describe_error(closeError))
 
     def __repr__(self):
         return (
@@ -1350,6 +1362,25 @@ class Logger(object):
     To write records in another layout, such as JSON lines, give a sink another formatter, see
     :mod:`pysimplelog.formatters` and :mod:`pysimplelog.sinks`.
 
+    Delivery guarantees:
+
+    * By default a log call writes to the sinks before it returns and nothing is kept in memory by pysimplelog.
+    * Records of one thread reach each sink in the order that thread logged them. Different sinks are independent
+      of each other, and there is no order between a threaded sink and the others.
+    * ``enqueue=True`` keeps records in one queue until a worker thread writes them. ``threaded=True`` gives a sink a
+      queue of its own, 1000 records and the ``drop_oldest`` policy unless told otherwise, so a burst can lose records.
+    * A record is never lost without being counted: see ``droppedMessages``, ``queueStats`` and ``sink_stats``. A run
+      of losses also writes one line to the standard error stream.
+    * At the normal end of the program the queues are written for up to *shutdownTimeout* seconds and what is
+      left is lost and reported. ``flush()`` returns False when its timeout ended before everything was written. If
+      the program is killed, or ends with ``os._exit``, what is in a memory queue is lost.
+    * A sink that raises loses that record for itself only, and the failure is counted in ``sink_stats``. A processor that
+      raises drops the record for every sink, and a filter that raises keeps it.
+    * A sink with a ``spool`` keeps records on disk until they are delivered, in order, and survives a crash. Delivery is
+      at least once, so a record can be delivered twice, and carries the same ``event_id`` each time.
+    * A forked child writes its records itself, in the calling thread. The queues and workers belong to the parent. No queue
+      is shared between processes.
+
     When used in a Python application, it is advisable to use the Logger singleton
     implementation rather than Logger itself. If no subclassing is needed, simply
     import the singleton:
@@ -1548,6 +1579,9 @@ class Logger(object):
        #. env (boolean): When True, the console takes ``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and
           ``PYSIMPLELOG_COLOR`` from the environment for every setting the arguments leave out. An argument that is
           given always wins. The level applies when *stdoutMinLevel* is None. The variables are read once.
+       #. shutdownTimeout (int, float): Seconds the program waits at its normal end for the queued records to be
+          written, for the queue of ``enqueue`` and again for each threaded sink. Records still waiting after that are
+          lost, and one line on the standard error stream says how many.
        #. \\*args: This is used to send non-keyworded variable length argument
            list to custom initialize. args will be parsed and used in
            custom_init method.
@@ -1583,13 +1617,15 @@ class Logger(object):
                        processors=None,
                        consoleFormatter=NOT_GIVEN, fileFormatter='text',
                        diagnose=False, diagnoseRedact=(),
-                       consoleColor=None, env=False,
+                       consoleColor=None, env=False, shutdownTimeout=5.0,
                        *args, **kwargs):
         # The environment fills only what the caller left out, so an explicit argument always wins
         if not isinstance(env, bool):
             raise TypeError("env must be a boolean")
         if consoleColor is not None and consoleColor not in COLOR_MODES:
             raise ValueError(f"consoleColor must be None or one of {COLOR_MODES}")
+        if isinstance(shutdownTimeout, bool) or not isinstance(shutdownTimeout, (int, float)) or not shutdownTimeout > 0:
+            raise ValueError("shutdownTimeout must be a positive number of seconds")
         environment = read_environment() if env else {}
         if consoleFormatter is NOT_GIVEN:
             consoleFormatter = environment.get('consoleFormatter', 'text')
@@ -1706,6 +1742,7 @@ class Logger(object):
         # how the two built-in sinks turn a record into text
         self.__consoleFormatter = consoleFormatter
         self.__consoleColor = consoleColor
+        self.__shutdownTimeout = float(shutdownTimeout)
         self.__fileFormatter = fileFormatter
         # processors rewrite the LogRecord that the sinks receive, they run for every record
         self.__processors = []
@@ -1903,11 +1940,16 @@ class Logger(object):
         """
         if self.__enqueue and self.__logQueue is not None and os.getpid() == self.__ownerPid:
             self.__logQueue.put_last(_QUEUE_STOP)
-            self.__logWorker.join(timeout=5)
+            self.__logWorker.join(timeout=self.__shutdownTimeout)
+            if self.__logWorker.is_alive():
+                # The stop marker is the last item, so it is not a record
+                waiting = max(self.__logQueue.stats()['depth'] - 1, 0)
+                sys.stderr.write(f"pysimplelog WARNING: {waiting} records were not written before the program ended "
+                                 "(the log queue). Raise shutdownTimeout or call flush() before the end\n")
         # every sink is flushed and closed, a threaded sink's private thread is stopped first.
         # A file-like object given to add_sink() is only flushed, its owner closes it
         for sink in self.__sinks.values():
-            sink.release()
+            sink.release(self.__shutdownTimeout)
 
     @property
     def processors(self):
@@ -4079,8 +4121,8 @@ class Logger(object):
                     isFirstFailure = id(processor) not in self.__failedProcessors
                     self.__failedProcessors.add(id(processor))
                 if isFirstFailure:
-                    sys.stderr.write('pysimplelog WARNING: processor %r raised %s: %s, the record is dropped '
-                                     'when it fails\n' % (processor, type(processorError).__name__, processorError))
+                    sys.stderr.write('pysimplelog WARNING: processor %r raised %s, the record is dropped '
+                                     'when it fails\n' % (processor, describe_error(processorError)))
                 return None
             record = result
         return record
@@ -4107,8 +4149,8 @@ class Logger(object):
                 isFirstFailure = id(keep) not in self.__failedFilters
                 self.__failedFilters.add(id(keep))
             if isFirstFailure:
-                sys.stderr.write('pysimplelog WARNING: filter %r raised %s: %s, the record is kept when it fails\n'
-                                 % (keep, type(filterError).__name__, filterError))
+                sys.stderr.write('pysimplelog WARNING: filter %r raised %s, the record is kept when it fails\n'
+                                 % (keep, describe_error(filterError)))
             return True
         return result
 
@@ -4161,6 +4203,7 @@ class Logger(object):
         The sentinel _QUEUE_STOP signals clean shutdown.
         task_done() is called after every item so flush() can join().
         """
+        mark_delivery_thread()
         while True:
             item = self.__logQueue.get()
             try:
@@ -4659,17 +4702,22 @@ class Logger(object):
         :Parameters:
             #. timeout (float): Seconds to wait for each threaded
                sink's private queue to drain. Ignored for non-threaded sinks.
+
+        :Returns:
+            #. isDrained (bool): True when every queued record was written, False when the timeout ended first.
         """
+        isDrained = True
         if self.__enqueue and self.__logQueue is not None and os.getpid() == self.__ownerPid:
-            self.__logQueue.join(timeout)
+            isDrained = self.__logQueue.join(timeout)
         # flush every registered sink
         for sink in self.__sinks.values():
             if sink.threaded:
-                sink.flush_threaded(timeout=timeout)
+                isDrained = sink.flush_threaded(timeout=timeout) and isDrained
             try:
                 sink.handler.flush()
             except Exception as flushError:
-                sys.stderr.write('pysimplelog WARNING: sink flush failed. Error: %s\n' % flushError)
+                sys.stderr.write('pysimplelog WARNING: sink flush failed. Error: %s\n' % describe_error(flushError))
+        return isDrained
 
     def info(self, message, *args, **kwargs):
         """Log at information level (alias for log('info', ...))."""
