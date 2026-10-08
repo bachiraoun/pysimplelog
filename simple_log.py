@@ -531,6 +531,7 @@ def _now_local():
 # structured records and the sinks that receive them
 try:
     from .record import LogRecord, ExceptionInfo, CallerInfo
+    from .tracing import read_current_trace, trace_api_available
     from .formatters import resolve_formatter
     from .log_context import CURRENT_CONTEXT, context as open_context
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
@@ -540,6 +541,7 @@ try:
     from .durable import DurableDelivery, resolve_target_id
 except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo
+    from tracing import read_current_trace, trace_api_available
     from formatters import resolve_formatter
     from log_context import CURRENT_CONTEXT, context as open_context
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, validate_flush_mode
@@ -551,6 +553,14 @@ except ImportError:
 
 # sentinel object used to signal the enqueue worker thread to stop
 _QUEUE_STOP = object()
+# Put in the queue of a sink that sends groups of records, so that its worker sends what it has now and does not wait for the
+# group to fill
+_QUEUE_FLUSH = object()
+
+
+def _is_worker_marker(item):
+    """True for the items that end a group of records in the queue of a sink: the one that stops the worker, and the flush."""
+    return item is _QUEUE_STOP or item is _QUEUE_FLUSH
 
 # sentinel keys for the two built-in sinks inside Logger.__sinks.
 # Integer type guarantees they can never clash with user-supplied
@@ -822,6 +832,9 @@ class _Sink(object):
         Runs until stop_threaded() puts the stop marker at the end of the queue. A Sink never
         raises, and anything unexpected is reported by one warning line, never a crash of the thread.
         """
+        if self.handler.batchSize > 1:
+            self._worker_of_groups()
+            return
         while True:
             record = self._queue.get()
             try:
@@ -835,6 +848,30 @@ class _Sink(object):
                 )
             finally:
                 self._queue.task_done()
+
+    def _worker_of_groups(self):
+        """Background loop for a threaded sink that sends groups of records: take a group, deliver it in one call.
+
+        A group ends when it is full, when the sink's batch interval is over since its first record, or at a marker. The marker is
+        dealt with after the group, so the records before a stop or a flush are delivered first.
+        """
+        handler = self.handler
+        while True:
+            records, marker = self._queue.get_batch(handler.batchSize, handler.batchInterval, _is_worker_marker)
+            try:
+                if len(records) > 0:
+                    try:
+                        handler.emit_batch(records)
+                    except Exception as sinkError:
+                        sys.stderr.write(
+                            'pysimplelog WARNING: sink delivery failed'
+                            ', %d records dropped. Error: %s\n' % (len(records), sinkError)
+                        )
+            finally:
+                for _ in range(len(records) + (0 if marker is None else 1)):
+                    self._queue.task_done()
+            if marker is _QUEUE_STOP:
+                return
 
     def flush_threaded(self, timeout=5.0):
         """Best-effort wait (up to *timeout* seconds) for this sink's queue to drain.
@@ -851,6 +888,9 @@ class _Sink(object):
             return
         if os.getpid() != self._pid:
             return
+        if self.handler.batchSize > 1:
+            # The worker may be waiting for its group to fill, this makes it send what it has now
+            self._queue.put_last(_QUEUE_FLUSH)
         self._queue.join(timeout)
 
     def stop_threaded(self, timeout=5.0):
@@ -1499,6 +1539,8 @@ class Logger(object):
         # filters drop a whole record when one of them returns False, they run for every record
         self.__filters = []
         self.__hasSinkFilters = False
+        # True while a sink asks for the identifiers of the active trace, so that nothing is read when none does
+        self.__capturesTrace = False
         self.__failedFilters = set()
         self.__filterFailures = 0
         self.__filteredRecords = 0
@@ -2257,6 +2299,10 @@ class Logger(object):
     def __update_sink_filter_flag(self):
         """Remembers whether any sink has a filter, so log() skips the check when none has."""
         self.__hasSinkFilters = any(sink.recordFilter is not None for sink in self.__sinks.values())
+
+    def __update_trace_flag(self):
+        """Remembers whether any sink asks for trace identifiers, so _build_record reads the span only then."""
+        self.__capturesTrace = any(sink.handler.captureTrace for sink in self.__sinks.values())
 
     def set_unknown_log_type_policy(self, policy, fallbackLogType=None):
         """
@@ -3260,6 +3306,10 @@ class Logger(object):
             durable      = durable,
         )
         self.__update_sink_filter_flag()
+        self.__update_trace_flag()
+        if handler.captureTrace and not trace_api_available():
+            sys.stderr.write(f"pysimplelog WARNING: sink {name!r} asks for trace identifiers but the OpenTelemetry API is not "
+                             "installed, its records go without them. Install the package opentelemetry-api\n")
         self.__rebuild_active_sinks()
 
     def remove_sink(self, name, timeout=5.0):
@@ -3286,6 +3336,7 @@ class Logger(object):
             raise ValueError("sink '%s' is not registered" % name)
         sink = self.__sinks.pop(name)
         self.__update_sink_filter_flag()
+        self.__update_trace_flag()
         self.__rebuild_active_sinks()
         sink.release(timeout=timeout)
 
@@ -3305,6 +3356,7 @@ class Logger(object):
         removedSinks = [self.__sinks.pop(k) for k in userKeys]
         if userKeys:
             self.__update_sink_filter_flag()
+            self.__update_trace_flag()
             self.__rebuild_active_sinks()
         for sink in removedSinks:
             sink.release(timeout=timeout)
@@ -3676,9 +3728,11 @@ class Logger(object):
         else:
             timestamp, processId, threadId, threadName = origin
         context = CURRENT_CONTEXT.get()
+        # Read here, on the calling thread: a sink that runs later, on another thread, cannot know the active span
+        trace = read_current_trace() if self.__capturesTrace else None
         return LogRecord.create(timestamp, self.__logTypeNames[logType], logType, self.__logTypeLevels.get(logType),
                                 self.__name, self._prepare_message(message), processId, threadId, threadName,
-                                fields, context if len(context) > 0 else None, exception, caller)
+                                fields, context if len(context) > 0 else None, exception, caller, trace)
 
     def get_timestamp(self, format='%Y-%m-%d %H:%M:%S'):
         """

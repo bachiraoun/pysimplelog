@@ -14,13 +14,13 @@ from datetime import datetime, timedelta, timezone
 from json.encoder import encode_basestring_ascii
 
 try:
-    from .record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from .formatters import _dumps, _json_value, _mapping_to_json
     from .queues import QueueFull, validate_queue_policy
     from .sinks import validate_flush_mode, sync_descriptor
     from .forking import register_for_fork_reset
 except ImportError:
-    from record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from formatters import _dumps, _json_value, _mapping_to_json
     from queues import QueueFull, validate_queue_policy
     from sinks import validate_flush_mode, sync_descriptor
@@ -236,7 +236,7 @@ def record_to_dict(record):
         #. data (dict): The record as plain values. A value that JSON cannot represent is written as its text
            when the dictionary is encoded.
     """
-    exception, caller = record.exception, record.caller
+    exception, caller, trace = record.exception, record.caller, record.trace
     timestamp = record.timestamp
     return {'ts': (timestamp - _EPOCH) // _MICROSECOND, 'off': int(timestamp.utcoffset().total_seconds()),
             'severity': record.severity, 'logType': record.logType,
@@ -247,7 +247,9 @@ def record_to_dict(record):
             {'typeName': exception.typeName, 'message': exception.message, 'stacktrace': exception.stacktrace},
             'caller': None if caller is None else
             {'fileName': caller.fileName, 'line': caller.line, 'function': caller.function,
-             'moduleName': caller.moduleName}}
+             'moduleName': caller.moduleName},
+            'trace': None if trace is None else
+            {'traceId': trace.traceId, 'spanId': trace.spanId, 'flags': trace.flags}}
 
 
 def record_from_dict(data):
@@ -266,7 +268,7 @@ def record_from_dict(data):
     :Raises:
         #. TypeError, ValueError, KeyError: If the dictionary is not a valid record.
     """
-    exception, caller = data['exception'], data['caller']
+    exception, caller, trace = data['exception'], data['caller'], data['trace']
     microseconds, offset = data['ts'], data['off']
     level = data['level']
     if isinstance(level, str) and level in ('NaN', 'Infinity', '-Infinity'):
@@ -283,7 +285,8 @@ def record_from_dict(data):
         exception=None if exception is None else
         ExceptionInfo(exception['typeName'], exception['message'], exception['stacktrace']),
         caller=None if caller is None else
-        CallerInfo(caller['fileName'], caller['line'], caller['function'], caller['moduleName']))
+        CallerInfo(caller['fileName'], caller['line'], caller['function'], caller['moduleName']),
+        trace=None if trace is None else TraceInfo(trace['traceId'], trace['spanId'], trace['flags']))
     validate_record(record)
     return record
 
@@ -302,7 +305,7 @@ def record_line(seq, record):
     :Returns:
         #. line (bytes): The line.
     """
-    timestamp, exception, caller = record.timestamp, record.exception, record.caller
+    timestamp, exception, caller, trace = record.timestamp, record.exception, record.caller, record.trace
     text = (f'{{"seq":{seq},"record":{{"ts":{(timestamp - _EPOCH) // _MICROSECOND},'
             f'"off":{int(timestamp.utcoffset().total_seconds())},'
             f'"severity":{encode_basestring_ascii(record.severity)},"logType":{encode_basestring_ascii(record.logType)},'
@@ -311,7 +314,8 @@ def record_line(seq, record):
             f'"threadId":{record.threadId},"threadName":{encode_basestring_ascii(record.threadName)},'
             f'"fields":{_mapping_to_json(record.fields)},"context":{_mapping_to_json(record.context)},'
             f'"exception":{"null" if exception is None else _json_value({"typeName": exception.typeName, "message": exception.message, "stacktrace": exception.stacktrace})},'
-            f'"caller":{"null" if caller is None else _json_value({"fileName": caller.fileName, "line": caller.line, "function": caller.function, "moduleName": caller.moduleName})}'
+            f'"caller":{"null" if caller is None else _json_value({"fileName": caller.fileName, "line": caller.line, "function": caller.function, "moduleName": caller.moduleName})},'
+            f'"trace":{"null" if trace is None else _json_value({"traceId": trace.traceId, "spanId": trace.spanId, "flags": trace.flags})}'
             '}}\n')
     return text.encode('ascii')
 

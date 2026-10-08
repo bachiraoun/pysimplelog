@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from formatters import JsonFormatter, resolve_formatter  # noqa: E402
-from record import LogRecord, ExceptionInfo, CallerInfo  # noqa: E402
+from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo  # noqa: E402
 from simple_log import Logger  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 
@@ -81,6 +81,14 @@ class TestTheLayoutIsFixed(unittest.TestCase):
 
     def test_the_schema_number_is_one(self):
         self.assertEqual(strict_loads(JsonFormatter()(minimal_record()))['schema'], 1)
+
+    def test_a_trace_changes_nothing_in_any_layout(self):
+        # Trace identifiers are for the sinks that send to a tracing backend. Schema 1 does not write them
+        traced = reference_record()._replace(trace=TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1))
+        self.assertEqual(JsonFormatter()(traced), NESTED)
+        self.assertEqual(JsonFormatter(flatten=True)(traced), FLAT)
+        self.assertEqual(JsonFormatter(utc=True)(traced), UTC)
+        self.assertEqual(JsonFormatter()(minimal_record()._replace(trace=TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1))), MINIMAL)
 
     def test_the_keywords_give_the_same_layout(self):
         for keyword in ('json', 'jsonl'):

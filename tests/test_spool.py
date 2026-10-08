@@ -27,7 +27,7 @@ sys.path.insert(0, PACKAGE_DIR)
 import spool as spool_module  # noqa: E402
 from spool import (Spool, FileLock, target_id, record_to_dict, record_from_dict, record_line, SpoolBusyError, SpoolMismatchError,  # noqa: E402
                    SpoolOwnerError, SpoolUnsupportedError, SpoolError)
-from record import LogRecord, ExceptionInfo, CallerInfo  # noqa: E402
+from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo  # noqa: E402
 from queues import QueueFull  # noqa: E402
 
 IS_POSIX = os.name == 'posix' and spool_module.fcntl is not None
@@ -195,6 +195,38 @@ class TestRecordRoundTrip(unittest.TestCase):
             text = spool_module._dumps(record_to_dict(record))
             spool_module.json.loads(text, parse_constant=lambda constant: self.fail(f"not valid JSON: {constant}"))
             self.assertEqual(record_from_dict(spool_module.json.loads(text)).level, level)
+
+    def test_a_trace_makes_the_round_trip_and_none_stays_none(self):
+        trace = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1)
+        for value in (trace, None):
+            record = make_record(0)._replace(trace=value)
+            text = spool_module._dumps(record_to_dict(record))
+            self.assertEqual(record_from_dict(spool_module.json.loads(text)).trace, value)
+
+    def test_the_line_written_by_hand_holds_the_trace_like_the_slow_way(self):
+        trace = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 255)
+        for value in (trace, None):
+            record = make_record(0, k='v')._replace(trace=value)
+            fast = spool_module.json.loads(record_line(9, record))
+            slow = spool_module.json.loads(spool_module._dumps({'seq': 9, 'record': record_to_dict(record)}))
+            self.assertEqual(fast, slow)
+            self.assertEqual(fast['record']['trace'], None if value is None else
+                             {'traceId': trace.traceId, 'spanId': trace.spanId, 'flags': 255})
+
+    def test_a_dictionary_without_the_trace_key_is_refused(self):
+        data = record_to_dict(make_record(0))
+        del data['trace']
+        with self.assertRaises(KeyError):
+            record_from_dict(data)
+
+    def test_a_bad_trace_in_a_file_is_refused(self):
+        for trace in ({'traceId': 'x', 'spanId': 'y', 'flags': 1}, {'traceId': '0' * 32, 'spanId': 'b7ad6b7169203331', 'flags': 1},
+                      {'traceId': '0af7651916cd43dd8448eb211c80319c', 'spanId': 'b7ad6b7169203331', 'flags': 999}, 'trace', 7):
+            data = record_to_dict(make_record(0))
+            data['trace'] = trace
+            with self.subTest(trace=trace):
+                with self.assertRaises((TypeError, ValueError, KeyError)):
+                    record_from_dict(data)
 
     def test_an_invalid_dictionary_is_refused(self):
         good = record_to_dict(make_record(0))

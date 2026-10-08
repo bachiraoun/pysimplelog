@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from simple_log import Logger  # noqa: E402
 from formatters import (JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter,  # noqa: E402
                         safe_str, FORMATTERS)
-from record import LogRecord, ExceptionInfo, CallerInfo  # noqa: E402
+from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 
 ZONE = timezone(timedelta(hours=-5))
@@ -159,6 +159,27 @@ class TestTemplateFormatter(unittest.TestCase):
     def test_what_is_not_a_record_is_refused(self):
         with self.assertRaises(TypeError):
             TemplateFormatter('{message}')('record')
+
+
+class TestTraceIsNotWritten(unittest.TestCase):
+
+    TRACE = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1)
+
+    def test_text_and_template_output_do_not_change_with_a_trace(self):
+        plain, traced = make_record(**FULL), make_record(**FULL)._replace(trace=self.TRACE)
+        self.assertEqual(TextFormatter()(traced), TextFormatter()(plain))
+        template = '{timestamp}|{severity}|{message}|{fields}|{context}|{caller}'
+        self.assertEqual(TemplateFormatter(template)(traced), TemplateFormatter(template)(plain))
+
+    def test_the_identifiers_do_not_appear_anywhere_in_the_output(self):
+        traced = make_record(**FULL)._replace(trace=self.TRACE)
+        for text in (TextFormatter()(traced), JsonFormatter()(traced), JsonFormatter(flatten=True)(traced),
+                     TemplateFormatter('{message} {trace} {traceId} {spanId}')(traced)):
+            self.assertNotIn(self.TRACE.traceId, text)
+            self.assertNotIn(self.TRACE.spanId, text)
+
+    def test_a_template_cannot_reach_the_trace_by_name(self):
+        self.assertEqual(TemplateFormatter('[{trace}][{traceId}]')(make_record()._replace(trace=self.TRACE)), '[][]')
 
 
 class TestKeywords(unittest.TestCase):

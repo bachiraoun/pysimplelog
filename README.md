@@ -104,6 +104,10 @@ A `FileSink` rotates by size, keeps a number of files (`roll`) and deletes rotat
 
 `spool=` on a sink keeps its records on disk until the sink has delivered them: a collector that is down, or a crash, loses nothing that was written. Delivery is in order, retried, and at-least-once, with a stable `event_id` on every record so a receiver can recognise a repeat. A process that died leaves its files for another to send. See *Durable delivery* in the documentation and `examples/10_durable_delivery.py`.
 
+## OpenTelemetry logs (optional)
+
+`pysimplelog.contrib.otlp_sink.attach(logger, "https://collector.example.org:4318", resource={"service.name": "orders"})` sends records to an OpenTelemetry Collector, or any backend that takes OTLP over HTTP, in groups of up to 512, with the standard library only. A record keeps its trace and span identifiers when `opentelemetry-api` is installed, a `spool=` keeps the records through an outage or a crash, and a payload the receiver refuses is cut in halves until the one record at fault is found and parked. It was compared with the official OpenTelemetry encoder and checked against the OpenTelemetry Collector 0.162.0. See *OpenTelemetry logs (OTLP)* in the documentation, `examples/11_opentelemetry_logs.py` and `examples/12_real_collector_check.py`.
+
 ## Benchmark
 
 `python3 pysimplelog/benchmarks/bench_logging.py` measures the cost of one log call for pysimplelog, the standard `logging` module, and Loguru and structlog when they are installed. The numbers belong to the machine they are measured on.

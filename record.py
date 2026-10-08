@@ -39,6 +39,23 @@ class CallerInfo(NamedTuple):
     moduleName: str
 
 
+class TraceInfo(NamedTuple):
+    """
+    Describes the distributed trace a log record was made in, for the sinks that send records to a tracing backend.
+
+    The built-in formatters do not write it, so adding it changes no existing output.
+
+    :Parameters:
+        #. traceId (str): The trace identifier, 32 lower case hexadecimal characters, not all zero.
+        #. spanId (str): The span identifier, 16 lower case hexadecimal characters, not all zero.
+        #. flags (int): The trace flags, from 0 to 255. Bit 0 says the trace is sampled.
+    """
+
+    traceId: str
+    spanId: str
+    flags: int
+
+
 class LogRecord(NamedTuple):
     """
     Represents one log event as immutable structured data.
@@ -66,6 +83,8 @@ class LogRecord(NamedTuple):
         #. context (Mapping): Ambient values, such as a request identifier, with string keys.
         #. exception (ExceptionInfo, None): The attached exception, if any.
         #. caller (CallerInfo, None): The log call location, if it was captured.
+        #. trace (TraceInfo, None): The distributed trace the call was made in, if a sink asked for it. The built-in
+           formatters do not write it.
 
     .. code-block:: python
 
@@ -92,6 +111,7 @@ class LogRecord(NamedTuple):
     context: Mapping[str, Any] = EMPTY_MAPPING
     exception: ExceptionInfo | None = None
     caller: CallerInfo | None = None
+    trace: TraceInfo | None = None
 
     def __reduce__(self):
         """Makes the record picklable and deep-copyable: the read-only views are saved as plain dictionaries."""
@@ -102,7 +122,7 @@ class LogRecord(NamedTuple):
 
     @classmethod
     def create(cls, timestamp, severity, logType, level, logger, message, processId, threadId, threadName,
-               fields=None, context=None, exception=None, caller=None):
+               fields=None, context=None, exception=None, caller=None, trace=None):
         """
         Builds a record whose fields and context are read-only views.
 
@@ -120,6 +140,7 @@ class LogRecord(NamedTuple):
             #. context (dict, None): Ambient values. None means no context.
             #. exception (ExceptionInfo, None): The attached exception, if any.
             #. caller (CallerInfo, None): The log call location, if captured.
+            #. trace (TraceInfo, None): The distributed trace of the call, if captured.
 
         :Returns:
             #. record (LogRecord): The new record.
@@ -127,7 +148,7 @@ class LogRecord(NamedTuple):
         return cls(timestamp, severity, logType, level, logger, message, processId, threadId, threadName,
                    EMPTY_MAPPING if fields is None else MappingProxyType(fields),
                    EMPTY_MAPPING if context is None else MappingProxyType(context),
-                   exception, caller)
+                   exception, caller, trace)
 
 
 def _rebuild_record(values):
@@ -156,6 +177,15 @@ def _validate_mapping(name, mapping):
             raise TypeError(f"{name} keys must be strings, got {type(key).__name__}")
 
 
+def _is_hex_identifier(value, length):
+    """Returns True for a lower case hexadecimal string of exactly *length* characters that is not all zero."""
+    if not isinstance(value, str) or len(value) != length:
+        return False
+    if value.strip('0123456789abcdef') != '':
+        return False
+    return value.strip('0') != ''
+
+
 def validate_record(record):
     """
     Checks that a record has the documented types, for records built outside the logger.
@@ -169,7 +199,7 @@ def validate_record(record):
 
     :Raises:
         #. TypeError: If record is not a LogRecord, or any attribute, including those of the
-           nested exception and caller, does not have its documented type.
+           nested exception, caller and trace, does not have its documented type.
     """
     if not isinstance(record, LogRecord):
         raise TypeError(f"record must be a LogRecord, got {type(record).__name__}")
@@ -208,3 +238,13 @@ def validate_record(record):
             raise TypeError("caller fileName, function and moduleName must be strings")
         if not _is_int(caller.line):
             raise TypeError("caller line must be an integer")
+    trace = record.trace
+    if trace is not None:
+        if not isinstance(trace, TraceInfo):
+            raise TypeError("trace must be a TraceInfo or None")
+        if not _is_hex_identifier(trace.traceId, 32):
+            raise TypeError("trace traceId must be 32 lower case hexadecimal characters and not all zero")
+        if not _is_hex_identifier(trace.spanId, 16):
+            raise TypeError("trace spanId must be 16 lower case hexadecimal characters and not all zero")
+        if not _is_int(trace.flags) or not 0 <= trace.flags <= 255:
+            raise TypeError("trace flags must be an integer from 0 to 255")

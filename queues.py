@@ -222,6 +222,60 @@ class BoundedQueue:
             self.__condition.notify_all()
             return item
 
+    def get_batch(self, limit, linger, isMarker, timeout=None):
+        """
+        Takes the oldest item, waiting until there is one, then takes the items that follow it, up to a limit.
+
+        After the first item, it waits at most *linger* seconds, counted from the first item, for the rest of the
+        group to arrive. What is already waiting is taken at once, so a queue with a backlog gives full groups without
+        waiting. A marker, such as the item that stops a worker, ends the wait and is not part of the group: it is returned
+        apart, so that the caller delivers the group first and then deals with it.
+
+        Every item taken, the marker too, needs its own :meth:`task_done`.
+
+        :Parameters:
+            #. limit (int): Largest number of items in the group.
+            #. linger (int, float): Seconds to wait for the group to fill after its first item. 0 takes what is waiting.
+            #. isMarker (callable): ``f(item) -> bool``, True for an item that ends the group.
+            #. timeout (None, int, float): Seconds to wait for the first item. None waits as long as it takes.
+
+        :Returns:
+            #. items (list): The group, oldest first. Empty when the first item was a marker.
+            #. marker (object, None): The marker that ended the group, or None.
+
+        :Raises:
+            #. queue.Empty: If the timeout ended with no item.
+        """
+        with self.__condition:
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while len(self.__items) == 0:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    raise queue.Empty
+                self.__condition.wait(remaining)
+            first = self.__items.popleft()
+            if isMarker(first):
+                self.__condition.notify_all()
+                return [], first
+            items, marker = [first], None
+            groupDeadline = time.monotonic() + linger
+            while len(items) < limit:
+                if len(self.__items) > 0:
+                    item = self.__items.popleft()
+                    if isMarker(item):
+                        marker = item
+                        break
+                    items.append(item)
+                    continue
+                remaining = groupDeadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                # The places freed so far can let blocked callers in, before this wait
+                self.__condition.notify_all()
+                self.__condition.wait(remaining)
+            self.__condition.notify_all()
+            return items, marker
+
     def task_done(self):
         """Says that an item taken with :meth:`get` has been dealt with, so :meth:`join` can end."""
         with self.__condition:

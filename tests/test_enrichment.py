@@ -18,7 +18,7 @@ from simple_log import Logger  # noqa: E402
 from formatters import JsonFormatter  # noqa: E402
 from processors import add_context  # noqa: E402
 from filters import match_logger, match_module, match_field  # noqa: E402
-from record import LogRecord, CallerInfo  # noqa: E402
+from record import LogRecord, CallerInfo, TraceInfo  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 from standard_logging import redirect_standard_logging, restore_standard_logging  # noqa: E402
 
@@ -66,6 +66,12 @@ class TestAddContext(unittest.TestCase):
     def test_a_function_returning_none_adds_nothing_and_the_record_is_the_same_object(self):
         record = make_record()
         self.assertIs(add_context(request=lambda: None)(record), record)
+
+    def test_the_trace_is_kept_when_values_are_added(self):
+        trace = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1)
+        record = add_context(service='orders')(make_record()._replace(trace=trace))
+        self.assertEqual(record.trace, trace)
+        self.assertEqual(record.context['service'], 'orders')
 
     def test_a_record_that_has_everything_is_returned_as_it_is(self):
         record = make_record(context={'a': 1})

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from simple_log import Logger  # noqa: E402
 from formatters import JsonFormatter  # noqa: E402
 from processors import redact_fields, redact_text, DEFAULT_REPLACEMENT  # noqa: E402
-from record import LogRecord, ExceptionInfo  # noqa: E402
+from record import LogRecord, ExceptionInfo, TraceInfo  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 
 
@@ -356,6 +356,30 @@ class TestRedactFields(unittest.TestCase):
             self.assertNotIn('hunter2', text)
             self.assertNotIn('abc123', text)
         self.assertIn('ann', stream.getvalue())
+
+
+class TestTheTraceSurvivesProcessors(unittest.TestCase):
+
+    TRACE = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1)
+
+    def test_redaction_keeps_the_trace(self):
+        record = make_record(fields={'password': 'p', 'note': '/opt/app'}, context={'token': 't'})._replace(trace=self.TRACE)
+        self.assertEqual(redact_fields()(record).trace, self.TRACE)
+        self.assertEqual(redact_text(lambda text: text.upper())(record).trace, self.TRACE)
+
+    def test_a_record_that_redaction_changes_keeps_it_too(self):
+        out = redact_fields()(make_record(fields={'password': 'p'})._replace(trace=self.TRACE))
+        self.assertEqual(out.fields['password'], DEFAULT_REPLACEMENT)
+        self.assertEqual(out.trace, self.TRACE)
+
+    def test_a_processor_can_set_the_trace_and_a_sink_sees_it(self):
+        logger, _ = make_logger()
+        seen = []
+        logger.add_processor(lambda record: record._replace(trace=self.TRACE))
+        logger.add_filter(lambda record: seen.append(record.trace) or True)
+        logger.info('x')
+        self.assertEqual(seen, [self.TRACE])
+        self.assertEqual(logger.lastRecord.trace, self.TRACE)
 
 
 class TestRedactText(unittest.TestCase):

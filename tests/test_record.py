@@ -12,7 +12,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from record import LogRecord, ExceptionInfo, CallerInfo, validate_record, EMPTY_MAPPING  # noqa: E402
+from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record, EMPTY_MAPPING  # noqa: E402
 
 TIMESTAMP = datetime(2026, 1, 2, 3, 4, 5, 678901, tzinfo=timezone.utc)
 
@@ -37,13 +37,14 @@ class TestCreate(unittest.TestCase):
         self.assertIs(record.exception, exception)
         self.assertIs(record.caller, caller)
 
-    def test_a_missing_fields_context_exception_and_caller_are_empty(self):
+    def test_a_missing_fields_context_exception_caller_and_trace_are_empty(self):
         record = make_record()
         self.assertEqual((len(record.fields), len(record.context)), (0, 0))
         self.assertIs(record.fields, EMPTY_MAPPING)
         self.assertIs(record.context, EMPTY_MAPPING)
         self.assertIsNone(record.exception)
         self.assertIsNone(record.caller)
+        self.assertIsNone(record.trace)
 
     def test_a_level_can_be_none(self):
         self.assertIsNone(make_record(level=None).level)
@@ -52,7 +53,7 @@ class TestCreate(unittest.TestCase):
         record = LogRecord.create(TIMESTAMP, 'WARN', 'warn', 20.0, 'x', 'm', 5, 6, 't')
         self.assertEqual(tuple(record)[:9], (TIMESTAMP, 'WARN', 'warn', 20.0, 'x', 'm', 5, 6, 't'))
         self.assertEqual(LogRecord._fields, ('timestamp', 'severity', 'logType', 'level', 'logger', 'message', 'processId',
-                                             'threadId', 'threadName', 'fields', 'context', 'exception', 'caller'))
+                                             'threadId', 'threadName', 'fields', 'context', 'exception', 'caller', 'trace'))
 
 
 class TestImmutable(unittest.TestCase):
@@ -113,7 +114,7 @@ class TestValueSemantics(unittest.TestCase):
     def test_a_record_can_be_unpacked_and_indexed(self):
         record = make_record()
         self.assertEqual(record[5], 'hello')
-        self.assertEqual(len(record), 13)
+        self.assertEqual(len(record), 14)
         timestamp, *_ = record
         self.assertEqual(timestamp, TIMESTAMP)
 
@@ -252,6 +253,68 @@ class TestPickle(unittest.TestCase):
 def echo_record(record):
     """Runs in another process and sends the record back."""
     return record
+
+
+TRACE_ID = '0af7651916cd43dd8448eb211c80319c'
+SPAN_ID = 'b7ad6b7169203331'
+
+
+class TestTrace(unittest.TestCase):
+
+    def test_the_trace_is_kept_and_is_read_only(self):
+        trace = TraceInfo(TRACE_ID, SPAN_ID, 1)
+        record = make_record(trace=trace)
+        self.assertIs(record.trace, trace)
+        self.assertEqual((trace.traceId, trace.spanId, trace.flags), (TRACE_ID, SPAN_ID, 1))
+        with self.assertRaises(AttributeError):
+            trace.flags = 0
+        with self.assertRaises(AttributeError):
+            record.trace = None
+
+    def test_the_field_names(self):
+        self.assertEqual(TraceInfo._fields, ('traceId', 'spanId', 'flags'))
+
+    def test_replace_can_set_and_clear_it(self):
+        record = make_record()._replace(trace=TraceInfo(TRACE_ID, SPAN_ID, 0))
+        self.assertEqual(record.trace.flags, 0)
+        self.assertIsNone(record._replace(trace=None).trace)
+
+    def test_a_good_trace_passes_validation(self):
+        for flags in (0, 1, 255):
+            validate_record(make_record(trace=TraceInfo(TRACE_ID, SPAN_ID, flags)))
+        validate_record(make_record(trace=TraceInfo('f' * 32, '1' * 16, 1)))
+
+    def test_each_wrong_trace_is_refused(self):
+        bad_traces = [
+            ('a tuple', (TRACE_ID, SPAN_ID, 1)), ('text', 'trace'), ('a dict', {'traceId': TRACE_ID}),
+            ('a short trace id', TraceInfo(TRACE_ID[:-1], SPAN_ID, 1)), ('a long trace id', TraceInfo(TRACE_ID + '0', SPAN_ID, 1)),
+            ('an upper case trace id', TraceInfo(TRACE_ID.upper(), SPAN_ID, 1)),
+            ('a trace id that is not hexadecimal', TraceInfo('g' * 32, SPAN_ID, 1)),
+            ('a trace id of zeros', TraceInfo('0' * 32, SPAN_ID, 1)), ('a trace id that is bytes', TraceInfo(bytes(16), SPAN_ID, 1)),
+            ('a short span id', TraceInfo(TRACE_ID, SPAN_ID[:-1], 1)), ('a long span id', TraceInfo(TRACE_ID, SPAN_ID + '0', 1)),
+            ('an upper case span id', TraceInfo(TRACE_ID, SPAN_ID.upper(), 1)),
+            ('a span id of zeros', TraceInfo(TRACE_ID, '0' * 16, 1)), ('a span id that is an int', TraceInfo(TRACE_ID, 123, 1)),
+            ('negative flags', TraceInfo(TRACE_ID, SPAN_ID, -1)), ('flags over 255', TraceInfo(TRACE_ID, SPAN_ID, 256)),
+            ('flags that are a bool', TraceInfo(TRACE_ID, SPAN_ID, True)), ('flags that are a float', TraceInfo(TRACE_ID, SPAN_ID, 1.0)),
+            ('flags that are text', TraceInfo(TRACE_ID, SPAN_ID, '1')),
+        ]
+        for name, trace in bad_traces:
+            with self.subTest(name):
+                with self.assertRaises(TypeError):
+                    validate_record(make_record(trace=trace))
+
+    def test_pickle_and_deep_copy_keep_the_trace(self):
+        record = make_record(fields={'a': 1}, trace=TraceInfo(TRACE_ID, SPAN_ID, 1))
+        for loaded in (pickle.loads(pickle.dumps(record)), copy.deepcopy(record), copy.copy(record)):
+            self.assertEqual(loaded, record)
+            self.assertEqual(loaded.trace, TraceInfo(TRACE_ID, SPAN_ID, 1))
+
+    def test_a_record_without_a_trace_keeps_none_through_pickle(self):
+        self.assertIsNone(pickle.loads(pickle.dumps(make_record())).trace)
+
+    def test_the_trace_takes_part_in_equality(self):
+        self.assertNotEqual(make_record(trace=TraceInfo(TRACE_ID, SPAN_ID, 1)), make_record())
+        self.assertNotEqual(make_record(trace=TraceInfo(TRACE_ID, SPAN_ID, 1)), make_record(trace=TraceInfo(TRACE_ID, SPAN_ID, 0)))
 
 
 if __name__ == '__main__':

@@ -34,6 +34,9 @@ COMPRESS_JOIN_SECONDS = 10.0
 DELIVERED = 'delivered'
 RETRY = 'retry'
 REJECTED = 'rejected'
+# What a sink answers for a whole group of records that the destination refused without saying which one is at fault:
+# the worker sends smaller groups until it finds the record
+SPLIT = 'split'
 
 # macOS only: the call that makes the drive empty its own cache, which fsync does not do there
 _FULLSYNC = getattr(fcntl, 'F_FULLFSYNC', None)
@@ -214,6 +217,15 @@ class Sink:
         #. formatter (None, str, callable): How a record becomes text. None gives JSON, see
            :func:`pysimplelog.formatters.resolve_formatter` for the other values.
         #. terminator (str): Text appended to every rendered record. The default is a newline.
+        #. batchSize (int): Largest number of records handed to :meth:`write_batch` in one call. 1, the default, delivers
+           one record at a time with :meth:`write`. A larger value needs :meth:`write_batch`, and is used by the worker of a
+           threaded sink, and by the worker of a spool.
+        #. batchInterval (int, float): Seconds a worker waits for a group to fill, counted from its first record, before it
+           sends what it has. 0 sends what is waiting at once. A group that is already full, or a flush, never waits.
+        #. captureTrace (bool): True makes the logger record the identifiers of the active OpenTelemetry span in
+           ``record.trace``, for a sink that sends its records to a tracing backend. The built-in formats never write them,
+           so this changes the output of no other sink. It needs the OpenTelemetry API package, without it one warning is
+           written when the sink is added and the records go without identifiers. It cannot change after the sink is made.
 
     .. code-block:: python
 
@@ -232,9 +244,25 @@ class Sink:
     # Names of the attributes that say where the records go, for example ('host', 'port'). Not credentials
     SPOOL_DESTINATION = ()
 
-    def __init__(self, formatter=None, terminator='\n'):
+    def __init__(self, formatter=None, terminator='\n', captureTrace=False, batchSize=1, batchInterval=0.0):
         if not isinstance(terminator, str):
             raise TypeError("terminator must be a string")
+        if not isinstance(captureTrace, bool):
+            raise TypeError("captureTrace must be a boolean")
+        if not isinstance(batchSize, int) or isinstance(batchSize, bool):
+            raise TypeError("batchSize must be a positive integer")
+        if batchSize < 1:
+            raise ValueError(f"batchSize must be positive, got {batchSize}")
+        if not isinstance(batchInterval, (int, float)) or isinstance(batchInterval, bool):
+            raise TypeError("batchInterval must be a number")
+        if batchInterval < 0:
+            raise ValueError(f"batchInterval cannot be negative, got {batchInterval}")
+        if batchSize > 1 and type(self).write_batch is Sink.write_batch:
+            raise TypeError(f"{type(self).__name__} sets batchSize above 1 and must implement write_batch")
+        self.__captureTrace = captureTrace
+        self.__batchSize = batchSize
+        self.__batchInterval = batchInterval
+        self.__latencyCalls = 0
         self.__renderer = resolve_formatter(formatter)
         self.__terminator = terminator
         self.__statsLock = threading.Lock()
@@ -249,6 +277,21 @@ class Sink:
     def _reset_after_fork(self):
         """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
         self.__statsLock = threading.Lock()
+
+    @property
+    def captureTrace(self):
+        """True when the logger records the identifiers of the active trace for this sink."""
+        return self.__captureTrace
+
+    @property
+    def batchSize(self):
+        """Largest number of records delivered in one call. 1 means one at a time."""
+        return self.__batchSize
+
+    @property
+    def batchInterval(self):
+        """Seconds a worker waits for a group of records to fill before it sends what it has."""
+        return self.__batchInterval
 
     def set_formatter(self, formatter):
         """
@@ -268,11 +311,12 @@ class Sink:
     def stats(self):
         """
         Dictionary with what the sink did: the counts ``processed`` and ``failed``, ``last_error`` (the last exception,
-        or None), and ``latency_mean`` and ``latency_max``, the seconds it took to render and write a record that
-        went through (None for the mean while nothing has).
+        or None), and ``latency_mean`` and ``latency_max``, the seconds it took to render and write one delivery call
+        that went through (None for the mean while nothing has). A call delivers one record, or a whole group for a sink with
+        a ``batchSize`` above 1. ``processed`` counts records, and ``failed`` counts failed attempts.
         """
         with self.__statsLock:
-            mean = self.__latencyTotal / self.__processed if self.__processed > 0 else None
+            mean = self.__latencyTotal / self.__latencyCalls if self.__latencyCalls > 0 else None
             return {'processed': self.__processed, 'failed': self.__failed, 'last_error': self.__lastError,
                     'latency_mean': mean, 'latency_max': self.__latencyMax}
 
@@ -309,6 +353,10 @@ class Sink:
         except Exception as error:
             self._record_failure(error)
             return RETRY
+        if isinstance(written, str) and written == SPLIT:
+            # A group of one that the destination refuses cannot be split, so this record can never be delivered
+            self._record_failure(None)
+            return REJECTED
         if written is False:
             # The sink gave up on this record and has already reported it in its own way, so no warning is added
             self._record_failure(None)
@@ -316,6 +364,7 @@ class Sink:
         elapsed = time.perf_counter() - started
         with self.__statsLock:
             self.__processed += 1
+            self.__latencyCalls += 1
             self.__isFailing = False
             self.__latencyTotal += elapsed
             if elapsed > self.__latencyMax:
@@ -337,7 +386,93 @@ class Sink:
         :Raises:
             #. NotImplementedError: Always, in this base class.
         """
+        if type(self).write_batch is not Sink.write_batch:
+            return self.write_batch([(text, record)])
         raise NotImplementedError(f"{type(self).__name__} must implement write")
+
+    def write_batch(self, items):
+        """
+        Delivers a group of rendered records to the destination in one go. A sink that sets *batchSize* above 1 implements
+        this.
+
+        :Parameters:
+            #. items (list): The group, oldest first, as tuples ``(text, record)``: the rendered record with its terminator,
+               and the record that was rendered.
+
+        :Returns:
+            #. outcome (bool, str, None): ``False``, or an exception raised: nothing was delivered, the group is to be tried
+               again. ``SPLIT``: the destination refused the group as a whole, without saying which record is at fault, and
+               smaller groups are to be sent. None, or anything else: every record of the group was delivered.
+
+        :Raises:
+            #. NotImplementedError: Always, in this base class.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must implement write_batch")
+
+    def deliver_batch(self, records):
+        """
+        Renders a group of records and delivers them in one call, and says how it went for each. It never raises an exception.
+
+        A record whose formatter raises an exception is ``REJECTED`` on its own, the others are delivered. The records that
+        could be rendered share one outcome, the one of :meth:`write_batch`.
+
+        :Parameters:
+            #. records (list): The records, oldest first.
+
+        :Returns:
+            #. results (list): One result for each record, in the same order: ``DELIVERED``, ``RETRY`` (nothing was delivered
+               and trying again can work), ``REJECTED`` (this record can never be delivered), or ``SPLIT`` (the destination
+               refused the group as a whole, send smaller groups). The constants are in :mod:`pysimplelog.sinks`.
+        """
+        started = time.perf_counter()
+        results = [REJECTED] * len(records)
+        items, positions = [], []
+        for position, record in enumerate(records):
+            try:
+                text = self.__renderer(record) + self.__terminator
+            except Exception as error:
+                self._record_failure(error)
+                continue
+            items.append((text, record))
+            positions.append(position)
+        if len(items) == 0:
+            return results
+        try:
+            written = self.write_batch(items)
+        except Exception as error:
+            self._record_failure(error)
+            outcome = RETRY
+        else:
+            if isinstance(written, str) and written == SPLIT:
+                self._record_failure(None)
+                outcome = SPLIT
+            elif written is False:
+                self._record_failure(None)
+                outcome = RETRY
+            else:
+                outcome = DELIVERED
+        if outcome == DELIVERED:
+            elapsed = time.perf_counter() - started
+            with self.__statsLock:
+                self.__processed += len(items)
+                self.__latencyCalls += 1
+                self.__isFailing = False
+                self.__latencyTotal += elapsed
+                if elapsed > self.__latencyMax:
+                    self.__latencyMax = elapsed
+        for position in positions:
+            results[position] = outcome
+        return results
+
+    def emit_batch(self, records):
+        """
+        Delivers a group of records like :meth:`deliver_batch`, and leaves what failed: the records that were not delivered are
+        dropped, as :meth:`emit` does for one record. It never raises an exception.
+
+        :Parameters:
+            #. records (list): The records, oldest first.
+        """
+        self.deliver_batch(records)
 
     def spool_destination(self):
         """

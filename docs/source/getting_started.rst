@@ -314,6 +314,10 @@ What a value becomes, so that a line is always valid JSON and a record is never 
 * Any other value, a set, bytes or an object, is written as its ``repr`` text. A value whose ``repr`` raises is written as
   ``"<unprintable TypeName: ErrorClass>"``, never with the message of the error.
 
+A record can also carry the identifiers of the distributed trace it was made in (``record.trace``), for the sinks that send records to
+a tracing backend. They are **not** part of schema 1: the JSON, text and template formats never write them, so asking for them in one
+sink changes the output of no other.
+
 Filters
 -------
 
@@ -497,6 +501,224 @@ Things to know:
   delete because another program has it open, a virus scanner for example, is deleted at a later acknowledgement and does
   not stop the sink. The author could only run the Windows path through the continuous integration of the repository
   (``.github/workflows/tests.yml``), see its results before relying on it.
+
+Sending records in groups
+-------------------------
+
+A destination that takes many records in one request, an HTTP endpoint for example, is far cheaper to feed in groups. A sink
+asks for this with ``batchSize`` and implements ``write_batch`` instead of ``write``:
+
+.. code-block:: python
+
+    from pysimplelog import Sink
+    from pysimplelog.sinks import SPLIT
+
+    class BulkSink(Sink):
+        def __init__(self, url):
+            super().__init__(formatter="json", batchSize=500, batchInterval=1.0)
+            self.url = url
+
+        def write_batch(self, items):            ## items: [(text, record), ...], oldest first
+            status = post(self.url, [text for text, record in items])
+            if status == 400:
+                return SPLIT                     ## refused as a whole, without saying which record is at fault
+            if status != 200:
+                return False                     ## try the whole group again later
+            ## returning nothing says every record was delivered
+
+    logger.add_sink("bulk", BulkSink("https://bulk.example.org/ingest"), threaded=True)
+
+The worker of a ``threaded`` sink waits for the first record, then up to ``batchInterval`` seconds, counted from that first record,
+for the group to fill to ``batchSize``, and sends what it has. A group that is already full, which is what a backlog
+makes, goes at once, and so do ``logger.flush()``, removing the sink and leaving the program: none of them waits for the
+interval. A sink that is not threaded gets one record at a time through ``write_batch``, because there is nothing to group.
+
+With a spool, the same happens, and the records stay on disk until the group is delivered:
+
+* A group that fails is sent again whole, after the growing wait, and nothing after it is sent first. With ``maxAttempts`` set,
+  the records of a group that failed that many times go to the ``dead`` file.
+* ``SPLIT`` makes the worker send the group in two halves, the first half first, and so on, until the one record the
+  destination refuses is alone. That record goes to the ``dead`` file and all the others are delivered, in order.
+* A record the formatter cannot render goes to the ``dead`` file on its own, and the rest of its group is sent.
+* A crash can make the records of the last group arrive twice, and each record keeps its ``event_id``.
+
+``logger.sink_stats(name)["delivery"]`` counts ``processed`` records, ``failed`` attempts (a group that fails counts once),
+and the latency of a delivery call, which is one call for a whole group.
+
+OpenTelemetry logs (OTLP)
+-------------------------
+
+``pysimplelog.contrib.otlp_sink`` sends records to an OpenTelemetry Collector, or to any backend that accepts OTLP over HTTP, with
+the standard library only. It is optional: nothing in the core imports it.
+
+.. code-block:: python
+
+    from pysimplelog import Logger
+    from pysimplelog.contrib.otlp_sink import attach
+
+    logger = Logger("orders")
+    attach(logger, "https://collector.example.org:4318",
+           headers={"Authorization": "Bearer <token>"},
+           resource={"service.name": "orders", "deployment.environment": "production"},
+           compress=True)
+    logger.error("Payment failed", order_id=123)
+
+``attach`` adds one sink and makes it ``threaded``, so a log call never waits for the network. It is the same as
+``logger.add_sink(name, OtlpLogSink(...), threaded=True)``. To keep the records through a collector that is down, or a crash, give it
+a spool, as for any sink:
+
+.. code-block:: python
+
+    MB = 1024 ** 2
+    attach(logger, "https://collector.example.org:4318", resource={"service.name": "orders"},
+           spool={"path": "/var/spool/orders/otel",   ## fixed in the application, the same in every run
+                  "id": "orders-otel", "maxBytes": 50 * MB, "totalMaxBytes": 200 * MB})
+
+What is sent
+~~~~~~~~~~~~
+
+Records are sent in groups: up to ``batchSize`` (512) records, or what has arrived after ``batchInterval`` (1 second), whichever comes
+first. These are the defaults of the OpenTelemetry SDKs. ``logger.flush()``, removing the sink and leaving the program send what is
+waiting at once. Each record becomes one OTLP log record, with the names of the OpenTelemetry semantic conventions:
+
+=========================  ================================================================================================
+OTLP                       From the record
+=========================  ================================================================================================
+``timeUnixNano``           ``timestamp``, exact to the microsecond
+``observedTimeUnixNano``   the moment the group is sent
+``severityNumber``         the log type: debug 5, info 9, warn 13, error 17, critical 21; any other name 9, or what you give
+``severityText``           ``severity``, the display name of the log type
+``body``                   the message
+``traceId``, ``spanId``    the active span, see below
+``log.record.uid``         the field ``event_id``, the identifier a spool adds, by which a receiver can drop a repeat
+``process.pid``            the process
+``thread.id``, ``name``    the thread
+``code.file.path`` ...     the caller, when the logger has ``callerInfo=True``
+``exception.*``            the exception: type, message and stack trace
+other attributes           the context, then the fields (a field replaces a context value of the same name)
+scope name                 the logger name
+resource                   the ``resource`` you give, and ``telemetry.sdk.name``, ``.language`` and ``.version``
+=========================  ================================================================================================
+
+A field named like one of the attributes above is kept under ``fields.<name>``, and a context value under ``context.<name>``, so
+nothing is lost and nothing replaces what the encoder writes. Values are converted as for JSON: integers as text when OTLP says so,
+``NaN`` and ``Infinity`` as text, bytes as base64, nested dictionaries and lists as OTLP values, anything else as its ``repr``.
+Without a ``service.name`` in *resource* the receiver shows ``unknown_service``. This is the request for one record:
+
+.. otlp-example-start
+
+.. code-block:: json
+
+    {
+      "resourceLogs": [
+        {
+          "resource": {
+            "attributes": [
+              {"key": "telemetry.sdk.name", "value": {"stringValue": "pysimplelog"}},
+              {"key": "telemetry.sdk.language", "value": {"stringValue": "python"}},
+              {"key": "telemetry.sdk.version", "value": {"stringValue": "6.0.0"}},
+              {"key": "service.name", "value": {"stringValue": "orders"}},
+              {"key": "deployment.environment", "value": {"stringValue": "production"}}
+            ]
+          },
+          "scopeLogs": [
+            {
+              "scope": {
+                "name": "orders"
+              },
+              "logRecords": [
+                {
+                  "timeUnixNano": "1791311512123456000",
+                  "severityNumber": 17,
+                  "severityText": "ERROR",
+                  "body": {
+                    "stringValue": "Payment failed"
+                  },
+                  "attributes": [
+                    {"key": "log.record.uid", "value": {"stringValue": "slot-7"}},
+                    {"key": "process.pid", "value": {"intValue": "4321"}},
+                    {"key": "thread.id", "value": {"intValue": "140234"}},
+                    {"key": "thread.name", "value": {"stringValue": "worker-3"}},
+                    {"key": "code.file.path", "value": {"stringValue": "billing.py"}},
+                    {"key": "code.function.name", "value": {"stringValue": "orders.billing.charge"}},
+                    {"key": "code.line.number", "value": {"intValue": "42"}},
+                    {"key": "exception.type", "value": {"stringValue": "PaymentError"}},
+                    {"key": "exception.message", "value": {"stringValue": "card declined"}},
+                    {"key": "exception.stacktrace", "value": {"stringValue": "Traceback (most recent call last):\n  File \"billing.py\", line 42, in charge\nPaymentError: card declined"}},
+                    {"key": "request_id", "value": {"stringValue": "r-77"}},
+                    {"key": "order_id", "value": {"intValue": "123"}},
+                    {"key": "amount", "value": {"doubleValue": 12.5}}
+                  ],
+                  "flags": 1,
+                  "traceId": "0af7651916cd43dd8448eb211c80319c",
+                  "spanId": "b7ad6b7169203331",
+                  "observedTimeUnixNano": "1790000000000000000"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+
+.. otlp-example-end
+
+Trace correlation
+~~~~~~~~~~~~~~~~~
+
+When the package ``opentelemetry-api`` is installed, the sink records the identifiers of the active span in each record, so that the
+backend can open the trace from the log line. This is read when the log call is made, in the calling thread, because the thread of
+the sink does not know the span. The identifiers are kept with the record, also in the spool, so a record sent after a restart
+carries its own trace. No other sink changes: the built-in formats never write them. ``captureTrace=False`` switches it off, and
+``captureTrace=True`` asks for it and warns once if the package is missing. The default does it when the package is there and says
+nothing when it is not.
+
+When the receiver does not take a group
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The sink follows the OTLP/HTTP specification, with one difference, in the last row:
+
+==========================================  ==========================================================================================
+The receiver                                The sink
+==========================================  ==========================================================================================
+takes it (any 2xx)                          Delivered. A ``partialSuccess`` that names refused records is counted and warned about
+                                            once, and the group is not sent again.
+is busy or not reachable (429, 502, 503,    Tries again at once, ``maxRetries`` times (2), after the ``Retry-After`` wait or a growing
+504, no answer)                             wait with jitter. Then it gives the group back: a spool keeps it and tries again, for
+                                            ever unless ``maxAttempts`` is set, and without a spool it is dropped and counted.
+refuses the payload (400, 413, 422)         Cuts the group in two, and again, until the record at fault is alone. That one goes to the
+                                            ``dead`` file of the spool, and the others are delivered.
+anything else (401, 403, 404, 500 ...)      The specification says never to retry. The sink does not retry at once and warns once.
+                                            With a spool the records **wait** for you to fix the address or the token, and are not
+                                            thrown away.
+==========================================  ==========================================================================================
+
+The connection is kept open between requests, a redirect is not followed (it could send your token to another host), and the proxy
+settings of the environment are not used. The token in *headers* is never written to a log line, to the spool, or to the identity
+that decides which sink may take over a spool.
+
+Watching it
+~~~~~~~~~~~
+
+``logger.sink_stats("otlp")["delivery"]`` has ``sent`` (records the receiver took), ``batches``, ``bytes`` (of the JSON bodies, before
+compression), ``partial_rejected``, ``retries``, ``refused``, ``errors`` (answers the protocol does not retry) and ``last_status``,
+with ``processed``, ``failed`` and the latency of every sink. ``["spool"]`` says what is waiting on disk.
+
+Things to know
+~~~~~~~~~~~~~~
+
+* Without ``threaded=True`` every log call waits for the network. ``attach`` sets it for you.
+* The spool names its identifier field ``event_id``. If you change ``eventIdField`` in the spool settings, give the sink the same
+  ``eventIdField``, or the records go without ``log.record.uid``.
+* A formatter set on this sink changes nothing: it makes its own body.
+* ``compress=True`` is worth it for a collector that is not on the same machine: the body of 512 records is about 90 times smaller
+  for records that look alike. A body of unlike records compresses less.
+* The sink delivers logs. It does not export metrics or traces, it does not speak gRPC, and it sends JSON and not protobuf.
+
+The encoder and the transport were compared with the official OpenTelemetry Python encoder (the protobuf messages are equal) and
+checked against the OpenTelemetry Collector 0.162.0 in a container: ``examples/12_real_collector_check.py`` does it again. The cost
+on this author's machine was 7 microseconds for a log call without a spool and 47 with one, and about 39,000 records a second
+without a spool and 19,000 with one to a receiver on the same machine: ``benchmarks/bench_otlp.py`` measures it on yours.
 
 API stability
 -------------

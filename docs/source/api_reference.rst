@@ -66,3 +66,26 @@ console, UDP, TCP, and HTTP collectors.
     :members:
     :undoc-members:
     :show-inheritance:
+
+OpenTelemetry Logs (pysimplelog.contrib)
+----------------------------------------
+
+Optional, zero-mandatory-dependency add-on for sending log records to an OpenTelemetry Collector, or to any backend that accepts OTLP
+over HTTP. See :doc:`getting_started` for the example, the mapping of a record, and what happens when the receiver does not take a
+group, or ``examples/11_opentelemetry_logs.py`` for a script that runs as it is.
+
+.. automodule:: pysimplelog.contrib.otlp_sink
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.contrib.otlp_encoder
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.contrib.otlp_transport
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.tracing
+    :members:
+    :show-inheritance:

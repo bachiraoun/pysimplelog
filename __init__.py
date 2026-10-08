@@ -23,7 +23,7 @@ Python's site-packages directory.
 try:
     from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from .simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
-    from .record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
     from .processors import add_context, redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
@@ -35,7 +35,7 @@ try:
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
     from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
-    from record import LogRecord, ExceptionInfo, CallerInfo, validate_record
+    from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from formatters import JsonFormatter, TextFormatter, TemplateFormatter, register_formatter, resolve_formatter
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
     from processors import add_context, redact_fields, redact_text, DEFAULT_SENSITIVE_NAMES
@@ -47,7 +47,7 @@ except ImportError:
 
 __all__ = [
     'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK',
-    'LogRecord', 'ExceptionInfo', 'CallerInfo', 'validate_record',
+    'LogRecord', 'ExceptionInfo', 'CallerInfo', 'TraceInfo', 'validate_record',
     'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'register_formatter', 'resolve_formatter',
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
     'add_context', 'redact_fields', 'redact_text', 'DEFAULT_SENSITIVE_NAMES',

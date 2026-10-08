@@ -26,6 +26,7 @@ from simple_log import Logger  # noqa: E402
 from sinks import Sink, StreamSink, ConsoleSink  # noqa: E402
 from spool import Spool, SpoolConfig  # noqa: E402
 from queues import QueueFull  # noqa: E402
+from record import TraceInfo  # noqa: E402
 from contrib import siem_sink, siem_transport  # noqa: E402
 
 # Seconds a test waits for something that must happen
@@ -331,6 +332,47 @@ class TestEventId(DurableTestCase):
         logger.info('hello')
         logger.flush(timeout=WAIT_SECONDS)
         self.assertRegex(written[0]['fields']['event_id'], r'^\d{8}T\d{6}-\d+-[0-9a-f]{6}-1$')
+
+
+class TestTraceIsKept(DurableTestCase):
+
+    TRACE = TraceInfo('0af7651916cd43dd8448eb211c80319c', 'b7ad6b7169203331', 1)
+
+    def _spy(self):
+        seen = []
+        lock = threading.Lock()
+
+        class Spy(Collector):
+            def write(inner, text, record):
+                if not inner.up:
+                    return False
+                with lock:
+                    seen.append((record.message, record.trace, record.fields.get('event_id')))
+
+        return Spy(), seen
+
+    def test_the_sink_gets_the_trace_with_the_event_id(self):
+        sink, seen = self._spy()
+        logger, _ = self.make(sink=sink)
+        logger.add_processor(lambda record: record._replace(trace=self.TRACE))
+        logger.info('one')
+        logger.flush(timeout=WAIT_SECONDS)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][1], self.TRACE)
+        self.assertIsNotNone(seen[0][2])
+
+    def test_a_record_read_back_from_the_files_has_its_trace(self):
+        sink, seen = self._spy()
+        sink.up = False
+        logger, _ = self.make(sink=sink)
+        logger.add_processor(lambda record: record._replace(trace=self.TRACE if record.message != 'plain' else None))
+        for message in ('first', 'plain', 'third'):
+            logger.info(message)
+        wait_until(lambda: self.spool_stats(logger)['retries'] > 0, what='the first retries')
+        sink.up = True
+        logger.flush(timeout=WAIT_SECONDS)
+        self.assertEqual([(message, trace) for message, trace, _ in seen],
+                         [('first', self.TRACE), ('plain', None), ('third', self.TRACE)])
 
 
 class TestFailures(DurableTestCase):

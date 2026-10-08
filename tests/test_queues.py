@@ -347,5 +347,158 @@ class TestManyThreads(unittest.TestCase):
         self.assertTrue(all(results))
 
 
+class TestGetBatch(unittest.TestCase):
+
+    @staticmethod
+    def is_marker(item):
+        return item == 'MARK'
+
+    def test_what_is_waiting_is_taken_at_once_up_to_the_limit(self):
+        q = BoundedQueue()
+        for number in range(10):
+            q.put(number)
+        started = time.monotonic()
+        items, marker = q.get_batch(4, 5.0, self.is_marker)
+        self.assertEqual((items, marker), ([0, 1, 2, 3], None))
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(q.depth, 6)
+
+    def test_a_group_smaller_than_the_limit_waits_for_the_linger_and_no_longer(self):
+        q = BoundedQueue()
+        q.put('a')
+        started = time.monotonic()
+        items, marker = q.get_batch(10, 0.2, self.is_marker)
+        elapsed = time.monotonic() - started
+        self.assertEqual((items, marker), (['a'], None))
+        self.assertTrue(0.15 < elapsed < 1.5, elapsed)
+
+    def test_the_linger_counts_from_the_first_item_and_not_from_each_one(self):
+        q = BoundedQueue()
+        q.put(0)
+
+        def feed():
+            for number in range(1, 20):
+                time.sleep(0.03)
+                q.put(number)
+        thread = threading.Thread(target=feed)
+        thread.start()
+        started = time.monotonic()
+        items, _ = q.get_batch(1000, 0.3, self.is_marker)
+        elapsed = time.monotonic() - started
+        thread.join(5)
+        self.assertTrue(0.25 < elapsed < 1.0, elapsed)
+        self.assertEqual(items, list(range(len(items))))
+        self.assertGreater(len(items), 3)
+
+    def test_the_group_ends_as_soon_as_it_is_full_without_waiting_for_the_linger(self):
+        q = BoundedQueue()
+        q.put(0)
+
+        def feed():
+            time.sleep(0.05)
+            for number in range(1, 5):
+                q.put(number)
+        thread = threading.Thread(target=feed)
+        thread.start()
+        started = time.monotonic()
+        items, _ = q.get_batch(5, 30.0, self.is_marker)
+        thread.join(5)
+        self.assertEqual(items, [0, 1, 2, 3, 4])
+        self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_a_marker_ends_the_group_at_once_and_is_returned_apart(self):
+        q = BoundedQueue()
+        q.put('a')
+        q.put('b')
+        q.put('MARK')
+        q.put('c')
+        started = time.monotonic()
+        items, marker = q.get_batch(10, 30.0, self.is_marker)
+        self.assertEqual((items, marker), (['a', 'b'], 'MARK'))
+        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertEqual(q.get(), 'c')
+
+    def test_a_marker_that_arrives_during_the_wait_ends_it(self):
+        q = BoundedQueue()
+        q.put('a')
+        threading.Timer(0.1, lambda: q.put_last('MARK')).start()
+        started = time.monotonic()
+        items, marker = q.get_batch(10, 30.0, self.is_marker)
+        self.assertEqual((items, marker), (['a'], 'MARK'))
+        self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_a_marker_first_gives_an_empty_group(self):
+        q = BoundedQueue()
+        q.put_last('MARK')
+        q.put('a')
+        self.assertEqual(q.get_batch(10, 30.0, self.is_marker), ([], 'MARK'))
+        self.assertEqual(q.get(), 'a')
+
+    def test_the_first_item_is_waited_for_and_the_timeout_applies_to_it(self):
+        q = BoundedQueue()
+        started = time.monotonic()
+        with self.assertRaises(queue.Empty):
+            q.get_batch(10, 5.0, self.is_marker, timeout=0.1)
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_a_group_of_one_with_no_linger_behaves_like_get(self):
+        q = BoundedQueue()
+        q.put('a')
+        q.put('b')
+        self.assertEqual(q.get_batch(1, 0, self.is_marker), (['a'], None))
+
+    def test_every_item_taken_needs_its_task_done(self):
+        q = BoundedQueue()
+        for number in range(3):
+            q.put(number)
+        q.put_last('MARK')
+        items, marker = q.get_batch(10, 0, self.is_marker)
+        self.assertFalse(q.join(timeout=0.05))
+        for _ in range(len(items) + 1):
+            q.task_done()
+        self.assertTrue(q.join(timeout=1))
+
+    def test_producers_blocked_on_a_full_queue_get_in_while_a_group_waits_to_fill(self):
+        q = BoundedQueue(maxSize=2, policy='block')
+        q.put('a')
+        q.put('b')
+        results = []
+        thread = threading.Thread(target=lambda: results.append(q.put('c')))
+        thread.start()
+        time.sleep(0.05)
+        started = time.monotonic()
+        items, _ = q.get_batch(10, 0.6, self.is_marker)
+        thread.join(5)
+        self.assertEqual((results, items), ([True], ['a', 'b', 'c']))
+        self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_many_producers_and_a_group_worker_lose_nothing(self):
+        q = BoundedQueue(maxSize=8, policy='block')
+        received = []
+
+        def consume():
+            while True:
+                items, marker = q.get_batch(7, 0.01, self.is_marker)
+                received.extend(items)
+                for _ in range(len(items) + (marker is not None)):
+                    q.task_done()
+                if marker is not None:
+                    return
+
+        consumer = threading.Thread(target=consume)
+        consumer.start()
+        threads = [threading.Thread(target=lambda n=n: [q.put((n, i)) for i in range(300)]) for n in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        q.put_last('MARK')
+        consumer.join(30)
+        self.assertEqual(len(received), 1800)
+        self.assertEqual(len(set(received)), 1800)
+        for n in range(6):
+            self.assertEqual([i for who, i in received if who == n], list(range(300)))
+
+
 if __name__ == '__main__':
     unittest.main()

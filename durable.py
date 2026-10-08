@@ -8,15 +8,13 @@ from types import MappingProxyType
 
 try:
     from .queues import BoundedQueue, QueueFull
-    from .record import LogRecord
     from .forking import register_for_fork_reset
-    from .sinks import DELIVERED, REJECTED, ensure_spoolable
+    from .sinks import DELIVERED, REJECTED, SPLIT, ensure_spoolable
     from .spool import Spool, SpoolError, SpoolBusyError, SpoolMismatchError, target_id
 except ImportError:
     from queues import BoundedQueue, QueueFull
-    from record import LogRecord
     from forking import register_for_fork_reset
-    from sinks import DELIVERED, REJECTED, ensure_spoolable
+    from sinks import DELIVERED, REJECTED, SPLIT, ensure_spoolable
     from spool import Spool, SpoolError, SpoolBusyError, SpoolMismatchError, target_id
 
 # Records read from the files in one go when the worker has to catch up
@@ -32,12 +30,21 @@ class _Stop:
     """The marker that tells the worker to end."""
 
 
+class _Flush:
+    """The marker that tells the worker of a sink that sends groups to send what it has now, and not wait for the group to fill."""
+
+
 class _AdoptRequest:
     """A request, made by a caller, to send what other slots hold, with the event that tells the caller it is over."""
 
     def __init__(self):
         self.done = threading.Event()
         self.result = None
+
+
+def _is_control(item):
+    """True for the items of the queue of hints that end a group of records: they are not records."""
+    return isinstance(item, (_Stop, _AdoptRequest, _Flush))
 
 
 def resolve_target_id(handler, config):
@@ -174,6 +181,9 @@ class DurableDelivery:
         """
         if self._is_child():
             return False
+        if self.__handler.batchSize > 1:
+            # The worker may be waiting for its group to fill, this makes it send what it has now
+            self.__hints.put_last(_Flush())
         try:
             return self.__spool.wait_empty(timeout)
         except SpoolError:
@@ -256,17 +266,25 @@ class DurableDelivery:
 
     def _run(self):
         """The loop of the worker: serve the hints, and when idle send what other slots hold."""
+        handler = self.__handler
+        isGrouped = handler.batchSize > 1
         while True:
             timeout = None
             if self.__config.adoptOrphans:
                 timeout = 0 if self.__hasMoreToAdopt else self.__config.adoptInterval
             try:
-                hint = self.__hints.get(timeout=timeout)
+                if isGrouped:
+                    # A group of hints ends when it is full, when the batch interval is over, or at a marker
+                    group, hint = self.__hints.get_batch(handler.batchSize, handler.batchInterval, _is_control, timeout=timeout)
+                else:
+                    group, hint = [], self.__hints.get(timeout=timeout)
             except queue.Empty:
                 self._guarded(self._ack_pending)
                 self._guarded(lambda: self._adopt_idle())
                 continue
             try:
+                if len(group) > 0:
+                    self._guarded(lambda: self._serve_group(group))
                 if isinstance(hint, _Stop):
                     self._guarded(self._ack_pending)
                     return
@@ -275,7 +293,8 @@ class DurableDelivery:
                     self._guarded(lambda: self._adopt_on_request(hint))
                     hint.done.set()
                     continue
-                self._guarded(lambda: self._serve(*hint))
+                if hint is not None and not isinstance(hint, _Flush):
+                    self._guarded(lambda: self._serve(*hint))
                 # A run of records is acknowledged once, when the hints run out or the run is long. The position on disk is only
                 # saved now and then anyway, so a crash resends the same records either way
                 if self.__hints.depth == 0 or self.__pendingCount >= ACK_RUN:
@@ -284,7 +303,8 @@ class DurableDelivery:
                 if self.__hints.depth == 0 and self.__spool.depth > 0:
                     self._guarded(self._catch_up)
             finally:
-                self.__hints.task_done()
+                for _ in range(len(group) + (0 if hint is None else 1)):
+                    self.__hints.task_done()
 
     def _guarded(self, work):
         """Runs a piece of work and keeps the worker alive whatever happens in it."""
@@ -308,22 +328,39 @@ class DurableDelivery:
             return
         self._catch_up()
 
+    def _serve_group(self, hints):
+        """
+        Delivers a group of records that were handed over, in one call, or catches up from the files when they are not the
+        next ones in a row.
+
+        :Parameters:
+            #. hints (list): The hints, as tuples ``(seq, record)``, oldest first.
+        """
+        fresh = [(seq, record) for seq, record in hints if seq >= self.__next]
+        if len(fresh) == 0:
+            return
+        isInRow = fresh[0][0] == self.__next and all(after[0] == before[0] + 1 for before, after in zip(fresh, fresh[1:]))
+        if not isInRow:
+            self._catch_up()
+            return
+        self._deliver_batch_in_order(self.__spool, fresh, isOnce=False, isDeferred=True)
+
     def _catch_up(self):
         """Reads the undelivered records from the files and delivers them in order, until none is left."""
         spool = self.__spool
         self._ack_pending()
+        limit = max(CATCH_UP_BATCH, self.__handler.batchSize)
         while not self.__stop.is_set():
-            records, upTo = spool.read_batch(limit=CATCH_UP_BATCH)
+            records, upTo = spool.read_batch(limit=limit)
             if len(records) == 0:
                 if upTo > spool.acked:
                     # What is left cannot be read, and is already counted as corrupt or lost
                     spool.ack(upTo)
                 self.__next = max(self.__next, spool.acked + 1)
                 return
-            for seq, record in records:
-                if not self._deliver_in_order(spool, seq, record, isOnce=False, isDeferred=True):
-                    self._ack_pending()
-                    return
+            if self._deliver_many(spool, records, isOnce=False, isDeferred=True) < len(records):
+                self._ack_pending()
+                return
             self._ack_pending()
 
     def _ack_pending(self):
@@ -378,6 +415,113 @@ class DurableDelivery:
                 break
         return False
 
+    def _deliver_many(self, spool, records, isOnce, isDeferred):
+        """
+        Delivers records read from the files, in order: one at a time, or in groups for a sink that sends groups.
+
+        :Parameters:
+            #. spool (Spool): The spool the records are in.
+            #. records (list): The records, as tuples ``(seq, record)``, oldest first.
+            #. isOnce (bool): True to give up the turn when a send fails, see :meth:`_deliver_in_order`.
+            #. isDeferred (bool): True to leave the acknowledgement to :meth:`_ack_pending`.
+
+        :Returns:
+            #. done (int): The number of records at the front that are delivered or parked.
+        """
+        size = self.__handler.batchSize
+        if size == 1:
+            for done, (seq, record) in enumerate(records):
+                if not self._deliver_in_order(spool, seq, record, isOnce=isOnce, isDeferred=isDeferred):
+                    return done
+            return len(records)
+        done = 0
+        for start in range(0, len(records), size):
+            group = records[start:start + size]
+            delivered = self._deliver_batch_in_order(spool, group, isOnce, isDeferred)
+            done += delivered
+            if delivered < len(group):
+                break
+        return done
+
+    def _deliver_batch_in_order(self, spool, items, isOnce, isDeferred=False):
+        """
+        Delivers a group of records in one call, and acknowledges them.
+
+        What the sink answers for each record decides what happens to it, in order: a record that went through is acknowledged, one
+        that can never be delivered is parked, and at the first one that must be tried again the rest of the group waits and is
+        sent again after a pause that doubles. A group the destination refused as a whole is cut in two, the first half first, until
+        the record at fault is alone and is parked. After *maxAttempts* failed sends, every record of the group is parked.
+
+        :Parameters:
+            #. spool (Spool): The spool the records are in.
+            #. items (list): The group, as tuples ``(seq, record)``, oldest first.
+            #. isOnce (bool): True to try once and give up the turn when a send fails, see :meth:`_deliver_in_order`.
+            #. isDeferred (bool): True to leave the acknowledgement to :meth:`_ack_pending`.
+
+        :Returns:
+            #. done (int): The number of records at the front of the group that are delivered or parked.
+        """
+        config = self.__config
+        done = 0
+        attempts = 0
+        while done < len(items) and not self.__stop.is_set():
+            remaining = items[done:]
+            results = self.__handler.deliver_batch([self._with_event_id(spool, seq, record) for seq, record in remaining])
+            walked = self._apply_results(spool, remaining, results, isDeferred)
+            done += walked
+            if done == len(items):
+                break
+            if results[walked] == SPLIT:
+                remaining = items[done:]
+                half = len(remaining) // 2
+                first = self._deliver_batch_in_order(spool, remaining[:half], isOnce, isDeferred)
+                done += first
+                if first == half:
+                    done += self._deliver_batch_in_order(spool, remaining[half:], isOnce, isDeferred)
+                return done
+            attempts += 1
+            self._count('retries')
+            if config.maxAttempts is not None and attempts >= config.maxAttempts:
+                for seq, record in items[done:]:
+                    self._park(spool, seq, record, f"not delivered after {attempts} attempts", isDeferred)
+                return len(items)
+            if isOnce:
+                return done
+            if isDeferred:
+                # The records before these are delivered, they must not wait for the end of the outage to be acknowledged
+                self._ack_pending()
+            wait = min(config.retryBackoffBase * (2 ** min(attempts - 1, 30)), config.retryBackoffMax)
+            if self.__stop.wait(wait):
+                break
+        return done
+
+    def _apply_results(self, spool, items, results, isDeferred):
+        """
+        Acknowledges or parks the records of a group, in order, up to the first one that has to be tried again or split.
+
+        :Returns:
+            #. walked (int): The number of records at the front that were delivered or parked.
+        """
+        walked = 0
+        lastDelivered = None
+        for (seq, record), result in zip(items, results):
+            if result == DELIVERED:
+                lastDelivered = seq
+                if isDeferred:
+                    self.__pendingSeq = seq
+                    self.__pendingCount += 1
+                    self.__next = seq + 1
+            elif result == REJECTED:
+                self._park(spool, seq, record, 'the formatter could not render the record', isDeferred)
+            elif result == SPLIT and len(items) == 1:
+                self._park(spool, seq, record, 'the destination refused the record', isDeferred)
+            else:
+                break
+            walked += 1
+        if not isDeferred and lastDelivered is not None and lastDelivered > spool.acked:
+            spool.ack(lastDelivered)
+        return walked
+
     def _park(self, spool, seq, record, reason, isDeferred):
         """Puts a record that cannot be delivered in the ``dead`` file, which also acknowledges it and everything before."""
         spool.give_up(seq, record, reason)
@@ -390,9 +534,7 @@ class DurableDelivery:
         if name is None or name in record.fields:
             return record
         eventId = f"{os.path.basename(spool.path)}-{seq}"
-        return LogRecord(record.timestamp, record.severity, record.logType, record.level, record.logger, record.message,
-                         record.processId, record.threadId, record.threadName,
-                         MappingProxyType({**record.fields, name: eventId}), record.context, record.exception, record.caller)
+        return record._replace(fields=MappingProxyType({**record.fields, name: eventId}))
 
     # ------------------------------------------------------------------ other slots
 
@@ -464,16 +606,16 @@ class DurableDelivery:
         """
         sent = 0
         while sent < budget:
-            records, upTo = orphan.read_batch(limit=min(CATCH_UP_BATCH, budget - sent))
+            records, upTo = orphan.read_batch(limit=min(max(CATCH_UP_BATCH, self.__handler.batchSize), budget - sent))
             if len(records) == 0:
                 if upTo > orphan.acked:
                     orphan.ack(upTo)
                 break
-            for seq, record in records:
-                if not self._deliver_in_order(orphan, seq, record, isOnce=True):
-                    return 'failed', sent
-                sent += 1
-                self._count('replayed')
+            done = self._deliver_many(orphan, records, isOnce=True, isDeferred=False)
+            sent += done
+            self._count('replayed', done)
+            if done < len(records):
+                return 'failed', sent
         else:
             return 'budget', sent
         if sent > 0:
@@ -482,10 +624,10 @@ class DurableDelivery:
 
     # ------------------------------------------------------------------ small helpers
 
-    def _count(self, name):
-        """Adds one to a counter."""
+    def _count(self, name, amount=1):
+        """Adds to a counter, one by default."""
         with self.__lock:
-            self.__counters[name] += 1
+            self.__counters[name] += amount
 
     def _warn_once(self, key, text):
         """Writes a warning the first time something happens, and never again for the same thing."""
