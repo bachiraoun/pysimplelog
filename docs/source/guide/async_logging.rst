@@ -52,6 +52,33 @@ to call ``flush()`` before the end.
 
     Logger("app", enqueue=True, shutdownTimeout=30)             ## wait up to 30 seconds at the end
 
+Using it with asyncio
+---------------------
+
+A log call is a plain function. Call it from ``async def`` code as it is, without ``await``:
+
+.. code-block:: python
+
+    async def handle(orderId):
+        log.info("order received", order_id=orderId)            ## no await
+
+There is no ``await log.info(...)`` and no second set of asynchronous methods. Three reasons:
+
+* **The call is too small to wait for.** A log call takes about 10 to 30 microseconds, and a record handed to a threaded
+  sink only goes into a queue. Awaiting that costs more than the work itself.
+* **A thread already does the waiting.** A slow sink given ``threaded=True`` is written by its own thread, so the event
+  loop is never held. This needs no ``asyncio``.
+* **One simple API.** Asynchronous methods would double what has to be kept, force every caller to be asynchronous (a
+  plain function, a signal handler or a ``__del__`` cannot await), and tie the library to one event loop. Nothing runs in
+  the background unless you ask for it with ``threaded=True`` or ``enqueue=True``.
+
+What to do in asynchronous code:
+
+* Give every slow sink, a network or a slow disk, ``threaded=True``, so the loop never waits for it. A sink without a
+  thread is written inside the call, which is fine for the console and for a local file at a moderate rate.
+* ``context(...)`` keeps its values for each task, see :doc:`context`.
+* ``flush()`` waits, so in a coroutine run it in a thread: ``await asyncio.to_thread(log.flush)``.
+
 Good to know
 ------------
 
