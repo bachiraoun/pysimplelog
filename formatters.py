@@ -195,6 +195,21 @@ def _require_record(record):
         raise TypeError(f"formatter needs a LogRecord, got {type(record).__name__}")
 
 
+# Texts that repeat from one record to the next. Each cache holds this many entries at most, and starts again when full,
+# so a program with an endless variety of names cannot make it grow
+MAX_CACHED_TEXTS = 512
+_IDENTITY_TEXTS = {}
+_ORIGIN_TEXTS = {}
+_KEY_TEXTS = {}
+
+
+def _remember(cache, key, text):
+    """Keeps a text in a cache, emptying the cache first when it is full."""
+    if len(cache) >= MAX_CACHED_TEXTS:
+        cache.clear()
+    cache[key] = text
+
+
 def _json_scalar(value):
     """Returns the JSON text of a plain str, int, float, bool or None, and None for any other value."""
     kind = type(value)
@@ -227,7 +242,11 @@ def _mapping_to_json(mapping):
         if text is None:
             # One encoder call for the whole mapping is cheaper than one call per complex value
             return _dumps(dict(mapping))
-        entries.append(f"{encode_basestring_ascii(key)}:{text}")
+        keyText = _KEY_TEXTS.get(key)
+        if keyText is None:
+            keyText = encode_basestring_ascii(key)
+            _remember(_KEY_TEXTS, key, keyText)
+        entries.append(f"{keyText}:{text}")
     return '{' + ','.join(entries) + '}'
 
 
@@ -280,15 +299,39 @@ class JsonFormatter:
             #. TypeError: If record is not a LogRecord.
         """
         _require_record(record)
-        items = self._fixed_items(record, record.timestamp.astimezone(timezone.utc) if self.__utc else record.timestamp)
-        if self.__flatten:
-            items.extend(self._flat_items(record))
-        else:
-            if len(record.context) > 0:
-                items.append(f'"context":{_mapping_to_json(record.context)}')
-            if len(record.fields) > 0:
-                items.append(f'"fields":{_mapping_to_json(record.fields)}')
-        return '{' + ','.join(items) + '}'
+        timestamp = record.timestamp.astimezone(timezone.utc) if self.__utc else record.timestamp
+        if self.__flatten or record.exception is not None or record.caller is not None:
+            items = self._fixed_items(record, timestamp)
+            if self.__flatten:
+                items.extend(self._flat_items(record))
+            else:
+                if len(record.context) > 0:
+                    items.append(f'"context":{_mapping_to_json(record.context)}')
+                if len(record.fields) > 0:
+                    items.append(f'"fields":{_mapping_to_json(record.fields)}')
+            return '{' + ','.join(items) + '}'
+        # The usual record: what names the log type and the logger, and what names the process and the thread, repeats
+        identityKey = (record.severity, record.logType, record.level, record.logger)
+        identity = _IDENTITY_TEXTS.get(identityKey)
+        if identity is None:
+            level = 'null' if record.level is None else _json_value(record.level)
+            identity = (f'"severity":{encode_basestring_ascii(record.severity)},'
+                        f'"log_type":{encode_basestring_ascii(record.logType)},"level":{level},'
+                        f'"logger":{encode_basestring_ascii(record.logger)}')
+            _remember(_IDENTITY_TEXTS, identityKey, identity)
+        originKey = (record.processId, record.threadId, record.threadName)
+        origin = _ORIGIN_TEXTS.get(originKey)
+        if origin is None:
+            origin = (f'"process":{{"id":{record.processId}}},'
+                      f'"thread":{{"id":{record.threadId},"name":{encode_basestring_ascii(record.threadName)}}}')
+            _remember(_ORIGIN_TEXTS, originKey, origin)
+        text = (f'{{"schema":{SCHEMA_VERSION},"timestamp":"{_format_timestamp(timestamp)}",{identity},'
+                f'"message":{encode_basestring_ascii(record.message)},{origin}')
+        if len(record.context) > 0:
+            text += f',"context":{_mapping_to_json(record.context)}'
+        if len(record.fields) > 0:
+            text += f',"fields":{_mapping_to_json(record.fields)}'
+        return text + '}'
 
     @staticmethod
     def _fixed_items(record, timestamp):

@@ -22,6 +22,7 @@ MANIFEST.in
 *.log
 
 # sub packages
+/benchmarks/results
 /docs/build
 /docs/_build
 .idea
