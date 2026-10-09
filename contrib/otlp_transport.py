@@ -1,4 +1,6 @@
 """
+Sends the JSON of an OpenTelemetry logs request over HTTP or HTTPS, and reports how the receiver answered, without ever raising for a network problem.
+
 Sends OTLP/JSON logs requests over HTTP or HTTPS with the standard library only, and says how the receiver answered.
 
 The transport decides nothing about what to do with an answer: it classifies it, and the sink chooses. It never raises for a
@@ -61,7 +63,7 @@ FIXED_HEADERS = frozenset({'content-type', 'content-encoding', 'content-length',
 
 class OtlpResponse(NamedTuple):
     """
-    How the receiver answered one request.
+    How the receiver answered one request: accepted, worth retrying, or refused.
 
     :Parameters:
         #. outcome (str): ``OK``, ``RETRY``, ``REFUSED`` or ``ERROR``, see the table of the module.
@@ -87,7 +89,7 @@ def _one_line(text, limit=200):
 
 def parse_retry_after(value, now=None):
     """
-    Reads the ``Retry-After`` header, a number of seconds or an HTTP date.
+    Reads the ``Retry-After`` header, which tells you how long to wait before trying again.
 
     :Parameters:
         #. value (str, None): The header.
@@ -129,7 +131,7 @@ def _is_local_host(host):
 
 class OtlpHttpTransport:
     """
-    Posts OTLP/JSON logs requests to a receiver, keeping one connection open between requests.
+    Posts the requests to the receiver and keeps one connection open between them.
 
     :Parameters:
         #. endpoint (str): The address of the receiver, ``https://collector.example.org:4318``. The path ``/v1/logs`` is added to it.
@@ -222,13 +224,17 @@ class OtlpHttpTransport:
 
     @property
     def url(self):
-        """The full address requests are posted to, without the headers."""
+        """The full address the requests are posted to."""
         scheme = 'https' if self.__isSecure else 'http'
         host = f"[{self.__host}]" if ':' in self.__host else self.__host
         return f"{scheme}://{host}:{self.__port}{self.__path}"
 
     def describe_destination(self):
-        """Returns the protocol, the host, the port and the path, which make the receiver. The headers are left out, they hold a token."""
+        """
+        Says where it sends: the protocol, host, port and path, without the headers.
+
+        Returns the protocol, the host, the port and the path, which make the receiver. The headers are left out, they hold a token.
+        """
         return {'protocol': 'https' if self.__isSecure else 'http', 'host': self.__host, 'port': self.__port, 'path': self.__path}
 
     def _connect(self):
@@ -248,6 +254,8 @@ class OtlpHttpTransport:
 
     def send(self, body):
         """
+        Posts one request and says how the receiver answered.
+
         Posts a body to the receiver and says how it answered.
 
         A connection that the receiver closed while it was idle is replaced and the request is sent again at once, once. If the
@@ -320,7 +328,7 @@ class OtlpHttpTransport:
         return OtlpResponse(ERROR, status)
 
     def close(self):
-        """Closes the connection. Idempotent, and a send after it answers ``RETRY`` without trying."""
+        """Closes the connection. It is safe to call twice."""
         with self.__lock:
             self.__isClosed = True
             self._close_connection()

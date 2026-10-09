@@ -1,6 +1,4 @@
-"""
-Turns the plain-English values of Logger.add() into the numbers and sinks that the sink classes take.
-"""
+"""Lets ``logger.add()`` take everyday words such as ``"500 MB"`` and ``"30 days"``, and turns them into the numbers and objects the rest of the package needs."""
 
 import os
 import re
@@ -17,7 +15,7 @@ _AMOUNT_RE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*$')
 
 
 def _parse_amount(text, units, description):
-    """Returns the amount of a text such as ``500 MB`` in the base unit of *units*."""
+    """Reads a text such as ``500 MB`` and returns its number multiplied by the unit's value."""
     match = _AMOUNT_RE.match(text)
     if match is None or match.group(2).lower() not in units:
         raise ValueError(f"{description} must look like '500 MB' with a unit in {sorted(units)}, got {text!r}")
@@ -26,7 +24,13 @@ def _parse_amount(text, units, description):
 
 def parse_size(rotation):
     """
-    Converts the size at which a file is rotated into megabytes.
+    Turns a size into megabytes.
+
+    .. code-block:: python
+
+        parse_size("500 MB")       ## 500.0
+        parse_size("1 GB")         ## 1024.0
+        parse_size(10)             ## 10.0
 
     :Parameters:
         #. rotation (str, int, float): A text such as ``"500 MB"`` with the unit KB, MB or GB, or a number of megabytes.
@@ -47,7 +51,12 @@ def parse_size(rotation):
 
 def parse_duration(retention):
     """
-    Converts the age after which a rotated file is deleted into seconds.
+    Turns an age into seconds.
+
+    .. code-block:: python
+
+        parse_duration("30 days")     ## 2592000.0
+        parse_duration("2 hours")     ## 7200.0
 
     :Parameters:
         #. retention (str): A text such as ``"30 days"`` with the unit seconds, minutes, hours, days or weeks.
@@ -63,7 +72,12 @@ def parse_duration(retention):
 
 def build_file_sink(path, formatter, rotation, retention, compression):
     """
-    Builds the sink of a log file from a path and the plain-English options of Logger.add().
+    Makes the object that writes a log file, from a path and the everyday options of ``logger.add()``. A file with no rotation keeps its plain name, and a rotating one is numbered.
+
+    .. code-block:: python
+
+        sink = build_file_sink("logs/app.log", "text", rotation="10 MB", retention=5, compression=None)
+        ## sink writes logs/app_0.log, then logs/app_1.log ... keeping the last 5
 
     :Parameters:
         #. path (str, os.PathLike): The file, with an extension, for example ``logs/app.log``.

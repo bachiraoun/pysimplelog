@@ -1,4 +1,6 @@
 """
+Turns your records into the JSON that an OpenTelemetry logs request needs. It only builds the text; sending is done elsewhere.
+
 Turns pysimplelog records into the OpenTelemetry OTLP/JSON layout of a logs export request, with no third-party package.
 
 Only the encoding lives here, it sends nothing. The names of the attributes follow the OpenTelemetry semantic conventions, and
@@ -62,6 +64,8 @@ RESERVED_ATTRIBUTES = frozenset({
 
 class OtlpSeverityMap:
     """
+    Decides which OpenTelemetry severity number each of your log types is sent as.
+
     Maps the name of a log type to an OTLP severity number.
 
     The answer comes from the name only, as in the SIEM sink: there is no guessing from the numeric level. A log type that is not
@@ -95,7 +99,7 @@ class OtlpSeverityMap:
 
     def resolve(self, logType):
         """
-        Returns the severity number of a log type.
+        Returns the OpenTelemetry severity number for a log type.
 
         :Parameters:
             #. logType (str): The name of the log type.
@@ -165,7 +169,7 @@ def _unix_nano(timestamp):
 
 class OtlpLogEncoder:
     """
-    Builds the OTLP/JSON body of a logs export request from records.
+    Builds the body of an OpenTelemetry logs request from a list of records.
 
     :Parameters:
         #. resource (dict, None): Who is sending: ``service.name``, ``service.version``, ``deployment.environment`` and so on. The
@@ -210,7 +214,7 @@ class OtlpLogEncoder:
 
     def encode_record(self, record, observedTimeNs=None):
         """
-        Returns one record as an OTLP ``LogRecord``, a dictionary.
+        Builds the OpenTelemetry form of one record.
 
         :Parameters:
             #. record (LogRecord): The record.
@@ -267,6 +271,8 @@ class OtlpLogEncoder:
 
     def encode_request(self, records, observedTimeNs=None):
         """
+        Builds the whole request for a group of records, as a dictionary.
+
         Returns the body of a logs export request, as a dictionary. The records are grouped in one scope for each logger name,
         in the order the names first appear, and keep their order inside a scope.
 
@@ -290,6 +296,8 @@ class OtlpLogEncoder:
 
     def encode(self, records, observedTimeNs=None):
         """
+        Builds the whole request for a group of records as JSON bytes, ready to send.
+
         Returns the body of a logs export request as JSON bytes, ready to send. The text is ASCII and has no spaces.
 
         :Parameters:

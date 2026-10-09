@@ -20,3 +20,18 @@ and every class and function is in :doc:`../api_reference`.
    files
    formatting
    structured_fields
+   context
+   exceptions
+   json
+   multiple_sinks
+   async_logging
+   queue_policies
+   durable_delivery
+   siem
+   otlp
+   standard_logging
+   processors_and_filters
+   production
+   performance
+   coming_from
+   examples

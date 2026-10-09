@@ -1,6 +1,4 @@
-"""
-Writes a traceback with the values of the variables that each frame uses, for development.
-"""
+"""When an error happens, the traceback says where. This module can also say what the variables held, which is often what you need to find the cause. It is meant for development."""
 
 import re
 import traceback
@@ -28,10 +26,18 @@ _NOT_SHOWN_TYPES = (types.ModuleType, types.FunctionType, types.BuiltinFunctionT
 
 def format_exception_with_values(excType, excValue, excTraceback, mode, extraNames=()):
     """
-    Formats an exception like Python does, with the variables of each frame under its source line.
+    Writes a traceback like Python does, and under each line of code shows the variables that line uses.
 
     Only the variables named on the source line of a frame are shown. A variable whose name contains a
     sensitive name, such as ``password``, shows ``<redacted>`` instead of its value.
+
+    .. code-block:: python
+
+        text = format_exception_with_values(type(error), error, error.__traceback__, "summary")
+        ##   File "pay.py", line 4, in charge
+        ##     return price * quantity
+        ##         price = 19.9
+        ##         quantity = None
 
     :Parameters:
         #. excType (type): The exception class.
@@ -56,7 +62,7 @@ def format_exception_with_values(excType, excValue, excTraceback, mode, extraNam
 
 
 def _chain_tracebacks(excValue, excTraceback, seen):
-    """Yields the tracebacks of an exception chain in the order Python prints them."""
+    """Yields the tracebacks of an exception and of the exceptions chained to it, in the order Python prints them."""
     if excValue is None or id(excValue) in seen:
         return
     seen.add(id(excValue))
@@ -68,7 +74,7 @@ def _chain_tracebacks(excValue, excTraceback, seen):
 
 
 def _collect_variable_lines(excValue, excTraceback, mode, sensitiveNames):
-    """Returns ``{(file, line, function): deque of variable line lists}``, in the order the frames print."""
+    """Gathers, frame by frame, the lines that show the variable values, keyed by the file, line and function the traceback prints."""
     collected = defaultdict(deque)
     for chainTraceback in _chain_tracebacks(excValue, excTraceback, set()):
         for frame, lineNumber in traceback.walk_tb(chainTraceback):
@@ -78,7 +84,7 @@ def _collect_variable_lines(excValue, excTraceback, mode, sensitiveNames):
 
 
 def _frame_variable_lines(frame, lineNumber, mode, sensitiveNames):
-    """Returns the ``name = value`` lines of the variables used on one source line of a frame."""
+    """Returns the ``name = value`` lines for the variables used on one line of code, hiding the ones with a sensitive name."""
     sourceLine = linecache.getline(frame.f_code.co_filename, lineNumber, frame.f_globals)
     lines = []
     shownNames = set()
@@ -96,7 +102,7 @@ def _frame_variable_lines(frame, lineNumber, mode, sensitiveNames):
 
 
 def _describe_value(value, mode):
-    """Returns the text of a value, cut to the maximum length, that never raises."""
+    """Writes a value as short text, cut to a maximum length. It never fails: a value that cannot be printed gives a placeholder."""
     try:
         if mode == 'summary' and type(value) not in _PLAIN_TYPES:
             try:
@@ -112,7 +118,7 @@ def _describe_value(value, mode):
 
 
 def _insert_variable_lines(text, variableLines):
-    """Puts the variable lines after the source lines of each frame of a traceback text."""
+    """Puts the variable lines under the matching lines of code in the traceback text."""
     output = []
     pending = []
     for line in text.split('\n'):

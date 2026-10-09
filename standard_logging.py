@@ -1,4 +1,4 @@
-"""Bridge from Python's standard logging package into a pysimplelog Logger."""
+"""Many libraries log with Python's own ``logging`` package. This sends those records through pysimplelog, so they get the same redaction, filters and outputs as your own."""
 
 import logging
 import os
@@ -24,7 +24,7 @@ _DEFAULT_LEVELS = ((logging.CRITICAL, 'critical'), (logging.ERROR, 'error'), (lo
 
 class StandardLoggingHandler(logging.Handler):
     """
-    Gives the records of Python's standard logging package to a pysimplelog Logger.
+    A handler for Python's standard ``logging`` package that gives its records to a pysimplelog ``Logger``.
 
     Every standard record goes through the whole pipeline of the logger: the routing by log type, the
     processors, the filters and the sinks. It keeps the original time, process, thread and, when the logger has
@@ -89,23 +89,36 @@ class StandardLoggingHandler(logging.Handler):
 
     @property
     def logger(self):
-        """The pysimplelog Logger that receives the records."""
+        """The pysimplelog logger that receives the records."""
         return self.__logger
 
     @property
     def droppedRecords(self):
-        """How many records were refused because they were made while a record was being delivered."""
+        """How many records were refused because they were made while another record was being delivered. This stops a sink that logs from feeding itself."""
         return self.__droppedRecords
 
     def createLock(self):
-        """Gives the handler no lock, a pysimplelog Logger is already safe to use from many threads."""
+        """
+        Gives the handler no lock, because a pysimplelog logger is already safe to use from many threads.
+
+        .. code-block:: python
+
+            handler = StandardLoggingHandler(logger)     ## handler.lock is None
+        """
         self.lock = None
 
     def handle(self, record):
         """
-        Filters one standard record and gives it to :meth:`emit`, without a lock.
+        Passes one standard record through the handler's filters, then to :meth:`emit`.
 
         Python 3.13 takes ``self.lock`` with a ``with`` statement, which fails when there is no lock, so the method is replaced.
+
+        .. code-block:: python
+
+            import logging
+
+            logging.getLogger().addHandler(StandardLoggingHandler(logger))
+            logging.getLogger("requests").warning("slow answer")      ## reaches handle(), then emit()
 
         :Parameters:
             #. record (logging.LogRecord): The standard record.
@@ -120,7 +133,11 @@ class StandardLoggingHandler(logging.Handler):
 
     def emit(self, record):
         """
-        Gives one standard record to the pysimplelog Logger.
+        Gives one standard record to the pysimplelog logger, keeping its time, process, thread, and exception.
+
+        .. code-block:: python
+
+            handler.emit(standard_record)       ## Python calls this for you, you rarely do
 
         :Parameters:
             #. record (logging.LogRecord): The standard record.
@@ -149,7 +166,7 @@ class StandardLoggingHandler(logging.Handler):
             leave_bridge()
 
     def _log_type_of(self, record):
-        """Returns the log type for the level of a standard record."""
+        """Chooses the log type for the level of a standard record, such as ``error`` for ERROR."""
         key = (record.levelno, record.levelname)
         logType = self.__logTypes.get(key)
         if logType is None:
@@ -165,7 +182,7 @@ class StandardLoggingHandler(logging.Handler):
 
     @staticmethod
     def _fields_of(record):
-        """Returns the fields of a standard record: its logger name, its stack, and what ``extra`` added."""
+        """Returns the fields of a standard record: the name of its logger, its stack, and what ``extra`` added."""
         fields = {'logger_name': record.name}
         if record.stack_info:
             fields['stack'] = record.stack_info
@@ -177,8 +194,7 @@ class StandardLoggingHandler(logging.Handler):
 
 def redirect_standard_logging(logger, level=logging.NOTSET, name=None, loggerLevel=None, levelMap=None, replace=False):
     """
-    Sends the records of Python's standard logging package, such as those of the libraries an application
-    uses, to a pysimplelog Logger.
+    Starts sending the records of Python's standard ``logging`` to a pysimplelog logger. Nothing changes until you call it.
 
     Nothing changes until this is called. It adds a :class:`StandardLoggingHandler` to a standard logger, the
     root logger unless *name* is given, and returns it. Undo it with :func:`restore_standard_logging`.
@@ -232,8 +248,13 @@ def redirect_standard_logging(logger, level=logging.NOTSET, name=None, loggerLev
 
 def restore_standard_logging(handler):
     """
-    Undoes :func:`redirect_standard_logging`: removes the handler, puts back the handlers it replaced and the
-    level of the standard logger.
+    Stops the redirect and puts everything back as it was.
+
+    .. code-block:: python
+
+        handler = redirect_standard_logging(logger)
+        ...
+        restore_standard_logging(handler)
 
     :Parameters:
         #. handler (StandardLoggingHandler): The value returned by :func:`redirect_standard_logging`.

@@ -126,12 +126,12 @@ class TestGlobalFilters(unittest.TestCase):
         self.assertEqual(messages(stream), ['field', 'bound'])
 
     def test_force_log_is_not_filtered(self):
-        logger, _ = make_logger()
+        logger, stream = make_logger()
         calls = []
         logger.add_filter(lambda record: calls.append(1) or False)
-        with contextlib.redirect_stdout(io.StringIO()):
-            logger.force_log('info', 'forced', stdout=False, file=False)
+        logger.force_log('info', 'forced')
         self.assertEqual((calls, logger.filteredRecords), ([], 0))
+        self.assertEqual(messages(stream), ['forced'])
 
 
 class TestFailingOpen(unittest.TestCase):

@@ -44,6 +44,34 @@ Records, Formatters and Sinks
     :members:
     :show-inheritance:
 
+.. automodule:: pysimplelog.namespaces
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.environment
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.secret
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.diagnose
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.sink_options
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.message_format
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.default_logger
+    :members:
+    :show-inheritance:
+
 .. automodule:: pysimplelog.spool
     :members:
     :show-inheritance:
@@ -87,5 +115,26 @@ group, or ``examples/11_opentelemetry_logs.py`` for a script that runs as it is.
     :show-inheritance:
 
 .. automodule:: pysimplelog.tracing
+    :members:
+    :show-inheritance:
+
+Internals
+---------
+
+These modules do the work behind the scenes. You do not call them, but their behaviour is described here.
+
+.. automodule:: pysimplelog.durable
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.delivery_guard
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.forking
+    :members:
+    :show-inheritance:
+
+.. automodule:: pysimplelog.traceback_cache
     :members:
     :show-inheritance:

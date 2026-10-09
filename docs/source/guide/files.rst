@@ -29,6 +29,9 @@ Rotation, retention and compression
   ``retention=5``, it keeps that many files.
 * ``compression="gz"`` compresses a file when a new one starts.
 
+A relative path such as ``logs/app.log`` is fixed when you call ``add``. If the program changes its working folder later, the log
+stays where it started.
+
 The files of a rotation are numbered, and the newest has the highest number:
 
 .. code-block:: text

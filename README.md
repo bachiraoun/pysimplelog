@@ -2,6 +2,39 @@
 
 This package is a simple yet complete logging management system for Python-based applications.
 
+## Quick start
+
+```python
+from pysimplelog import logger
+
+logger.info("Application started")
+logger.warning("Disk almost full")
+logger.info("User {} logged in", "ann")
+logger.info("Order created", order_id=123, amount=12.5)
+logger.add("logs/app.log", rotation="500 MB", retention="30 days")    ## a rotating log file, in one call
+```
+
+```
+2026-10-08 18:45:02.761 | INFO     | pysimplelog | Application started
+2026-10-08 18:45:02.761 | WARNING  | pysimplelog | Disk almost full
+2026-10-08 18:45:02.762 | INFO     | pysimplelog | User ann logged in
+2026-10-08 18:45:02.762 | INFO     | pysimplelog | Order created order_id=123 amount=12.5
+```
+
+There is nothing to set up: `logger` is made the first time it is used, and the console is coloured when it is a terminal.
+The [user guide](https://bachiraoun.github.io/pysimplelog/guide/index.html) follows what you do with a logger, from the first
+line to a production setup, and every example in it was run.
+
+## Features
+
+* A shared `logger` that works with no setup, and a `Logger` class for libraries and for anything that needs its own settings.
+* `{}` formatting, `logger.info("User {} logged in", user)`, with values also kept as separate fields. `logger.opt(lazy=True)` builds a message only when a sink wants it, and `opt(depth=...)` keeps the real caller when you wrap the logger.
+* `logger.add(target, ...)` adds a file (with `rotation`, `retention` and `compression`), a stream or a function in one call, with a `level`, a `format` and a `filter`.
+* `PYSIMPLELOG_LEVEL`, `PYSIMPLELOG_FORMAT` and `PYSIMPLELOG_COLOR` set up the console without editing code, and `pysimplelog.disable("library")` silences a library, in every process with `PYSIMPLELOG_NAMESPACE_DISABLE`.
+* Exceptions: `logger.exception(...)`, a shorter traceback for the console, and an opt-in `diagnose` that shows the values of the variables and hides secrets by name.
+* Secrets: `redact_fields`, `redact_patterns` (URLs with passwords, bearer tokens, JWTs, `password=...`), `Secret(value)` and `hash_secrets()`. Control characters in fields are escaped so a value cannot forge a log line.
+* Delivery you can reason about: explicit queue policies, counters for everything dropped, `flush()` that says whether it finished, and a report of what was lost at exit.
+
 * Logging to multiple streams simultaneously: by default stdout (terminal) and a rotating log file.
 * Any number of additional user-defined output sinks can be registered via `add_sink()`.
 * Non-blocking enqueue mode routes all I/O to a background thread for latency-sensitive callers. A sink can have its own queue and thread. What a full queue does is explicit (`block`, `drop_newest`, `drop_oldest` or `reject`), and `sink_stats()` counts what every sink queued, delivered, failed and dropped.
@@ -81,24 +114,20 @@ The text layout writes them as `key=value` after the message, JSON keeps them as
 writes them as a second structured-data element of the RFC 5424 line. `exc_info=True` (or an exception
 object) records the exception being handled, with its type, message and traceback.
 
-### Known limitation and future work
+### Delivery
 
-Delivery is best effort. Records wait in an in-memory queue, so some are lost when:
-
-- the collector stays down longer than the retries and the circuit breaker cover,
-- the queue is full, when the oldest record is dropped,
-- the application stops while records are still queued.
-
-Losses are counted in `sink.stats` and reported through `onDrop` / `onError`.
-
-Planned: a disk spool for guaranteed delivery. Records that cannot be sent would
-be written to a local file and resent in order once the collector is back,
-surviving restarts. Open design points: spool size limit and rotation, ordering,
-and duplicate handling after a crash during replay.
+Records wait in an in-memory queue, so some are lost when the collector stays down longer than the retries and the circuit
+breaker cover, when the queue is full (the oldest record is dropped), or when the application stops while records are still queued.
+Losses are counted in `sink.stats` and reported through `onDrop` / `onError`. To keep records through an outage or a crash, give the
+sink a disk spool: see *Durable delivery* below.
 
 ## Enrichment and filters
 
 `add_context(service=..., environment=..., host=...)` is a processor that puts the same values in every record, and `match_logger`, `match_module` and `match_field` are filters that choose by the structure of a record, for example to silence a noisy library or send two categories to one sink. The JSON layout is documented in full, a test keeps the page and the formatter equal, and `JsonFormatter(utc=True)` writes UTC timestamps.
+
+## Messages that must appear
+
+`logger.force_log("info", "Shutting down")` writes a record whatever the levels, the log types, the filters and `disable()` say. It goes to every output that is switched on, or only to the ones named in `sinks=[...]`; the processors still run, so redaction applies, and `opt()` and `bind()` work with it. See *Multiple sinks* in the guide.
 
 ## Log files
 

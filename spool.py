@@ -1,4 +1,4 @@
-"""A disk spool: records are written to files before they are delivered, so a crash or an outage does not lose them."""
+"""A spool keeps records on disk until they have been delivered, so a crash or a network outage does not lose them. Think of it as a mailbox: the logger drops records in, and the sink takes them out once they are safely delivered."""
 
 import json
 import os
@@ -66,23 +66,23 @@ _HELD_LOCK = threading.Lock()
 
 
 class SpoolError(Exception):
-    """Base class of the errors a spool raises."""
+    """The parent of every error a spool can raise, so you can catch them all with one ``except``."""
 
 
 class SpoolBusyError(SpoolError):
-    """Raised when the folder of a slot is in use by another spool, in this process or in another one."""
+    """Raised when another spool, in this program or another one, is already using the folder."""
 
 
 class SpoolMismatchError(SpoolError):
-    """Raised when a slot was made for another spool id, sink class or delivery target."""
+    """Raised when the folder was made for a different spool id, sink class or destination, so its records must not be sent through this one."""
 
 
 class SpoolOwnerError(SpoolError):
-    """Raised when a spool is used by a process that does not own it, as a forked child does."""
+    """Raised when a program uses a spool it does not own, as a forked child does."""
 
 
 class SpoolUnsupportedError(SpoolError):
-    """Raised when the operating system gives no file lock, so a spool cannot be protected."""
+    """Raised when the operating system cannot lock files, so the spool cannot be protected from two programs using it."""
 
 
 def _reset_after_fork():
@@ -98,7 +98,7 @@ if hasattr(os, 'register_at_fork'):
 
 class FileLock:
     """
-    An exclusive lock on a file that is given back by the operating system when the process ends, however it ends.
+    A lock on a file that only one program can hold at a time. The operating system releases it when the program ends, even if it crashes.
 
     The lock is a record lock on the first byte: ``fcntl.lockf`` on Linux, macOS and the BSD systems, and
     ``msvcrt.locking`` on Windows. Neither is inherited by a forked or spawned child, so a crashed owner leaves the
@@ -121,7 +121,7 @@ class FileLock:
 
     def try_acquire(self):
         """
-        Takes the lock without waiting.
+        Tries to take the lock without waiting. Returns whether it got it.
 
         :Returns:
             #. isAcquired (bool): True when the lock is held now, False when another spool or process holds it.
@@ -156,7 +156,11 @@ class FileLock:
             return True
 
     def release(self):
-        """Gives the lock back. Calling it when the lock is not held does nothing."""
+        """
+        Gives the lock back. It does nothing if the lock is not held.
+
+        Gives the lock back. Calling it when the lock is not held does nothing.
+        """
         if self.__fd is None:
             return
         descriptor, self.__fd = self.__fd, None
@@ -178,7 +182,7 @@ class FileLock:
     @staticmethod
     def holder(path):
         """
-        Returns the process id written by the process that holds a lock, for an error message.
+        Reads the process number of the program that holds a lock, to put in an error message.
 
         :Parameters:
             #. path (str): The lock file.
@@ -200,7 +204,7 @@ class FileLock:
 
 def target_id(sinkClass, **destination):
     """
-    Returns the identity of a delivery target, the place a spool sends its records to.
+    Makes a short code for "where a spool sends its records" (the protocol, the host, the port), so a spool is only ever picked up by a sink that sends to the same place.
 
     Only what decides where the records go belongs in *destination*: the protocol, the host, the port, the path.
     Credentials, timeouts, retry settings and formatters do not, because changing them does not change the receiver and
@@ -226,7 +230,7 @@ def target_id(sinkClass, **destination):
 
 def record_to_dict(record):
     """
-    Returns a record as a dictionary that JSON can write.
+    Turns a record into a dictionary that JSON can write, so it can be saved in a spool file.
 
     :Parameters:
         #. record (LogRecord): The record.
@@ -253,7 +257,7 @@ def record_to_dict(record):
 
 def record_from_dict(data):
     """
-    Builds a record from the dictionary that :func:`record_to_dict` wrote, and checks it.
+    Does the opposite of :func:`record_to_dict`: builds the record back from what was saved, and checks it.
 
     The timestamp keeps its microseconds and its offset, but its time zone object becomes a fixed offset. A field value
     that JSON cannot represent comes back as the text it was written as.
@@ -292,7 +296,7 @@ def record_from_dict(data):
 
 def record_line(seq, record):
     """
-    Returns the line that holds a record in a spool file: one JSON object and an end of line, as ASCII bytes.
+    Writes a record as one line of a spool file.
 
     It writes the same text as ``_dumps({'seq': seq, 'record': record_to_dict(record)}) + '\\n'``, built by hand, because it
     runs in the thread that logs and that is about three times faster.
@@ -357,11 +361,16 @@ def _atomic_write(path, text, isSynced):
 @dataclass(frozen=True)
 class SpoolConfig:
     """
-    The settings that keep the records of a sink on disk until they are delivered.
+    The settings of a spool: where it keeps its files, how big it may grow, what it does when it is full, and how it retries.
 
     The settings are checked when the object is made, so a wrong one is found when the sink is set up and never while
     logging. An object cannot be changed afterwards. Wherever a SpoolConfig is expected, a dictionary with the same
     names is accepted, see :meth:`coerce`.
+
+    .. code-block:: python
+
+        settings = SpoolConfig(path="/var/spool/app/siem", id="app-siem", maxBytes=100 * 1024 ** 2, totalMaxBytes=500 * 1024 ** 2)
+        logger.add_sink("collector", my_sink, threaded=True, spool=settings)      ## or a dictionary with the same names
 
     :Parameters:
         #. path (str, os.PathLike): The base folder that holds the slots of this spool. Fixed in the application and the same
@@ -452,7 +461,12 @@ class SpoolConfig:
     @classmethod
     def coerce(cls, value):
         """
-        Returns settings from what a caller gave: a SpoolConfig, a dictionary of the same names, or None.
+        Turns what a caller gave (a ``SpoolConfig``, a dictionary of the same names, or None) into a ``SpoolConfig``.
+
+        .. code-block:: python
+
+            config = SpoolConfig.coerce({"path": "logs/spool", "id": "billing", "maxBytes": 50_000_000, "totalMaxBytes": 200_000_000})
+            config = SpoolConfig.coerce(None)       ## None: no spool
 
         :Parameters:
             #. value (SpoolConfig, dict, None): The settings. None means no spool.
@@ -478,6 +492,8 @@ class SpoolConfig:
 
 class Spool:
     """
+    The records of one sink, kept in files until the sink has delivered them. You do not make one yourself: give ``spool=`` to ``add_sink``.
+
     The records of one sink, kept in files until the sink has delivered them.
 
     A spool is a folder, a *slot*, owned by one spool object in one process at a time. It holds segment files named
@@ -580,10 +596,14 @@ class Spool:
     @classmethod
     def create(cls, basePath, spoolId, sinkClass, targetId, maxBytes, totalMaxBytes, **options):
         """
-        Makes a new slot with a unique name in a base folder, and opens it.
+        Makes a new folder for a spool, with a name nobody else will get, and opens it.
 
         The name is made of the time, the process id and a random part, so no two slots collide. The id is only a
         label for a person. The slot is found again by scanning the base folder, never by its name.
+
+        .. code-block:: python
+
+            spool = Spool.create("logs/spool", "billing", "HttpSink", targetId, maxBytes=10_000_000, totalMaxBytes=100_000_000)
 
         :Parameters:
             #. basePath (str): The folder that holds the slots. It is created, with owner-only permissions, when missing.
@@ -614,7 +634,12 @@ class Spool:
     @classmethod
     def open(cls, slotPath, spoolId, sinkClass, targetId, maxBytes, totalMaxBytes, **options):
         """
-        Opens an existing slot, to send what an earlier run left unsent.
+        Opens a folder that an earlier run left behind, to send what it did not deliver.
+
+        .. code-block:: python
+
+            for slotPath in Spool.slots("logs/spool"):
+                spool = Spool.open(slotPath, "billing", "HttpSink", targetId, maxBytes=10_000_000, totalMaxBytes=100_000_000)
 
         :Parameters:
             #. slotPath (str): The folder of the slot.
@@ -637,7 +662,11 @@ class Spool:
     @staticmethod
     def slots(basePath):
         """
-        Lists the slots of a base folder, the oldest first.
+        Lists the spool folders found under a base folder, the oldest first.
+
+        .. code-block:: python
+
+            folders = Spool.slots("logs/spool")        ## oldest first
 
         :Parameters:
             #. basePath (str): The folder that holds the slots.
@@ -766,9 +795,13 @@ class Spool:
 
     def append(self, record):
         """
-        Writes a record to the spool and gives it the next sequence number.
+        Writes a record to the spool and gives it the next number.
 
         When the spool is full, the policy decides, see the arguments of the class.
+
+        .. code-block:: python
+
+            seq = spool.append(record)       ## the number of the record in the spool
 
         :Parameters:
             #. record (LogRecord): The record to keep.
@@ -962,10 +995,14 @@ class Spool:
 
     def ack(self, seq):
         """
-        Says that every record up to this sequence number has been delivered.
+        Says that every record up to this number has been delivered, so the spool can delete its files.
 
         Segments that are now fully delivered are deleted. The ``ack`` file is written when *ackEvery* records or
         *ackInterval* seconds have passed, and by :meth:`sync` and :meth:`close`.
+
+        .. code-block:: python
+
+            spool.ack(seq)                  ## delivered up to seq: those files can go
 
         :Parameters:
             #. seq (int): The sequence number of the last delivered record. A smaller number than the one already
@@ -1015,12 +1052,18 @@ class Spool:
 
     def pending(self, limit=None):
         """
-        Reads the records that are not delivered yet, in order, from the files.
+        Reads the records that were not delivered yet, in order, from the files.
 
         It reads forward from the first record above the acknowledged number, so a spool reopened after a crash is read
         from where it stopped. A line that cannot be read is skipped and counted as ``corrupt``, and records missing
         between two files are counted as ``lost``, each once. Reading a long backlog in batches does not read the
         same lines again: the spool remembers where the last batch ended.
+
+        .. code-block:: python
+
+            for seq, record in spool.pending(limit=100):
+                deliver(record)
+                spool.ack(seq)
 
         :Parameters:
             #. limit (None, int): The largest number of records to give. None gives all of them.
@@ -1032,11 +1075,15 @@ class Spool:
 
     def read_batch(self, limit=None):
         """
-        Reads like :meth:`pending`, and also says how far the reading got.
+        Reads the undelivered records like :meth:`pending`, and also says how far the reading got.
 
         The second answer is what lets a caller tell records that are not there yet from records that cannot be read: when
         no record comes back but the number is above the acknowledged one, everything up to that number is unreadable
         or lost, and can be acknowledged without losing a record that was appended in the meantime.
+
+        .. code-block:: python
+
+            records, upTo = spool.read_batch(limit=100)      ## records are (seq, record) tuples
 
         :Parameters:
             #. limit (None, int): The largest number of records to give. None gives all of them.
@@ -1106,8 +1153,11 @@ class Spool:
 
     def maintain(self):
         """
-        Does the housekeeping now: deletes the closed segments older than *maxAge*, and tries again to delete the files that
-        were in use. No record is sent and none is kept back: expired records are counted as dropped, like when the spool is full.
+        Does the spool's housekeeping now, such as deleting segments older than ``maxAge``.
+
+        .. code-block:: python
+
+            spool.maintain()       ## delete segments older than maxAge
 
         :Returns:
             #. result (dict): ``dropped`` (records thrown away by this call because their segment expired) and ``undeleted``
@@ -1122,19 +1172,23 @@ class Spool:
 
     @property
     def depth(self):
-        """The number of records that were appended and are not acknowledged yet."""
+        """How many records were written and not yet reported as delivered."""
         with self.__condition:
             return self.__nextSeq - 1 - self.__ackedSeq
 
     @property
     def acked(self):
-        """The sequence number of the last record that was acknowledged as delivered."""
+        """The number of the last record reported as delivered."""
         with self.__condition:
             return self.__ackedSeq
 
     def wait_empty(self, timeout=None):
         """
-        Waits until every record that was appended is acknowledged.
+        Waits until every record has been reported as delivered. Returns whether it finished in time.
+
+        .. code-block:: python
+
+            spool.wait_empty(timeout=5)       ## True when everything was delivered
 
         :Parameters:
             #. timeout (None, int, float): Seconds to wait. None waits as long as it takes.
@@ -1162,7 +1216,11 @@ class Spool:
 
     def give_up(self, seq, record, reason):
         """
-        Parks a record that could not be delivered in the ``dead`` file, and acknowledges it so the others can go on.
+        Puts a record that can never be delivered in the ``dead`` file, so the records behind it can go on.
+
+        .. code-block:: python
+
+            spool.give_up(seq, record, "the receiver refuses this record")      ## goes to the dead file
 
         :Parameters:
             #. seq (int): The sequence number of the record.
@@ -1188,7 +1246,13 @@ class Spool:
     # ------------------------------------------------------------------ state
 
     def sync(self):
-        """Writes the ``ack`` file now, and forces the segment being written to onto the disk."""
+        """
+        Saves the delivery position and forces the file being written onto the disk.
+
+        .. code-block:: python
+
+            spool.sync()        ## force the data onto the disk
+        """
         with self.__condition:
             self._check_usable()
             self._write_ack()
@@ -1199,6 +1263,12 @@ class Spool:
     def stats(self):
         """
         Returns what the spool holds and what it lost.
+
+        Returns what the spool holds and what it lost.
+
+        .. code-block:: python
+
+            print(spool.stats())        ## what it holds and what it lost
 
         :Returns:
             #. stats (dict): ``spooled`` (records appended), ``depth`` (records not delivered), ``bytes``, ``segments``,
@@ -1212,16 +1282,20 @@ class Spool:
 
     @property
     def path(self):
-        """The folder of the slot."""
+        """The folder of this spool."""
         return self.__path
 
     def close(self):
         """
-        Closes the spool and gives the folder back.
+        Closes the spool and gives its folder back. When every record was delivered the files are deleted, so a clean shutdown leaves nothing behind.
 
         When every record was delivered, the files and the folder are deleted, so a clean shutdown leaves nothing behind.
         When records are left, or the ``dead`` file holds some, everything stays for the next run. Calling it again
         does nothing.
+
+        .. code-block:: python
+
+            spool.close()        ## files are deleted when everything was delivered
         """
         with self.__condition:
             if self.__isClosed:

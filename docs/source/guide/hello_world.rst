@@ -54,7 +54,7 @@ what to do with its records:
     log = Logger("mylib.db", logToFile=False)
     log.info("Connected")
 
-A ``Logger`` you make writes the plain text layout, ``time - name <INFO> message``, unless you give it
-``consoleFormatter='pretty'``. The application can silence or redirect it. See :doc:`console`.
+A ``Logger`` you make writes the same column layout as the shared ``logger``. Give it ``consoleFormatter='text'`` for the plain
+line, ``time - name <INFO> message``. The application can silence or redirect it. See :doc:`console`.
 
 Next: :doc:`console`.

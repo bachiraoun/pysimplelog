@@ -24,6 +24,18 @@ passed to the ``Logger`` constructor.
 Basic Usage
 -----------
 
+The quickest way in is the shared logger, which needs no setup:
+
+.. code-block:: python
+
+    from pysimplelog import logger
+
+    logger.info("Application started")
+    logger.info("User {} logged in", "ann")
+    logger.add("logs/app.log", rotation="500 MB", retention="30 days")
+
+For a library, or for a logger with its own settings, make a ``Logger``:
+
 .. code-block:: python
 
     from pysimplelog import Logger
@@ -41,6 +53,43 @@ Basic Usage
     ## add a custom log type with colour
     l.add_log_type("trace", name="TRACE", level=5, color="cyan")
     l.log("trace", "entering request handler")
+
+Everyday conveniences
+---------------------
+
+The calls below are the ones most programs use. Each has a page in the :doc:`user guide <guide/index>` that goes further: :doc:`guide/formatting`, :doc:`guide/files`,
+:doc:`guide/exceptions` and :doc:`guide/multiple_sinks`.
+
+.. code-block:: python
+
+    from pysimplelog import logger
+    import pysimplelog
+
+    ## {} fills the message, keywords stay on the record as fields
+    logger.info("User {} logged in", 7, service="auth")
+
+    ## One call for a file, with rotation and retention
+    logger.add("logs/app.log", rotation="500 MB", retention="30 days", compression="gz")
+    logger.add("logs/errors.jsonl", format="json", level="ERROR")
+
+    ## Options behind one call: lazy values, the exception, the caller depth
+    logger.opt(lazy=True).debug("Result: {}", lambda: sum(range(1000)))
+    logger.opt(depth=1).info("Reported for the caller of my wrapper")
+
+    ## A message that must appear whatever the levels and filters say
+    logger.force_log("info", "Shutting down")
+
+    ## Silence a noisy library by name
+    pysimplelog.disable("urllib3")
+    pysimplelog.enable("urllib3")
+
+The console, the level and the colours can be set from the environment, without changing the code. The variables are
+``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and ``PYSIMPLELOG_COLOR``, and ``PYSIMPLELOG_NAMESPACE_DISABLE`` silences libraries.
+An argument you pass always wins over the environment, and the environment wins over the defaults (:doc:`guide/console`).
+
+To see the values of the variables in a traceback, make the logger with ``diagnose=True``. A variable whose name contains
+``password``, ``token``, ``cookie`` or ``credential`` always shows ``<redacted>``. A ``Secret(value)`` prints as ``[REDACTED]``
+everywhere it is used (:doc:`guide/exceptions`, :doc:`guide/processors_and_filters`).
 
 Structured Logging with bind()
 -------------------------------

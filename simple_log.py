@@ -1,4 +1,10 @@
-"""simple_log defines the Logger and SingleLogger classes for multi-sink,
+"""
+The core of pysimplelog: the ``Logger`` class, and ``SingleLogger``, a version of it that every part of a program shares.
+
+Most people never need this module directly. ``from pysimplelog import logger`` gives a ready logger, and
+``from pysimplelog import Logger`` makes one with its own settings.
+
+simple_log defines the Logger and SingleLogger classes for multi-sink,
 thread-safe, formatted logging in Python applications.
 
 Usage Examples
@@ -483,8 +489,6 @@ Processors
     .. code-block:: text
 
         2024-01-01 12:00:00 - app <ERROR> cannot open .../data.txt
-
-
 """
 # python standard distribution imports
 import os, sys, copy, re, atexit, threading, traceback, functools, collections, time
@@ -504,10 +508,7 @@ _LOCAL_TIMEZONES = {}
 
 def _local_datetime(seconds):
     """
-    Returns a moment as a timezone aware datetime in the local timezone of the machine.
-
-    The offset is read for that moment, so it follows daylight saving time changes.
-    ``datetime.fromtimestamp(seconds).astimezone()`` gives the same result and is about four times slower.
+    Turns a Unix time (seconds since 1970) into a date and time in the time zone of the machine, following the changes of daylight saving time.
 
     :Parameters:
         #. seconds (float): The moment, in seconds since the epoch, as ``time.time()`` gives.
@@ -524,7 +525,7 @@ def _local_datetime(seconds):
 
 
 def _now_local():
-    """Returns the current time as a timezone aware datetime in the local timezone of the machine."""
+    """Returns the current date and time in the time zone of the machine."""
     return _local_datetime(time.time())
 
 
@@ -575,7 +576,7 @@ _QUEUE_FLUSH = object()
 
 
 def _is_worker_marker(item):
-    """True for the items that end a group of records in the queue of a sink: the one that stops the worker, and the flush."""
+    """Says whether a queue item is a special marker (the one that stops a worker, or a flush) and not a record."""
     return item is _QUEUE_STOP or item is _QUEUE_FLUSH
 
 # sentinel keys for the two built-in sinks inside Logger.__sinks.
@@ -588,7 +589,7 @@ FILE_SINK    = _SINK_FILE     # public name of the key of the built-in file sink
 
 # useful definitions
 def _is_number(number):
-    """Return True if value can be interpreted as a Python number."""
+    """Says whether a value is a number, or text that can be read as one such as ``'3.5'``."""
     if isinstance(number, (int, float, complex)):
         return True
     try:
@@ -599,7 +600,7 @@ def _is_number(number):
         return True
 
 def _normalize_path(path):
-    """Normalise backslash sequences in a file path for Windows compatibility."""
+    """Turns the backslashes of a Windows file path into forward slashes, so one path works on every system."""
     if os.sep=='\\':
         path = re.sub(r'([\\])\1+', r'\1', path).replace('\\','\\\\')
     return path
@@ -611,7 +612,7 @@ _THIS_FILE = os.path.abspath(__file__)
 
 def _get_caller_info(depth=0):
     """
-    Walks the call stack and returns where the user code made the log call.
+    Finds which file, line and function made the log call, by looking up the call stack and skipping the logger's own code.
 
     Finds the first frame whose file is not simple_log.py. Only called when Logger.callerInfo is True.
 
@@ -641,7 +642,7 @@ def _get_caller_info(depth=0):
 
 def _call_lazy(value):
     """
-    Returns the result of a callable value, and any other value as it is.
+    Calls a value if it is a function and returns the answer, and returns any other value unchanged. It is how ``opt(lazy=True)`` runs its functions.
 
     :Parameters:
         #. value (object): A value given to a log call made with ``opt(lazy=True)``.
@@ -660,7 +661,7 @@ def _call_lazy(value):
 
 def _evaluate_lazy(args, fields):
     """
-    Calls every callable among the positional arguments and the field values, once each.
+    Runs every function among the values of a log call, once each, and returns the results. It only runs when an output really wants the record.
 
     :Parameters:
         #. args (tuple): The positional arguments of the log call.
@@ -676,7 +677,7 @@ def _evaluate_lazy(args, fields):
 
 def _caller_tag(caller):
     """
-    Formats a caller as the tag written before the message.
+    Writes a caller as the short tag ``file:line in function`` that goes before the message.
 
     :Parameters:
         #. caller (CallerInfo, None): The caller to format.
@@ -692,7 +693,7 @@ def _caller_tag(caller):
 
 def _check_field_names(fields):
     """
-    Rejects the two names that older versions took as arguments, so a call written for them never logs wrongly.
+    Refuses the field names ``fields`` and ``tback``, which older versions used as arguments, so a call written for them cannot silently log the wrong thing.
 
     :Parameters:
         #. fields (dict): The keyword arguments of a log call that are not arguments of the method.
@@ -708,7 +709,7 @@ def _check_field_names(fields):
 
 def _exception_info(excInfo, diagnose=False, diagnoseRedact=()):
     """
-    Turns what a caller gives as ``exc_info`` into the exception information of a record.
+    Turns what you give as ``exc_info`` (``True``, an exception, a tuple or text) into the exception part of a record: its type, its message and its traceback text.
 
     :Parameters:
         #. excInfo (None, bool, BaseException, tuple, str, list): ``True`` means the exception being handled
@@ -764,12 +765,8 @@ _CONTROL_CHAR_RE = re.compile(
 
 
 def _sanitize_message(message):
-    """Strip control characters and ANSI escape sequences from a log message.
-
-    Uses a fast early-exit 'in' check before invoking the regex engine so the
-    overhead on clean messages (the vast majority of calls) is ~80 ns. Non-string
-    types pass through unchanged and are handled by %s formatting downstream.
-    CRLF sequences are preserved; only bare CR (without following LF) is removed.
+    """
+    Removes colour codes and other control characters from a message so that it cannot repaint a terminal or hide text. Line breaks are kept.
 
     :Parameters:
         #. message (str, object): The raw message value from the caller.
@@ -787,7 +784,8 @@ def _sanitize_message(message):
 
 
 class _Sink(object):
-    """Internal descriptor for a single log output target.
+    """
+    The logger's record of one output: the sink object plus its switches, levels, filter and queue. You never make one, ``add()`` does.
 
     Not part of the public API. Created and managed exclusively by
     Logger. Every writable destination -- stdout, file, or any
@@ -869,9 +867,8 @@ class _Sink(object):
             self._thread.start()
 
     def enqueue(self, record):
-        """Push one record onto this sink's private queue, or do what the queue policy says when it is full.
-
-        Only called when threaded is True.
+        """
+        Puts a record on the private queue of a threaded output, or does what the full-queue policy says when there is no room. It is only used for threaded outputs.
 
         :Parameters:
             #. record (LogRecord): The record to deliver on the worker thread.
@@ -890,11 +887,7 @@ class _Sink(object):
         self._queue.put(record)
 
     def _worker(self):
-        """Background loop for a threaded sink: drain the private queue and deliver.
-
-        Runs until stop_threaded() puts the stop marker at the end of the queue. A Sink never
-        raises, and anything unexpected is reported by one warning line, never a crash of the thread.
-        """
+        """The loop of the thread that writes for a threaded output: take a record from its queue, write it, and repeat until told to stop. A failing output cannot crash the thread."""
         mark_delivery_thread()
         if self.handler.batchSize > 1:
             self._worker_of_groups()
@@ -914,11 +907,7 @@ class _Sink(object):
                 self._queue.task_done()
 
     def _worker_of_groups(self):
-        """Background loop for a threaded sink that sends groups of records: take a group, deliver it in one call.
-
-        A group ends when it is full, when the sink's batch interval is over since its first record, or at a marker. The marker is
-        dealt with after the group, so the records before a stop or a flush are delivered first.
-        """
+        """The same loop for an output that sends records in groups: collect a group, send it in one call, and repeat. A group ends when it is full, when its time is up, or at a marker."""
         handler = self.handler
         while True:
             records, marker = self._queue.get_batch(handler.batchSize, handler.batchInterval, _is_worker_marker)
@@ -938,12 +927,16 @@ class _Sink(object):
                 return
 
     def flush_threaded(self, timeout=5.0):
-        """Best-effort wait (up to *timeout* seconds) for this sink's queue to drain.
+        """
+        Waits, up to *timeout* seconds, until the output's queue is empty and its last record is written. Returns True if it finished.
 
         Waits for both the queue to empty AND the item currently being
         dispatched (if any) to finish -- a queue that looks empty while
         the worker is still mid-dispatch on the last item is not actually
         drained yet. No-op when threaded is False.
+
+        :Parameters:
+            #. timeout (float): Seconds to wait at most.
 
         :Returns:
             #. isDrained (bool): True when nothing is waiting any more, False when the timeout ended first.
@@ -961,11 +954,16 @@ class _Sink(object):
         return self._queue.join(timeout)
 
     def stop_threaded(self, timeout=5.0):
-        """Drain what fits in *timeout* seconds, then stop and join the worker thread.
+        """
+        Lets a threaded output write what it holds, for up to *timeout* seconds, then stops its thread. A message says how many records were left behind, if any.
 
         Called by remove_sink(), clear_sinks(), and atexit shutdown so a
         threaded sink's thread is never left running after it's gone --
         no leaked threads. No-op when threaded is False.
+
+        :Parameters:
+            #. timeout (float): Seconds to wait at most for the queue to empty before the thread is
+               stopped.
         """
         if not self.threaded:
             return
@@ -986,18 +984,18 @@ class _Sink(object):
                                  "or call flush() before the end\n")
 
     def queue_stats(self):
-        """Returns the counters of the private queue, or None when the sink is not threaded."""
+        """Returns the counters of the output's private queue, or None when the output is not threaded."""
         if self.durable is not None:
             return self.durable.queue_stats()
         return None if self._queue is None else self._queue.stats()
 
     def spool_stats(self):
-        """Returns what the spool of this sink holds and what its delivery did, or None when it has no spool."""
+        """Returns what the output's disk spool holds and what its delivery did, or None when it has no spool."""
         return None if self.durable is None else self.durable.stats()
 
     def maintain(self):
         """
-        Does the housekeeping of the handler and of the spool, if there is one.
+        Does the housekeeping of the output and of its spool, such as deleting old files.
 
         :Returns:
             #. result (dict, None): What the handler did, and under ``spool`` what the spool did, or None when there was nothing
@@ -1014,7 +1012,7 @@ class _Sink(object):
 
     def set_handler(self, handler):
         """
-        Sets the Sink object that receives the records.
+        Replaces the sink object that this output writes to.
 
         :Parameters:
             #. handler (Sink): The new handler.
@@ -1023,7 +1021,7 @@ class _Sink(object):
 
     def release(self, timeout=5.0):
         """
-        Stops the private worker thread, if any, then closes the Sink object, which flushes it.
+        Stops the output's thread, if it has one, then closes its sink, which flushes it.
 
         :Parameters:
             #. timeout (float): Seconds to wait for the private queue to drain.
@@ -1042,7 +1040,8 @@ class _Sink(object):
 
 
 class _CatchContext(object):
-    """Context manager and decorator returned by Logger.catch().
+    """
+    What ``logger.catch()`` returns: it works as a ``with`` block and as a decorator. Use ``logger.catch()`` and not this class.
 
     Catches any exception escaping the wrapped callable or the ``with``
     block, logs it through the parent Logger, and optionally re-raises.
@@ -1070,14 +1069,21 @@ class _CatchContext(object):
         """Allow the context manager instance to be used as a decorator."""
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            """Runs the wrapped function inside the catch context."""
+            """
+            Runs the wrapped function inside the catch context.
+
+            :Parameters:
+                #. args (tuple): The positional arguments of the decorated function, passed on unchanged.
+                #. kwargs (dict): The keyword arguments of the decorated function, passed on unchanged.
+            """
             with _CatchContext(self._logger, self._logType, self._reraise, self._message):
                 return func(*args, **kwargs)
         return wrapper
 
 
 class _BoundLogger(object):
-    """Lightweight wrapper returned by Logger.bind(), it attaches fixed values to the context of every record.
+    """
+    The logger you get from ``logger.bind(...)``. It has the usual methods, and adds the values you bound to every record it writes.
 
     While one of its methods logs, the bound values are added to the context of the current thread or task,
     over the values of any ``context()`` block the program is in, so the record carries them in its
@@ -1089,6 +1095,11 @@ class _BoundLogger(object):
     merged context dict; the originals are never modified.
 
     Do not instantiate directly -- use Logger.bind() or _BoundLogger.bind().
+
+    .. code-block:: python
+
+        log = logger.bind(request_id="r-42")
+        log.info("started")          ## ... started request_id=r-42
 
     :Parameters:
         #. parent (Logger, _BoundLogger): The logger that performs all
@@ -1104,11 +1115,14 @@ class _BoundLogger(object):
     # ── context nesting ──────────────────────────────────────────────
 
     def bind(self, **extra):
-        """Return a new _BoundLogger with additional context key-value pairs.
+        """
+        Returns another bound logger with more values added. The values bound before stay, and a value with the same name is
+        replaced.
 
-        The new wrapper shares the same parent Logger. Existing context
-        keys are preserved; any key present in both dicts takes the value
-        from the extra kwargs (right-hand side wins).
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log2 = log.bind(step="payment")        ## carries request_id and step
 
         :Parameters:
             #. **extra: Arbitrary key-value pairs to add or override.
@@ -1121,16 +1135,19 @@ class _BoundLogger(object):
         return _BoundLogger(self.__parent, merged)
 
     def context(self, **values):
-        """Attach values to every record made inside a ``with`` block. See :func:`pysimplelog.log_context.context`."""
+        """
+        Adds values to every record made inside a ``with`` block. See :func:`pysimplelog.log_context.context`.
+
+        :Parameters:
+            #. values (dict): Names and values to add to every record made inside the ``with`` block.
+        """
         return open_context(**values)
 
     # ── core logging ─────────────────────────────────────────────────
 
     def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
-        """Log a message at the given logType, with the bound values in the context of the record.
-
-        Delegates entirely to parent.log(). All level filtering, count constraints,
-        backpressure, and I/O are handled by the parent unchanged.
+        """
+        Writes a record of a log type, with the bound values attached. See :meth:`Logger.log` for the arguments.
 
         :Parameters:
             #. logType (string): A defined log type.
@@ -1150,107 +1167,242 @@ class _BoundLogger(object):
         finally:
             CURRENT_CONTEXT.reset(token)
 
-    def force_log(self, logType, message, *args, exc_info=None, stdout=True, file=True, **fields):
-        """Force-log a message, bypassing level checks, with the bound values in the context of the record.
+    def force_log(self, logType, message, *args, exc_info=None, countConstraint=None, sinks=None, **fields):
+        """
+        Writes a record that must appear, with the bound values attached. See :meth:`Logger.force_log`.
 
-        Delegates to parent.force_log().
+        .. code-block:: python
+
+            log = logger.bind(job="nightly")
+            log.force_log("info", "Job stopped", sinks=["audit"])
 
         :Parameters:
             #. logType (string): A defined log type.
             #. message (string): The message to log.
             #. args (tuple): Positional arguments that fill the ``{}`` placeholders of *message*, see Logger.log().
             #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record, see Logger.log().
-            #. stdout (boolean): Whether to force stdout output.
-            #. file (boolean): Whether to force file output.
+            #. countConstraint (None, number): Max times to log this message.
+            #. sinks (None, list): Names of the sinks to write to. None writes to every sink that is switched on.
             #. fields: Named values stored in the record, see Logger.log().
 
         :Returns:
-            #. result (string): The logged message returned by parent.force_log().
+            #. message (string): the logged message
         """
-        previous = CURRENT_CONTEXT.get()
-        token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
-        try:
-            return self.__parent.force_log(logType, message, *args, exc_info=exc_info, stdout=stdout, file=file, **fields)
-        finally:
-            CURRENT_CONTEXT.reset(token)
+        return self._log_call(logType, message, args, fields, exc_info, countConstraint, False, 0, True, sinks)
 
     # ── shortcut methods (mirrors Logger shortcuts) ──────────────────
 
     def _is_silent(self, logType, message, fields):
-        """Says whether a log call can return at once, see :meth:`Logger._is_silent`."""
+        """Asks the parent logger whether a call can return at once because no output wants it."""
         return self.__parent._is_silent(logType, message, fields)
 
     def info(self, message, *args, **kwargs):
-        """Log at info level, with the bound values in the context."""
+        """
+        Logs a message at the information level, with the bound values attached: normal things worth knowing. Same as ``log("info", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.info("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('info', message, kwargs):
             return message
         return self.log('info', message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
-        """Log at info level (alias for info)."""
+        """
+        Logs a message at the information level, with the bound values attached: another name for ``info``. Same as ``log("info", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.information("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('info', message, kwargs):
             return message
         return self.log('info', message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
-        """Log at warn level, with the bound values in the context."""
+        """
+        Logs a message at the warning level, with the bound values attached: something unexpected that did not stop anything. Same as ``log("warn", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.warn("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('warn', message, kwargs):
             return message
         return self.log('warn', message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        """Log at warn level (alias for warn)."""
+        """
+        Logs a message at the warning level, with the bound values attached: another name for ``warn``. Same as ``log("warn", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.warning("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('warn', message, kwargs):
             return message
         return self.log('warn', message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        """Log at error level, with the bound values in the context."""
+        """
+        Logs a message at the error level, with the bound values attached: something failed. Same as ``log("error", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.error("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('error', message, kwargs):
             return message
         return self.log('error', message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        """Log at critical level, with the bound values in the context."""
+        """
+        Logs a message at the critical level, with the bound values attached: something failed so badly that the program may not go on. Same as ``log("critical", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.critical("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('critical', message, kwargs):
             return message
         return self.log('critical', message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        """Log at debug level, with the bound values in the context."""
+        """
+        Logs a message at the debug level, with the bound values attached: detail for finding a problem. Same as ``log("debug", ...)``.
+
+        .. code-block:: python
+
+            log = logger.bind(request_id="r-42")
+            log.debug("Order {} created", 7)
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent('debug', message, kwargs):
             return message
         return self.log('debug', message, *args, **kwargs)
 
     def exception(self, message, *args, logType='error', **fields):
-        """Logs the exception being handled, with the bound values in the context."""
+        """
+        Logs the exception being handled with its traceback, with the bound values attached. Call it inside an ``except`` block.
+
+        :Parameters:
+            #. message (str, callable): The text to log, as in :meth:`info`.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. logType (str): The log type to write the record as. The default is ``"error"``.
+            #. fields (dict): Extra named values, kept as fields of the record and used to fill ``{name}``
+               places.
+        """
         if self._is_silent(logType, message, fields):
             return message
         return self.log(logType, message, *args, exc_info=True, **fields)
 
-    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
-        """Logs with the bound values in the context, see :meth:`Logger._log_call`."""
+    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth,
+                  forced=False, sinks=None):
+        """Does the work of a log call with the bound values attached, then hands it to the parent logger."""
         previous = CURRENT_CONTEXT.get()
         token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
         try:
-            return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint, isLazy, depth)
+            return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint, isLazy, depth,
+                                           forced, sinks)
         finally:
             CURRENT_CONTEXT.reset(token)
 
     def opt(self, *, lazy=False, exception=None, depth=0):
-        """Returns a logger that applies options to the calls made through it, see :meth:`Logger.opt`."""
+        """
+        Returns a logger with options (lazy values, an exception, a caller depth), with the bound values attached. See :meth:`Logger.opt`.
+
+        :Parameters:
+            #. lazy (bool): True calls any function given as a value only if the record is really written.
+            #. exception (None, bool, BaseException, tuple): The exception to record with every call. None
+               records none, True records the one being handled.
+            #. depth (int): How many extra calls up the stack the record's caller is searched, for a
+               wrapper function. It must not be negative.
+        """
         return _OptLogger(self, lazy, exception, depth)
 
     # ── exception capture ────────────────────────────────────────────
 
     def catch(self, func=None, logType='error', reraise=False,
               message='An exception was caught'):
-        """Decorator and context manager that catches and logs exceptions.
+        """
+        Logs an error instead of letting it stop the program, with the bound values attached. It works as a decorator and as a
+        ``with`` block, like :meth:`Logger.catch`.
 
-        Identical to Logger.catch() but the logged exception record
-        carries the bound values in its context automatically, because
-        _CatchContext calls self.log() on this _BoundLogger rather
-        than on the parent Logger directly.
+        .. code-block:: python
+
+            log = logger.bind(job="nightly")
+
+            @log.catch
+            def run(): ...
 
         :Parameters:
             #. func (None, callable): Decorated function for bare-decorator use.
@@ -1270,39 +1422,52 @@ class _BoundLogger(object):
     # ── delegation — query / control methods ─────────────────────────
 
     def is_enabled(self, logType):
-        """Delegate to parent.is_enabled(). See Logger.is_enabled()."""
+        """
+        Says whether a log type would be written anywhere. See :meth:`Logger.is_enabled`.
+
+        :Parameters:
+            #. logType (str): The log type to check.
+        """
         return self.__parent.is_enabled(logType)
 
     def is_enabled_for_stdout(self, logType):
-        """Delegate to parent.is_enabled_for_stdout()."""
+        """
+        Says whether a log type would be written to the console. See :meth:`Logger.is_enabled_for_stdout`.
+
+        :Parameters:
+            #. logType (str): The log type to check.
+        """
         return self.__parent.is_enabled_for_stdout(logType)
 
     def is_enabled_for_file(self, logType):
-        """Delegate to parent.is_enabled_for_file()."""
+        """
+        Says whether a log type would be written to the built-in log file. See :meth:`Logger.is_enabled_for_file`.
+
+        :Parameters:
+            #. logType (str): The log type to check.
+        """
         return self.__parent.is_enabled_for_file(logType)
 
     def flush(self):
-        """Delegate to parent.flush(). See Logger.flush()."""
+        """Waits until everything queued has been written and returns whether it finished in time. See :meth:`Logger.flush`."""
         return self.__parent.flush()
 
     # ── read-only properties ─────────────────────────────────────────
 
     @property
     def name(self):
-        """Parent logger name."""
+        """The name of the logger this bound logger belongs to."""
         return self.__parent.name
 
     @property
     def enqueue(self):
-        """Whether the parent logger is in non-blocking enqueue mode."""
+        """True when the logger hands records to a background thread."""
         return self.__parent.enqueue
 
     @property
     def boundContext(self):
-        """A copy of the values this wrapper attaches to every record.
-
-        Returns a fresh copy so callers cannot accidentally mutate the
-        internal state of this _BoundLogger.
+        """
+        A copy of the values this logger adds to every record. Changing the copy changes nothing.
 
         :Returns:
             #. result (dict): Copy of the bound key-value pairs.
@@ -1312,7 +1477,12 @@ class _BoundLogger(object):
 
 class _OptLogger(object):
     """
-    Logs with options that apply to the calls made through it, see :meth:`Logger.opt`. It holds no state besides the options.
+    What ``logger.opt(...)`` returns: a logger whose calls use the options you chose.
+
+    .. code-block:: python
+
+        logger.opt(lazy=True).debug("Result: {}", slow)
+        logger.opt(depth=1).info("Done")
 
     :Parameters:
         #. parent (Logger, _BoundLogger): The logger that does the work.
@@ -1336,7 +1506,19 @@ class _OptLogger(object):
         self.__depth = depth
 
     def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
-        """Logs a message of a log type with the options, see :meth:`Logger.log`."""
+        """
+        Writes a record of a log type with the options. See :meth:`Logger.log` for the arguments.
+
+        :Parameters:
+            #. logType (str): A defined log type, such as ``"info"``.
+            #. message (str, callable): The text to log.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record. None uses
+               the one set by ``opt(exception=...)``. See :meth:`Logger.log`.
+            #. countConstraint (None, int): Writes this record at most this many times. None means no
+               limit.
+            #. fields (dict): Named values, kept as fields of the record.
+        """
         if self.__parent._is_silent(logType, message, fields):
             return message
         if exc_info is None:
@@ -1345,45 +1527,167 @@ class _OptLogger(object):
                                        self.__isLazy, self.__depth)
 
     def info(self, message, *args, **kwargs):
-        """Logs at info level with the options."""
+        """
+        Logs a message at the information level, with the options of ``opt()``. Same as ``log("info", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("info", message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
-        """Logs at info level with the options (alias for info)."""
+        """
+        Logs a message at the information level, with the options of ``opt()``. Same as ``log("info", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("info", message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
-        """Logs at warn level with the options."""
+        """
+        Logs a message at the warning level, with the options of ``opt()``. Same as ``log("warn", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("warn", message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        """Logs at warn level with the options (alias for warn)."""
+        """
+        Logs a message at the warning level, with the options of ``opt()``. Same as ``log("warn", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("warn", message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        """Logs at error level with the options."""
+        """
+        Logs a message at the error level, with the options of ``opt()``. Same as ``log("error", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("error", message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        """Logs at critical level with the options."""
+        """
+        Logs a message at the critical level, with the options of ``opt()``. Same as ``log("critical", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("critical", message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        """Logs at debug level with the options."""
+        """
+        Logs a message at the debug level, with the options of ``opt()``. Same as ``log("debug", ...)``.
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         return self.log("debug", message, *args, **kwargs)
 
     def exception(self, message, *args, logType='error', **fields):
-        """Logs the exception being handled, with the options."""
+        """
+        Logs the exception being handled with its traceback, with the options of ``opt()``. Call it inside an ``except`` block.
+
+        :Parameters:
+            #. message (str, callable): The text to log, as in :meth:`info`.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. logType (str): The log type to write the record as. The default is ``"error"``.
+            #. fields (dict): Extra named values, kept as fields of the record and used to fill ``{name}``
+               places.
+        """
         return self.log(logType, message, *args, exc_info=True, **fields)
 
 
+    def force_log(self, logType, message, *args, exc_info=None, countConstraint=None, sinks=None, **fields):
+        """
+        Writes a record that must appear, with the options of ``opt()``. See :meth:`Logger.force_log` for the arguments.
+
+        .. code-block:: python
+
+            logger.opt(depth=1).force_log("info", "Stopped by {}", user)
+
+        :Parameters:
+            #. logType (str): A defined log type, such as ``"info"``.
+            #. message (str, callable): The text to log.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record. None uses
+               the one set by ``opt(exception=...)``. See :meth:`Logger.log`.
+            #. countConstraint (None, int): Writes this record at most this many times. None means no
+               limit.
+            #. sinks (None, list): Names of the sinks to write to. None writes to every sink that is switched on.
+            #. fields (dict): Named values, kept as fields of the record.
+        """
+        if exc_info is None:
+            exc_info = self.__exception
+        return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint,
+                                       self.__isLazy, self.__depth, True, sinks)
+
 class Logger(object):
     """
-    This is simplelog main Logger class definition.\n
+    The object you log with. It sends each message to its outputs: the console, an optional log file, and any others you add.
+
+    In plain words: most programs use the ready-made ``logger`` (``from pysimplelog import logger``). Make a ``Logger`` yourself
+    when a library needs its own, or when you want separate settings.
+
+    .. code-block:: python
+
+        from pysimplelog import Logger
+
+        log = Logger("billing", logToFile=False)
+        log.add("logs/billing.log", rotation="10 MB")
+        log.info("Order {} created", 7, customer="ann")
 
     Every log call builds one immutable :class:`pysimplelog.record.LogRecord`. The sinks turn it into
-    text with their own formatter. The readable text layout is:\n
-    date time - loggerName <logTypeName> message\n
+    text with their own formatter. The readable text layout is:
+
+    date time - loggerName <logTypeName> message
 
     To write records in another layout, such as JSON lines, give a sink another formatter, see
     :mod:`pysimplelog.formatters` and :mod:`pysimplelog.sinks`.
@@ -1415,7 +1719,6 @@ class Logger(object):
 
         from pysimplelog import SingleLogger as Logger
 
-
     Basic usage example:
 
     .. code-block:: python
@@ -1438,7 +1741,6 @@ class Logger(object):
         requestLogger = logger.bind(requestId="abc123", user="alice")
         requestLogger.info("request received")
 
-
     A new Logger instantiates with the following logType list (logTypes <NAME>: level)
 
        * debug <DEBUG>: 0
@@ -1446,7 +1748,6 @@ class Logger(object):
        * warn <WARNING>: 20
        * error <ERROR>: 30
        * critical <CRITICAL>: 100
-
 
     Recommended overloading implementation, this is how it could be done:
 
@@ -1458,8 +1759,6 @@ class Logger(object):
             # *args and **kwargs can be replace by fixed arguments
             def custom_init(self, *args, **kwargs):
                 # hereinafter any further instantiation can be coded
-
-
 
     In case overloading __init__ is needed, this is how it could be done:
 
@@ -1473,7 +1772,6 @@ class Logger(object):
                 if self._isInitialized: return
                 super(Logger, self).__init__(*args, **kwargs)
                 # hereinafter any further instantiation can be coded
-
 
     :Parameters:
        #. name (string): The logger name.
@@ -1594,8 +1892,8 @@ class Logger(object):
           reaches any sink, in the order they run. Each function is ``f(record) -> record``.
           Same as calling add_processor() for each one, after custom_init and the *logTypes* argument.
        #. consoleFormatter (None, string, callable): How a record becomes the text of the console. The colours
-          of its log type are added to the ``'text'`` layout only. The default ``'text'`` is the readable line, unless *env* is True and ``PYSIMPLELOG_FORMAT`` is set. ``'pretty'`` is a tidy
-          column layout, in colour when the console is a terminal. None gives JSON, a
+          of its log type are added to the ``'text'`` layout only. The default is ``'pretty'``, a tidy column layout, in colour when
+          the console is a terminal, unless *env* is True and ``PYSIMPLELOG_FORMAT`` is set. ``'text'`` is the readable line, ``time - name <INFO> message``. None gives JSON, a
           string with ``{name}`` placeholders is a template, and a function ``f(record) -> str`` is used as it
           is. See :mod:`pysimplelog.formatters`. Change it later with set_sink_formatter().
        #. fileFormatter (None, string, callable): The same, for the log file.
@@ -1654,7 +1952,7 @@ class Logger(object):
             raise ValueError("shutdownTimeout must be a positive number of seconds")
         environment = read_environment() if env else {}
         if consoleFormatter is NOT_GIVEN:
-            consoleFormatter = environment.get('consoleFormatter', 'text')
+            consoleFormatter = environment.get('consoleFormatter', 'pretty')
         if consoleColor is None:
             consoleColor = environment.get('consoleColor', 'auto')
         envLevel = environment.get('stdoutMinLevel') if stdoutMinLevel is None else None
@@ -1713,17 +2011,17 @@ class Logger(object):
         self.__fileMaxLevel   = None
         # create log messages counter
         self.__logMessagesCounter = {}
-        self.set_minimum_level(stdoutMinLevel, stdoutFlag=True, fileFlag=False)
-        self.set_maximum_level(stdoutMaxLevel, stdoutFlag=True, fileFlag=False)
-        self.set_minimum_level(fileMinLevel, stdoutFlag=False, fileFlag=True)
-        self.set_maximum_level(fileMaxLevel, stdoutFlag=False, fileFlag=True)
         # create default types
         self.add_log_type("debug",    name="DEBUG",    level=0,   stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("info",     name="INFO",     level=10,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("warn",     name="WARNING",  level=20,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("error",    name="ERROR",    level=30,  stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
         self.add_log_type("critical", name="CRITICAL", level=100, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None)
-        # The level of the environment can be a log type name, so it is set once the default types exist
+        # The levels can be log type names, so they are set once the default types exist
+        self.set_minimum_level(stdoutMinLevel, stdoutFlag=True, fileFlag=False)
+        self.set_maximum_level(stdoutMaxLevel, stdoutFlag=True, fileFlag=False)
+        self.set_minimum_level(fileMinLevel, stdoutFlag=False, fileFlag=True)
+        self.set_maximum_level(fileMaxLevel, stdoutFlag=False, fileFlag=True)
         if envLevel is not None:
             try:
                 envMinLevel = self.__resolve_add_level(envLevel)
@@ -1900,10 +2198,7 @@ class Logger(object):
         return string
 
     def __stream_format_allowed(self, stream):
-        """
-        Check whether a stream supports ANSI colour formatting.
-        Approach adapted from the Python Cookbook (recipe 475186).
-        """
+        """Says whether a stream can show colours, which is true for a terminal."""
         # curses isn't available on all platforms
         try:
             import curses as CURSES
@@ -1916,12 +2211,7 @@ class Logger(object):
             return False
 
     def __get_stream_fonts_attributes(self, stream):
-        """Return a dict of ANSI escape codes for colour, highlight, and text attributes.
-
-        Keys are 'color', 'highlight', 'attributes', and 'reset'. Values are
-        dicts mapping human-readable names to ANSI code strings. All code
-        strings are empty when the stream does not support formatting.
-        """
+        """Returns the colour, background and text-style codes this stream can show, or empty codes when it cannot show any."""
         # foreground color
         fgNames = ["black","red","green","orange","blue","magenta","cyan","grey"]
         fgCode  = [str(idx) for idx in range(30,38,1)]
@@ -1948,12 +2238,13 @@ class Logger(object):
         return {"color":color, "highlight":highlight, "attributes":attributes, "reset":resetCode}
 
     def _reset_after_fork(self):
-        """Gives a forked process locks of its own, see :func:`pysimplelog.forking.register_for_fork_reset`."""
+        """Gives a process that was just forked its own locks, so it cannot wait for a lock held by a thread it does not have. See :func:`pysimplelog.forking.register_for_fork_reset`."""
         self.__processorLock = threading.Lock()
         self.__filterLock = threading.Lock()
 
     def _flush_atexit_logfile(self):
-        """Drain the queue and flush all open streams at Python interpreter shutdown.
+        """
+        Runs when the program ends: writes what is queued, stops the threads, and closes the log file. See ``shutdownTimeout``.
 
         Registered with atexit at the end of __init__. Sends the stop sentinel
         to the background worker thread (if enqueue mode is active) and waits
@@ -1979,37 +2270,37 @@ class Logger(object):
 
     @property
     def processors(self):
-        """Tuple of the processor functions, in the order they run."""
+        """The processors in the order they run, as a tuple. A processor is a function that changes every record before a sink sees it."""
         return tuple(self.__processors)
 
     @property
     def filters(self):
-        """Tuple of the filter functions, in the order they run."""
+        """The global filters in the order they run, as a tuple. A filter is a function that drops records for every sink."""
         return tuple(self.__filters)
 
     @property
     def filteredRecords(self):
-        """Number of records dropped because a filter returned False. Records a sink skipped are counted by the sink."""
+        """How many records a global filter has dropped so far. A sink's own filter is counted by that sink."""
         return self.__filteredRecords
 
     @property
     def filterFailures(self):
-        """Number of times a filter, global or of a sink, raised or returned something that is not True or False. The record was kept."""
+        """How many times a filter crashed or gave an answer other than True or False. The record was kept each time."""
         return self.__filterFailures
 
     @property
     def processorFailures(self):
-        """Number of records dropped because a processor raised or returned something that is not a record."""
+        """How many records were dropped because a processor crashed or did not return a record."""
         return self.__processorFailures
 
     @property
     def lastRecord(self):
-        """The record of the last log call that reached a sink, or None when nothing was logged yet."""
+        """The most recent record that reached a sink, or None if nothing was logged yet."""
         return self.__lastRecord
 
     @property
     def lastRecords(self):
-        """Dictionary with the record of the last log call that reached a sink, for each log type that was logged."""
+        """The most recent record of each log type, as a dictionary such as ``{'info': record, 'error': record}``."""
         return dict(self.__lastRecords)
 
     @property
@@ -2019,68 +2310,56 @@ class Logger(object):
 
     @property
     def enqueue(self):
-        """Whether non-blocking enqueue mode is active."""
+        """True when the logger hands records to a background thread instead of writing them in the calling thread."""
         return self.__enqueue
 
     @property
     def consoleColor(self):
-        """'auto', 'always' or 'never': whether the console is written in colour."""
+        """``'auto'``, ``'always'`` or ``'never'``: whether the console is written in colour."""
         return self.__consoleColor
 
     @property
     def callerInfo(self):
-        """Whether caller file/line/function is prepended to each log line.
+        """
+        True when every record also says which file, line and function made the log call.
 
-        When True every log() and force_log() call walks the call stack
-        to find the first frame outside simple_log.py and prepends a
-        ``[file:line in func]`` tag before the message. The overhead is
-        roughly 10-30 us per call. Default is False.
+        The logger has to look at the call stack for each call to find out, which costs a little (roughly 10 to 30 microseconds),
+        so it is off by default. Change it with :meth:`set_caller_info`.
         """
         return self.__callerInfo
 
     @property
     def unknownLogTypePolicy(self):
-        """The policy applied to undefined log types, 'raise' or 'fallback'."""
+        """What happens when you log with a type that was never defined: ``'raise'`` (an error) or ``'fallback'`` (log it under another type)."""
         return self.__unknownLogTypePolicy
 
     @property
     def fallbackLogType(self):
-        """The log type used by the 'fallback' policy, None for 'raise'."""
+        """The log type used for unknown types when the policy is ``'fallback'``, otherwise None."""
         return self.__fallbackLogType
 
     @property
     def maxQueueSize(self):
-        """Maximum number of records the queue may hold, or None if unbounded.
-
-        Returns None when enqueue mode is not active.
-        """
+        """The most records the ``enqueue`` queue can hold, or None for no limit. None as well when ``enqueue`` is off."""
         return self.__maxQueueSize
 
     @property
     def queueFullPolicy(self):
-        """Active policy when the queue is full.
-
-        One of ``'block'``, ``'drop_newest'``, ``'drop_oldest'``, ``'reject'``.
-        Returns None when enqueue mode is not active.
-        """
+        """What the ``enqueue`` queue does when it is full: ``'block'``, ``'drop_newest'``, ``'drop_oldest'`` or ``'reject'``. None when ``enqueue`` is off."""
         return self.__queueFullPolicy
 
     @property
     def queueBlockTimeout(self):
-        """Seconds to wait before giving up when policy is ``'block'``.
-
-        None means block indefinitely. Returns None when enqueue mode
-        is not active or policy is not ``'block'``.
-        """
+        """How many seconds a log call waits for a free place when the policy is ``'block'``. None means as long as it takes, or that ``enqueue`` or ``'block'`` is not in use."""
         return self.__queueBlockTimeout
 
     @property
     def queueSize(self):
-        """Current number of log records waiting in the queue.
+        """
+        How many records are waiting in the ``enqueue`` queue right now, or 0 when ``enqueue`` is off.
 
-        Returns 0 when enqueue mode is not active.
-        Note: qsize() is an approximation on some platforms -- use
-        flush() to guarantee the queue is empty before reading results.
+        The number is a snapshot and can be a little off while other threads are logging. To be sure the queue is empty, call
+        ``flush()``.
         """
         if self.__logQueue is None:
             return 0
@@ -2088,11 +2367,11 @@ class Logger(object):
 
     @property
     def droppedMessages(self):
-        """Cumulative count of log records dropped due to a full queue.
+        """
+        How many records the ``enqueue`` queue has thrown away because it was full, since the logger was made.
 
-        Accumulates for the lifetime of the logger and is never reset.
-        Always 0 when enqueue mode is not active or maxQueueSize is None.
-        Records refused by the ``reject`` policy are not in it, see ``queueStats``.
+        It never goes back to zero, and it is 0 when ``enqueue`` is off or the queue has no size limit. Records refused by the
+        ``reject`` policy are counted in ``queueStats``, not here.
         """
         if self.__logQueue is None:
             return 0
@@ -2101,11 +2380,15 @@ class Logger(object):
     @property
     def queueStats(self):
         """
-        The counters of the queue of the enqueue mode, or None when that mode is not active.
+        The counters of the ``enqueue`` queue as a dictionary, or None when ``enqueue`` is off.
 
-        A dictionary with ``policy``, ``capacity`` (None without a limit), ``depth`` (records waiting now),
-        ``queued`` (records accepted so far), ``dropped`` (records thrown away so far) and ``rejected`` (records
-        refused with ``QueueFull`` so far).
+        The keys are ``policy``, ``capacity`` (None without a limit), ``depth`` (waiting now), ``queued`` (accepted so far),
+        ``dropped`` (thrown away so far) and ``rejected`` (refused with ``QueueFull`` so far).
+
+        .. code-block:: python
+
+            log = Logger("app", enqueue=True, maxQueueSize=1000)
+            log.queueStats      ## {'policy': 'block', 'capacity': 1000, 'depth': 0, 'queued': 0, 'dropped': 0, 'rejected': 0}
         """
         if self.__logQueue is None:
             return None
@@ -2113,154 +2396,141 @@ class Logger(object):
 
     @property
     def logTypes(self):
-        """List of all defined log types."""
+        """The names of all the log types the logger knows, such as ``'debug'`` and ``'info'``."""
         return list(self.__logTypeNames)
 
     @property
     def logTypeFileFlags(self):
-        """Dictionary copy of all defined log types logging to a file flags."""
+        """A copy of the per-type switches for the log file: which log types are forced on or off there."""
         return copy.deepcopy(self.__logTypeFileFlags)
 
     @property
     def logTypeStdoutFlags(self):
-        """Dictionary copy of all defined log types logging to Standard output flags."""
+        """A copy of the per-type switches for the console: which log types are forced on or off there."""
         return copy.deepcopy(self.__logTypeStdoutFlags)
 
     @property
     def stdoutMinLevel(self):
-        """Standard output minimum logging level."""
+        """The lowest level written to the console, or None for no limit. Change it with :meth:`set_minimum_level`."""
         return self.__stdoutMinLevel
 
     @property
     def stdoutMaxLevel(self):
-        """Standard output maximum logging level."""
+        """The highest level written to the console, or None for no limit. Change it with :meth:`set_maximum_level`."""
         return self.__stdoutMaxLevel
 
     @property
     def fileMinLevel(self):
-        """File logging minimum level."""
+        """The lowest level written to the built-in log file, or None for no limit."""
         return self.__fileMinLevel
 
     @property
     def fileMaxLevel(self):
-        """File logging maximum level."""
+        """The highest level written to the built-in log file, or None for no limit."""
         return self.__fileMaxLevel
 
     @property
     def forcedStdoutLevels(self):
-        """Dictionary copy of forced flags of logging to standard output."""
+        """A copy of the log types that are forced on or off on the console whatever the minimum and maximum levels say."""
         return copy.deepcopy(self.__forcedStdoutLevels)
 
     @property
     def forcedFileLevels(self):
-        """Dictionary copy of forced flags of logging to file."""
+        """A copy of the log types that are forced on or off in the log file whatever the minimum and maximum levels say."""
         return copy.deepcopy(self.__forcedFileLevels)
 
     @property
     def logTypeNames(self):
-        """Dictionary copy of all defined log types logging names."""
+        """A copy of the display name of each log type, such as ``{'warn': 'WARNING'}``."""
         return copy.deepcopy(self.__logTypeNames)
 
     @property
     def logTypeLevels(self):
-        """Dictionary copy of all defined log type levels."""
+        """A copy of the importance number of each log type, such as ``{'debug': 0, 'info': 10}``."""
         return copy.deepcopy(self.__logTypeLevels)
 
     @property
     def logTypeFormat(self):
-        """Dictionary copy of all defined log type ANSI format strings."""
+        """A copy of the colour codes (start and end) that each log type is written with on a terminal."""
         return copy.deepcopy(self.__logTypeFormat)
 
     @property
     def name(self):
-        """Logger name."""
+        """The name of the logger, which every record carries."""
         return self.__name
 
     @property
     def logToStdout(self):
-        """Whether logging to standard output is enabled.
-
-        Reads from the unified sink registry when available so the
-        value always reflects the live routing state.
-        """
+        """True when the console output is switched on."""
         if _SINK_STDOUT in self.__sinks:
             return self.__sinks[_SINK_STDOUT].enabled
         return self.__logToStdout
 
     @property
     def logFileRoll(self):
-        """Log file roll parameter."""
+        """How many log files are kept before the oldest is deleted, or None to keep them all."""
         return self.__logFileRoll
 
     @property
     def logToFile(self):
-        """Whether logging to file is enabled.
-
-        Reads from the unified sink registry when available so the
-        value always reflects the live routing state.
-        """
+        """True when the built-in log file is switched on."""
         if _SINK_FILE in self.__sinks:
             return self.__sinks[_SINK_FILE].enabled
         return self.__logToFile
 
     @property
     def stdout(self):
-        """The current standard output stream.
-
-        Returns the live stream object (never None — returns sys.stdout when
-        no custom stream has been set). Compare with ``parameters['stdout']``
-        which returns None in that case for historical reasons.
-        """
+        """The stream the console writes to. It is ``sys.stdout`` unless you gave another one."""
         return self.__stdout
 
     @property
     def sinks(self):
-        """Read-only snapshot of the sinks by name, with the handler each one writes to.
+        """
+        A read-only snapshot of the outputs by name, with the handler each one writes to.
 
-        Keys are ``CONSOLE_SINK`` and ``FILE_SINK`` for the two built-in sinks, and the name given to
-        ``add_sink()`` for the others. A value is the :class:`pysimplelog.sinks.Sink` or the handler that was
-        added. Routing is changed with the setters of the logger, and what a sink did is in :meth:`sink_stats`.
+        The keys are ``CONSOLE_SINK`` and ``FILE_SINK`` for the two built-in outputs, and the name given to ``add()`` or
+        ``add_sink()`` for the others. What a sink did is in :meth:`sink_stats`.
         """
         return MappingProxyType({name: sink.handler for name, sink in self.__sinks.items()})
 
     @property
     def logFileName(self):
-        """Currently used log file name."""
+        """The path of the log file being written right now."""
         return self.__sinks[_SINK_FILE].handler.path
 
     @property
     def logFileBasename(self):
-        """Log file basename."""
+        """The folder and file name of the log file without its extension, such as ``logs/app``."""
         return self.__logFileBasename
 
     @property
     def logFileExtension(self):
-        """Log file extension."""
+        """The extension of the log file, such as ``log``."""
         return self.__logFileExtension
 
     @property
     def logFileMaxSize(self):
-        """Maximum allowed logfile size in megabytes."""
+        """The size in megabytes at which a new log file is started, or None for no limit."""
         return self.__logFileMaxSize
 
     @property
     def logMessageMaxSize(self):
-        """Maximum allowed message character count. None means no limit."""
+        """The most characters a message may have before it is cut, or None for no limit."""
         return self.__maxMessageSize
 
     @property
     def logDataMaxSize(self):
-        """Maximum allowed data string character count. None means no limit."""
+        """The most characters the ``data`` field may have before it is cut, or None for no limit."""
         return self.__maxDataSize
 
     @property
     def logFileFirstNumber(self):
-        """Log file first number."""
+        """The number of the first log file, which is 0 in ``app_0.log``, or None for a first file with no number."""
         return self.__logFileFirstNumber
 
     @property
     def timezone(self):
-        """The active timezone name as a string, or None if using the machine default."""
+        """The name of the time zone used for timestamps, or None for the time zone of the machine."""
         timezone = self.__timezone
         if timezone is not None:
             timezone = timezone.zone
@@ -2268,20 +2538,25 @@ class Logger(object):
 
     @property
     def _timezone(self):
-        """Internal pytz timezone object, or None if using the machine default."""
+        """The time zone object used for timestamps, or None when the machine's time zone is used."""
         return self.__timezone
 
     @property
     def logMessagesCounter(self):
-        """Counter look-up table for logged messages that have a count constraint applied."""
+        """How many times each message with a count constraint has been logged. See the ``countConstraint`` argument of :meth:`log`."""
         return self.__logMessagesCounter
 
     def set_caller_info(self, callerInfo):
-        """Enable or disable automatic caller file/line/function tagging.
+        """
+        Turns on or off the file, line and function that each record says it came from.
 
-        Safe to call at any time. Takes effect on the very next log()
-        or force_log() call. When disabled the overhead drops to a single
-        boolean read (~5 ns) per log call.
+        It takes effect on the very next log call. The logger has to look at the call stack for each call to find the caller, which
+        costs a little, so it is off by default.
+
+        .. code-block:: python
+
+            logger.set_caller_info(True)
+            logger.info("with caller")      ## ... | INFO | pysimplelog | script.py:12 in main | with caller
 
         :Parameters:
             #. callerInfo (boolean): True to prepend
@@ -2296,23 +2571,32 @@ class Logger(object):
 
     def set_diagnose(self, diagnose, diagnoseRedact=()):
         """
-        Sets whether tracebacks show the values of the variables, and which variable names are hidden.
+        Chooses whether a traceback also shows the values of the variables behind the error, and which variable names are hidden.
 
-        Safe to call at any time. It takes effect on the next record with an exception.
+        It takes effect on the next record that carries an exception. Use it while you develop: the values are written to every
+        output.
+
+        .. code-block:: python
+
+            logger.set_diagnose("summary")          ## numbers and text in full, lists and objects by size
+            logger.set_diagnose("full")             ## the repr of everything
+            logger.set_diagnose(False)              ## plain Python tracebacks again
 
         :Parameters:
-            #. diagnose (boolean, str): False for Python's plain traceback. 'summary' adds the variables used
+            #. diagnose (boolean, str): False for Python's plain traceback. True is the same as 'summary', which adds the variables used
                on each source line, with containers and objects shown by type and length. 'full' shows the
                ``repr`` of every value.
             #. diagnoseRedact (tuple, list): Names added to the default sensitive names. A variable whose name
                contains one of them shows ``<redacted>``.
 
         :Raises:
-            #. ValueError: If *diagnose* is not False, 'summary' or 'full'.
+            #. ValueError: If *diagnose* is not False, True, 'summary' or 'full'.
             #. TypeError: If *diagnoseRedact* is not a tuple or list of strings.
         """
+        if diagnose is True:
+            diagnose = 'summary'
         if diagnose is not False and diagnose not in DIAGNOSE_MODES:
-            raise ValueError(f"diagnose must be False or one of {DIAGNOSE_MODES}")
+            raise ValueError(f"diagnose must be False, True or one of {DIAGNOSE_MODES}")
         if not isinstance(diagnoseRedact, (tuple, list)) or not all(isinstance(name, str) for name in diagnoseRedact):
             raise TypeError("diagnoseRedact must be a tuple or list of strings")
         self.__diagnose = diagnose
@@ -2320,28 +2604,34 @@ class Logger(object):
 
     @property
     def diagnose(self):
-        """False, 'summary' or 'full': whether tracebacks show variable values, see :meth:`set_diagnose`."""
+        """``False``, ``'summary'`` or ``'full'``: whether tracebacks show the values of variables. Change it with :meth:`set_diagnose`."""
         return self.__diagnose
 
     @property
     def diagnoseRedact(self):
-        """The sensitive variable names added to the default ones, as a tuple."""
+        """The extra variable names, besides ``password``, ``token`` and the like, whose values a diagnosed traceback hides, as a tuple."""
         return self.__diagnoseRedact
 
     def add_processor(self, func):
         """
-        Add a function that rewrites every record before any sink receives it.
+        Adds a function that changes every record before any output sees it. This is where secrets are removed or values are added.
 
-        The function receives the :class:`pysimplelog.record.LogRecord` and returns a record, usually a changed
-        copy made with ``record._replace(...)``. Functions run in the order they were added, for every record.
-        To treat only some records differently, test the record inside the function, for example
-        ``record.logType``. The result is also what ``lastRecord`` keeps. See
-        :func:`pysimplelog.processors.redact_fields` and :func:`pysimplelog.processors.redact_text`.
+        The function gets the :class:`pysimplelog.record.LogRecord` and returns a record, usually a changed copy made with
+        ``record._replace(...)``. Functions run in the order they were added, for every record. To treat only some records
+        differently, test the record inside the function, for example ``record.logType``.
 
-        A function that raises, or returns something that is not a record, makes the logger drop the record for
-        every sink: letting the unchanged record through could leak what the function was meant to hide.
-        The failure is counted in ``processorFailures`` and one warning is written for each function.
-        A function must not log.
+        If the function crashes, or returns something that is not a record, the record is dropped for **every** output, because
+        letting an unchanged record through could leak what the function was meant to hide. The failure is counted in
+        ``processorFailures`` and one warning is written for each function. A processor must not log.
+
+        See :func:`pysimplelog.processors.redact_fields` and :func:`pysimplelog.processors.redact_text`.
+
+        .. code-block:: python
+
+            from pysimplelog import redact_fields
+
+            logger.add_processor(redact_fields())                          ## hides passwords, tokens, ...
+            logger.add_processor(lambda record: record._replace(message=record.message.upper()))
 
         :Parameters:
             #. func (callable): ``f(record) -> record``.
@@ -2355,7 +2645,11 @@ class Logger(object):
 
     def remove_processor(self, func):
         """
-        Remove a function from the processors. Nothing happens when it was never added.
+        Takes a function out of the processors. Nothing happens if it was never added.
+
+        .. code-block:: python
+
+            logger.remove_processor(my_function)
 
         :Parameters:
             #. func (callable): The function to remove.
@@ -2364,19 +2658,23 @@ class Logger(object):
 
     def add_filter(self, func):
         """
-        Add a function that decides whether a record goes on, after the record processors have run.
+        Adds a function that decides whether a record goes on to the outputs. It runs after the processors.
 
-        The function receives the :class:`pysimplelog.record.LogRecord` and returns True to keep it or
-        False to drop it. Dropped means dropped for every sink: nothing is written, and ``lastRecord`` is not
-        updated. Functions run in the order they were added, for every record, and the first one that
-        returns False ends the check. They see the record as the record processors left it. To decide for one
-        sink only, see :meth:`set_sink_filter`. ``force_log`` does not use filters. A record that a record
-        processor failed on is not filtered, because there is no record to look at.
+        The function gets the :class:`pysimplelog.record.LogRecord` and returns True to keep it or False to drop it. A dropped
+        record is dropped for every output: nothing is written and ``lastRecord`` is not updated. Functions run in the order they
+        were added, and the first one that says False ends the check. To decide for one output only, use
+        :meth:`set_sink_filter`. ``force_log`` does not use filters.
 
-        A function that raises, or returns something that is not True or False, keeps the record: a broken
-        filter must not make logs disappear. The failure is counted in ``filterFailures`` and one warning is
-        written for each function. Records that a filter dropped are counted in ``filteredRecords``.
-        A function must not log. See :func:`pysimplelog.filters.sample`.
+        If the function crashes, or answers something other than True or False, the record is **kept**: a broken filter must not
+        make logs disappear. The failure is counted in ``filterFailures``, and one warning is written for each function. Records
+        a filter dropped are counted in ``filteredRecords``. A filter must not log.
+
+        .. code-block:: python
+
+            from pysimplelog import sample
+
+            logger.add_filter(lambda record: record.fields.get("path") != "/health")   ## no health checks
+            logger.add_filter(sample(0.1))                                            ## about one record in ten
 
         :Parameters:
             #. func (callable): ``f(record) -> bool``.
@@ -2390,7 +2688,11 @@ class Logger(object):
 
     def remove_filter(self, func):
         """
-        Remove a function from the filters. Nothing happens when it was never added.
+        Takes a function out of the filters. Nothing happens if it was never added.
+
+        .. code-block:: python
+
+            logger.remove_filter(my_function)
 
         :Parameters:
             #. func (callable): The function to remove.
@@ -2399,17 +2701,19 @@ class Logger(object):
 
     def set_sink_formatter(self, name, formatter):
         """
-        Change how one sink turns a record into text.
+        Changes how one output turns a record into text.
+
+        It takes effect on the next record. The output can be the console (``CONSOLE_SINK``), the built-in file (``FILE_SINK``) or
+        the name of an output you added.
 
         .. code-block:: python
 
-            ## One JSON object per line in the log file, readable text on the console
-            from pysimplelog import FILE_SINK
-            logger.set_sink_formatter(FILE_SINK, None)
-            ## A template
-            logger.set_sink_formatter('audit', '{timestamp} {severity} {message} {user}')
-            ## Any function of the record
-            logger.set_sink_formatter('audit', lambda record: record.message.upper())
+            from pysimplelog import CONSOLE_SINK, FILE_SINK
+
+            logger.set_sink_formatter(FILE_SINK, None)                      ## one JSON object per line
+            logger.set_sink_formatter(CONSOLE_SINK, "pretty")               ## the tidy console layout
+            logger.set_sink_formatter("audit", "{timestamp} {severity} {message} {user}")     ## a template
+            logger.set_sink_formatter("audit", lambda record: record.message.upper())         ## any function
 
         :Parameters:
             #. name (str, int): The name the sink was added with. The two built-in sinks are in ``sinks`` under
@@ -2439,23 +2743,27 @@ class Logger(object):
 
     def sink_stats(self, name=None):
         """
-        Returns what one sink, or every sink, did and what it lost, so a loss is never silent.
+        Tells what one output, or every output, has done and what it lost. A loss is never silent.
 
-        Each sink has a dictionary with:
+        Each output has a dictionary with:
 
-        * ``queue``: the counters of the private queue of a threaded sink, None for a sink written to on the calling
-          thread. They are ``policy``, ``capacity``, ``depth`` (records waiting now), ``queued`` (records accepted so
-          far), ``dropped`` (records thrown away so far) and ``rejected`` (records refused so far).
-        * ``spool``: what the spool of the sink holds and what its delivery did, None for a sink without a spool.
-          It has ``depth`` (records not delivered), ``bytes``, ``segments``, ``spooled`` (records kept), ``dropped``,
-          ``rejected``, ``dead`` (records parked in the ``dead`` file), ``retries``, ``replayed`` and
-          ``orphans_adopted`` and ``orphans_skipped`` (slots of other processes), ``refused`` (records not kept
-          because a forked child does not own the spool), ``errors``, ``torn``, ``corrupt``, ``lost`` and ``slot``.
-          The ``queue`` of such a sink is the queue of hints: a hint that was dropped lost no record.
-        * ``filtered``: the number of records the filter of the sink skipped, see :meth:`set_sink_filter`.
-        * ``delivery``: what the sink itself reports, see ``Sink.stats``: ``processed``, ``failed``, ``last_error``,
-          ``latency_mean`` and ``latency_max`` in seconds, and what a particular sink adds, such as ``sent`` for
-          the SIEM sink.
+        * ``queue``: the counters of the private queue of a threaded output, None for one written in the calling thread. They are
+          ``policy``, ``capacity``, ``depth`` (records waiting now), ``queued`` (accepted so far), ``dropped`` (thrown away so far)
+          and ``rejected`` (refused so far).
+        * ``spool``: what the disk spool of the output holds and what its delivery did, None for an output without a spool. It has
+          ``depth`` (records not delivered), ``bytes``, ``segments``, ``spooled`` (records kept), ``dropped``, ``rejected``,
+          ``dead`` (records parked in the ``dead`` file), ``retries``, ``replayed``, ``orphans_adopted`` and ``orphans_skipped``
+          (slots of other processes), ``refused`` (records not kept because a forked child does not own the spool), ``errors``,
+          ``torn``, ``corrupt``, ``lost`` and ``slot``. The ``queue`` of such an output is a queue of hints: a hint that was
+          dropped lost no record.
+        * ``filtered``: how many records the output's own filter skipped, see :meth:`set_sink_filter`.
+        * ``delivery``: what the output reports about itself: ``processed``, ``failed``, ``last_error``, ``latency_mean`` and
+          ``latency_max`` in seconds, and what a particular output adds, such as ``sent`` for the SIEM sink.
+
+        .. code-block:: python
+
+            logger.sink_stats()                        ## every output, by name
+            logger.sink_stats("sink-1")["delivery"]    ## processed, failed, last_error, latency_mean, latency_max
 
         :Parameters:
             #. name (None, str, int): The name a sink was added with, ``CONSOLE_SINK`` or ``FILE_SINK``. None
@@ -2477,13 +2785,17 @@ class Logger(object):
 
     def adopt_orphans(self, name, timeout=30.0):
         """
-        Sends, once, what the spool slots left behind by dead processes hold, through one sink.
+        Sends what a crashed process left in its spool, once, through one output.
 
-        Only slots made for the same spool id, sink class and target are taken, a slot made for something else is left
-        alone and counted. Slots that a live process holds are skipped. The worker of the sink does the sending, one
-        record at a time and in order, and stops at the first record that cannot be delivered. Setting
-        ``adoptOrphans=True`` in the spool settings makes the sink do the same on its own, every ``adoptInterval``
-        seconds, when it is idle.
+        A spool keeps records on disk until they are delivered. If a process dies, its files stay behind. This sends them, one
+        record at a time and in order, and stops at the first one that cannot be delivered. Only files made for the same spool
+        ``id``, output class and destination are taken, so records meant for one receiver never go to another. Files that a living
+        process holds are skipped. With ``adoptOrphans=True`` in the spool settings the output does the same on its own whenever it
+        is idle.
+
+        .. code-block:: python
+
+            logger.adopt_orphans("collector")
 
         :Parameters:
             #. name (str): The name of a sink that was added with a spool.
@@ -2506,14 +2818,17 @@ class Logger(object):
 
     def maintain(self):
         """
-        Does the housekeeping of every sink, now: files that are too many or too old are deleted and rotated files are queued
-        for compression, a spool drops the segments that are too old and tries again to delete files that were in use.
+        Does the housekeeping of every output now: deletes log files that are too many or too old, queues rotated files for
+        compression, and lets a spool drop segments that are too old.
 
-        Nothing happens on its own for a sink that is not written to, so call this from a scheduler, or from a thread of your
-        own, if files must go on time whether or not anything is logged. It never sends or loses a record that is not already
-        past its limit, it is safe to call at any time and from any thread, and an error in one sink is reported once and does
-        not stop the others. Each sink can be asked separately with its own ``maintain()``. :meth:`flush` is the one that
-        pushes data out.
+        Nothing happens on its own for an output that is not written to, so call this from a scheduler, or a thread of your own,
+        if files must go on time whether or not anything is logged. It is safe to call at any time and from any thread. It never
+        sends or loses a record that is not already past its limit, and an error in one output is reported once and does not stop the
+        others. :meth:`flush` is the one that pushes data out.
+
+        .. code-block:: python
+
+            logger.maintain()          ## for example once an hour
 
         :Returns:
             #. results (dict): For each sink that had something to do, by the name it is known by (``CONSOLE_SINK``,
@@ -2549,20 +2864,18 @@ class Logger(object):
 
     def set_sink_filter(self, name, recordFilter):
         """
-        Set, or remove, the function that decides which records one sink receives.
+        Gives one output its own filter, or removes it.
 
-        This is the last step of the pipeline, after the sink has passed the routing by level and log type.
-        The function receives the :class:`pysimplelog.record.LogRecord` and returns True to give it to this
-        sink or False to skip it. Other sinks are not affected. A function that raises, or returns something
-        that is not True or False, gives the record to the sink and is counted like a failing filter.
-        Skipped records are counted in ``filteredCount`` of the sink, see ``sinks``.
+        The filter decides which records that output receives, and it is the last step before the output, after the routing by
+        level and log type. It gets the :class:`pysimplelog.record.LogRecord` and returns True to give it to the output or False to
+        skip it. Other outputs are not affected. If the function crashes or answers something other than True or False, the
+        output gets the record, and the failure is counted like that of any filter. Skipped records are counted in the output's
+        ``filtered`` number, see :meth:`sink_stats`.
 
         .. code-block:: python
 
-            ## Only audit records go to the audit file
-            logger.set_sink_filter('audit', lambda record: record.logType == 'audit')
-            ## Back to receiving everything that passes the routing
-            logger.set_sink_filter('audit', None)
+            logger.set_sink_filter("audit", lambda record: record.logType == "audit")    ## only audit records
+            logger.set_sink_filter("audit", None)                                         ## back to everything
 
         :Parameters:
             #. name (str, int): The name the sink was added with. The two built-in sinks are in ``sinks`` under
@@ -2590,7 +2903,15 @@ class Logger(object):
 
     def set_unknown_log_type_policy(self, policy, fallbackLogType=None):
         """
-        Set what log() and force_log() do with an undefined log type.
+        Chooses what happens when you log with a type that was never defined.
+
+        With ``'raise'`` (the default) it is an error. With ``'fallback'`` the message is logged under *fallbackLogType* with the
+        unknown name written in front, so a typo never crashes the program and stays visible.
+
+        .. code-block:: python
+
+            logger.set_unknown_log_type_policy("fallback", "error")
+            logger.log("typo", "hello")        ## logged as an error: Unknown log type 'typo': hello
 
         :Parameters:
             #. policy (string): 'raise' or 'fallback'.
@@ -2609,11 +2930,14 @@ class Logger(object):
         self.__fallbackLogType      = fallbackLogType if policy == 'fallback' else None
 
     def set_max_queue_size(self, maxQueueSize):
-        """Set the maximum number of records the internal queue may hold.
+        """
+        Sets how many records the ``enqueue`` queue may hold. None removes the limit.
 
-        Can be called at any time -- takes effect on the very next log()
-        call because Python's queue.Queue checks maxsize dynamically on
-        every put(). Setting to None removes the cap entirely.
+        It can be called at any time and takes effect on the next log call.
+
+        .. code-block:: python
+
+            logger.set_max_queue_size(5000)
 
         :Parameters:
             #. maxQueueSize (None, integer): Maximum queue depth. Must be
@@ -2635,10 +2959,15 @@ class Logger(object):
             self.__logQueue.set_max_size(maxQueueSize)
 
     def set_queue_full_policy(self, queueFullPolicy):
-        """Set the backpressure policy applied when the queue is full.
+        """
+        Chooses what the ``enqueue`` queue does when it is full: ``'block'``, ``'drop_newest'``, ``'drop_oldest'`` or ``'reject'``.
 
-        Can be changed at runtime -- takes effect on the very next log()
-        call that finds the queue at capacity.
+        It can be changed at any time and applies to the next call that finds the queue full. Everything that is thrown away or
+        refused is counted, see :attr:`queueStats`.
+
+        .. code-block:: python
+
+            logger.set_queue_full_policy("drop_oldest")
 
         :Parameters:
             #. queueFullPolicy (string): One of four values:
@@ -2671,10 +3000,13 @@ class Logger(object):
             self.__logQueue.set_policy(queueFullPolicy)
 
     def set_queue_block_timeout(self, queueBlockTimeout):
-        """Set the maximum seconds to wait when queueFullPolicy is ``'block'``.
+        """
+        Sets how many seconds a log call waits for a free place when the queue policy is ``'block'``. After that the new record
+        is dropped and counted. None waits as long as it takes.
 
-        Can be changed at runtime -- takes effect on the very next log()
-        call that blocks on a full queue.
+        .. code-block:: python
+
+            logger.set_queue_block_timeout(0.5)
 
         :Parameters:
             #. queueBlockTimeout (None, number): Seconds to wait before
@@ -2700,7 +3032,14 @@ class Logger(object):
 
     def set_timezone(self, timezone):
         """
-        Set the logging timezone.
+        Sets the time zone used for the time of each record, by name such as ``"Europe/Paris"``. None uses the time zone of the
+        machine.
+
+        A named time zone needs the optional ``pytz`` package.
+
+        .. code-block:: python
+
+            logger.set_timezone("UTC")
 
         :Parameters:
             #. timezone (None, str): Logging time timezone. If provided,
@@ -2720,7 +3059,13 @@ class Logger(object):
         self.__timezone = timezone
 
     def is_log_type(self, logType):
-        """Return True if the given log type has been defined, False otherwise.
+        """
+        Says whether a log type is defined.
+
+        .. code-block:: python
+
+            logger.is_log_type("info")       ## True
+            logger.is_log_type("nope")       ## False
 
         :Parameters:
            #. logType (string): The log type name to check.
@@ -2734,10 +3079,22 @@ class Logger(object):
             return False
 
     def update(self, **kwargs):
-        """Update logger general parameters using key value pairs.
-        Updatable parameters are name, flush, stdout, logToStdout, logFileRoll,
-        logToFile, logFileMaxSize, stdoutMinLevel, stdoutMaxLevel, fileMinLevel,
-        fileMaxLevel, logFileFirstNumber, unknownLogTypePolicy and fallbackLogType.
+        """
+        Changes several settings of the logger at once, by name.
+
+        The names that can be changed are ``name``, ``flush``, ``stdout``, ``logToStdout``, ``logFileRoll``, ``logToFile``,
+        ``logFileMaxSize``, ``stdoutMinLevel``, ``stdoutMaxLevel``, ``fileMinLevel``, ``fileMaxLevel``, ``logFileFirstNumber``,
+        ``logFile``, ``maxMessageSize``, ``maxDataSize``, ``maxQueueSize``, ``queueFullPolicy``, ``queueBlockTimeout``,
+        ``callerInfo``, ``diagnose``, ``diagnoseRedact``, ``unknownLogTypePolicy`` and ``fallbackLogType``.
+
+        .. code-block:: python
+
+            logger.update(logToFile=False, stdoutMinLevel=10)
+            other.update(**logger.parameters)           ## copy the settings of one logger to another
+
+        :Parameters:
+            #. kwargs (dict): The settings to change, each given as ``name=value``. The names are listed
+               above.
         """
         # update name
         if "name" in kwargs:
@@ -2803,14 +3160,12 @@ class Logger(object):
 
     @property
     def parameters(self):
-        """Return a dictionary of logger general parameters.
+        """
+        The general settings of the logger as a dictionary.
 
-        The returned dictionary can be passed directly to another Logger
-        instance's update() method to copy this configuration. It includes
-        a ``userSinks`` key whose value is a dict mapping each user-added
-        sink name to its current configuration snapshot (enabled, minLevel,
-        maxLevel, logTypeFlags). Built-in sinks are not included there;
-        they are described by the surrounding keys.
+        The dictionary can be given to the ``update()`` method of another logger to copy the configuration. Its ``userSinks`` entry
+        lists the outputs added with ``add()`` or ``add_sink()``, with their switch, levels and log type flags. The two built-in
+        outputs are described by the other keys.
         """
         userSinks = {}
         for k, s in self.__sinks.items():
@@ -2850,15 +3205,16 @@ class Logger(object):
 
     def custom_init(self, *args, **kwargs):
         """
-        Custom initialize hook, called as the very last step of Logger.__init__.
+        A place for your own start-up code when you make a subclass of ``Logger``. It does nothing here.
 
-        The logger is fully built when this runs: log types, the stdout and
-        file sinks, the queue and caller info all exist, so logging and
-        add_sink() work inside it. The ``logTypes`` constructor argument is
-        applied right after it.
+        It is called as the very last step of ``Logger.__init__``, when the logger is completely built, so logging and ``add()``
+        already work inside it. The ``logTypes`` argument of the constructor is applied right after it.
 
-        Override this method to perform application-specific setup on Logger
-        instances without modifying __init__ directly.
+        .. code-block:: python
+
+            class MyLogger(Logger):
+                def custom_init(self, *args, **kwargs):
+                    self.add_log_type("trace", name="TRACE", level=5)
 
         :Parameters:
             #. \\*args (): This is used to send non-keyworded variable length argument
@@ -2870,7 +3226,11 @@ class Logger(object):
 
     def set_name(self, name):
         """
-        Set the logger name.
+        Sets the name of the logger, which every record carries.
+
+        .. code-block:: python
+
+            logger.set_name("billing.api")
 
         :Parameters:
            #. name (string): The logger name.
@@ -2884,7 +3244,12 @@ class Logger(object):
 
     def set_flush(self, flush):
         """
-        Set how the logging streams are flushed after every record.
+        Chooses whether the console and the log file are flushed after every record. Flushing is safer, because a crash loses less,
+        and a little slower.
+
+        .. code-block:: python
+
+            logger.set_flush(True)
 
         :Parameters:
            #. flush (boolean, string, None): True flushes every record to the operating system, which
@@ -2915,7 +3280,15 @@ class Logger(object):
 
     def set_stdout(self, stream=None):
         """
-        Set the logger standard output stream.
+        Sets the stream the console writes to. None goes back to ``sys.stdout``.
+
+        The stream needs a ``write`` method and a ``read`` method.
+
+        .. code-block:: python
+
+            import io
+            logger.set_stdout(io.StringIO())       ## keep the console output in memory
+            logger.set_stdout(None)                ## back to the terminal
 
         :Parameters:
            #. stream (None, stream): The standard output stream. If None, system standard
@@ -2940,10 +3313,11 @@ class Logger(object):
 
     def set_log_to_stdout_flag(self, logToStdout):
         """
-        Set the global flag controlling logging to standard output.
+        Switches the console output on or off. When off, nothing is written to it, whatever the per-type settings say.
 
-        When set to False, no logging to standard output will happen
-        regardless of any per-logType stdout flag.
+        .. code-block:: python
+
+            logger.set_log_to_stdout_flag(False)
 
         :Parameters:
            #. logToStdout (boolean): Whether to log to the standard output stream.
@@ -2960,10 +3334,11 @@ class Logger(object):
 
     def set_log_to_file_flag(self, logToFile):
         """
-        Set the global flag controlling logging to file.
+        Switches the built-in log file on or off. When off, nothing is written to it, whatever the per-type settings say.
 
-        When set to False, no logging to file will happen regardless of any
-        per-logType file flag.
+        .. code-block:: python
+
+            logger.set_log_to_file_flag(True)
 
         :Parameters:
            #. logToFile (boolean): Whether to enable logging to file.
@@ -2980,7 +3355,12 @@ class Logger(object):
 
     def set_log_type_flags(self, logType, stdoutFlag, fileFlag):
         """
-        Set a defined log type flags.
+        Forces a log type on or off for the console and for the log file, whatever the minimum and maximum levels say. None
+        removes the forcing.
+
+        .. code-block:: python
+
+            logger.set_log_type_flags("debug", stdoutFlag=False, fileFlag=True)     ## debug only in the file
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3004,8 +3384,11 @@ class Logger(object):
 
     def set_log_file_roll(self, logFileRoll):
         """
-        Set roll parameter to determine the maximum number of log files allowed.
-        Beyond the maximum, older will be removed.
+        Sets how many log files are kept. When there are more, the oldest are deleted. None keeps all of them.
+
+        .. code-block:: python
+
+            logger.set_log_file_roll(5)
 
         :Parameters:
             #. logFileRoll (None, integer): If given, it sets the maximum number of
@@ -3031,7 +3414,11 @@ class Logger(object):
 
     def set_log_file(self, logfile):
         """
-        Set the log file full path including directory path basename and extension.
+        Sets the path of the log file, with its folder, name and extension, such as ``logs/app.log``.
+
+        .. code-block:: python
+
+            logger.set_log_file("logs/app.log")
 
         :Parameters:
            #. logfile (string): the full log file path including basename and
@@ -3049,7 +3436,11 @@ class Logger(object):
 
     def set_log_file_extension(self, logFileExtension):
         """
-        Set the log file extension.
+        Sets the extension of the log file, such as ``log``.
+
+        .. code-block:: python
+
+            logger.set_log_file_extension("txt")
 
         :Parameters:
            #. logFileExtension (string): Logging file extension. A logging file full name is
@@ -3077,7 +3468,11 @@ class Logger(object):
 
     def set_log_file_basename(self, logFileBasename):
         """
-        Set the log file basename.
+        Sets the folder and name of the log file without its extension, such as ``logs/app``.
+
+        .. code-block:: python
+
+            logger.set_log_file_basename("logs/app")
 
         :Parameters:
            #. logFileBasename (string): Logging file directory path and file basename.
@@ -3090,6 +3485,7 @@ class Logger(object):
         self.__select_log_file()
 
     def __set_log_file_basename(self, logFileBasename):
+        """Stores the folder and name of the log file, without its extension. :meth:`set_log_file_basename` is the public way to change it."""
         if not isinstance(logFileBasename, str):
             raise TypeError("logFileBasename must be a string")
         self.__logFileBasename = _normalize_path(logFileBasename)#logFileBasename
@@ -3101,7 +3497,11 @@ class Logger(object):
 
     def set_log_file_maximum_size(self, logFileMaxSize):
         """
-        Set the log file maximum size in megabytes.
+        Sets the size, in megabytes, at which a new log file is started. None means a file grows without limit.
+
+        .. code-block:: python
+
+            logger.set_log_file_maximum_size(10)
 
         :Parameters:
            #. logFileMaxSize (None, number): The maximum size in Megabytes
@@ -3126,7 +3526,12 @@ class Logger(object):
             self.__sinks[_SINK_FILE].handler.set_max_size(logFileMaxSize)
 
     def set_maximum_message_size(self, maxMessageSize):
-        """Set the maximum number of characters allowed in a single log message.
+        """
+        Sets the most characters a message may have. A longer message is cut and ``[truncated]`` is added. None means no limit.
+
+        .. code-block:: python
+
+            logger.set_maximum_message_size(2000)
 
         :Parameters:
             #. maxMessageSize (None, integer): Maximum character count for the
@@ -3143,9 +3548,12 @@ class Logger(object):
         self.__maxMessageSize = maxMessageSize
 
     def set_maximum_data_size(self, maxDataSize):
-        """Set the maximum character count for the string representation of the data argument.
+        """
+        Sets the most characters the ``data`` field may have. A longer one is cut and ``[truncated]`` is added. None means no limit.
 
-        Applies to the data argument passed to log() or force_log().
+        .. code-block:: python
+
+            logger.set_maximum_data_size(10000)
 
         :Parameters:
             #. maxDataSize (None, integer): Maximum character count for the
@@ -3163,7 +3571,11 @@ class Logger(object):
 
     def set_log_file_first_number(self, logFileFirstNumber):
         """
-        Set log file first number.
+        Sets the number of the first log file. With 0 the files are ``app_0.log``, ``app_1.log`` and so on.
+
+        .. code-block:: python
+
+            logger.set_log_file_first_number(1)
 
         :Parameters:
             #. logFileFirstNumber (None, integer): first log file number 'N' in
@@ -3188,12 +3600,22 @@ class Logger(object):
 
     def set_minimum_level(self, level=0, stdoutFlag=True, fileFlag=True, sinks=None):
         """
-        Set the minimum logging level. All levels below the minimum will be ignored at logging.
+        Hides every log call below a level, on the console and in the log file.
+
+        In plain words: each log type has an importance number. A minimum of ``"warn"`` keeps warnings, errors and critical
+        messages and drops the debug and info ones. Only the console and the built-in log file change, unless you name other
+        outputs in *sinks*.
+
+        .. code-block:: python
+
+            logger.set_minimum_level("warn")      ## only warn, error and critical are written
+            logger.set_minimum_level(None)        ## everything again
 
         :Parameters:
            #. level (None, number, str): The minimum level of logging.
               If None, minimum level checking is left out.
-              If str, it must be a defined logtype and therefore the minimum level would be the level of this logtype.
+              If str, it must be the key or the name of a defined logtype, such as ``"warn"`` or ``"WARNING"``, and
+              the minimum level is the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this minimum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this minimum level to file logging.
            #. sinks (None, list): Optional list of user sink names to update.
@@ -3230,10 +3652,8 @@ class Logger(object):
         # check level
         if level is not None:
             if isinstance(level, str):
-                level = str(level)
-                if level not in self.__logTypeStdoutFlags:
-                    raise ValueError("level '%s' given as string, is not defined logType" %level)
-                level = self.__logTypeLevels[level]
+                # A key such as "warn" or a name such as "WARNING", like the level of add()
+                level = self.__resolve_add_level(level)
             if not _is_number(level):
                 raise TypeError("level must be a number")
             level = float(level)
@@ -3268,12 +3688,18 @@ class Logger(object):
 
     def set_maximum_level(self, level=0, stdoutFlag=True, fileFlag=True, sinks=None):
         """
-        Set the maximum logging level. All levels above the maximum will be ignored at logging.
+        Hides every log call above a level, on the console and in the log file. It is the opposite of :meth:`set_minimum_level`,
+        and rarely needed: use it to send, say, only the debug and info records to one place.
+
+        .. code-block:: python
+
+            logger.set_maximum_level("info", stdoutFlag=False)     ## the log file gets nothing above info
 
         :Parameters:
            #. level (None, number, str): The maximum level of logging.
               If None, maximum level checking is left out.
-              If str, it must be a defined logtype and therefore the maximum level would be the level of this logtype.
+              If str, it must be the key or the name of a defined logtype, such as ``"warn"`` or ``"WARNING"``, and
+              the maximum level is the level of this logtype.
            #. stdoutFlag (boolean): Whether to apply this maximum level to standard output logging.
            #. fileFlag (boolean): Whether to apply this maximum level to file logging.
            #. sinks (None, list): Optional list of user sink names to update.
@@ -3311,10 +3737,8 @@ class Logger(object):
         # check level
         if level is not None:
             if isinstance(level, str):
-                level = str(level)
-                if level not in self.__logTypeStdoutFlags:
-                    raise ValueError("level '%s' given as string, is not defined logType"%level)
-                level = self.__logTypeLevels[level]
+                # A key such as "warn" or a name such as "WARNING", like the level of add()
+                level = self.__resolve_add_level(level)
             if not _is_number(level):
                 raise TypeError("level must be a number")
             level = float(level)
@@ -3346,6 +3770,7 @@ class Logger(object):
             self.__rebuild_active_sinks()
 
     def __update_flags(self):
+        """Works out again, from the minimum and maximum levels, which log types are written to the console and to the log file."""
         self.__update_stdout_flags()
         self.__update_file_flags()
 
@@ -3372,7 +3797,8 @@ class Logger(object):
             self.__rebuild_active_sinks()
 
     def __rebuild_active_sinks(self):
-        """Rebuild the per-logType active sink cache.
+        """
+        Works out, for each log type, which outputs will receive it, so a log call only has to look the answer up. It runs after any change that affects routing.
 
         Called once after any configuration change that affects routing:
         add_sink(), remove_sink(), set_log_to_stdout_flag(),
@@ -3412,7 +3838,8 @@ class Logger(object):
         self.__activeSinks = result
 
     def __dispatch_sinks_sync(self, sinks, record):
-        """Give a record to a list of sinks, on this thread, or on the private queue of a threaded sink.
+        """
+        Hands a record to each output: a threaded output gets it on its queue, the others write it at once. One failing output cannot stop the others.
 
         Called by both log() on the synchronous path and __enqueue_worker()
         inside the background thread. A threaded sink gets the record pushed onto its
@@ -3531,7 +3958,12 @@ class Logger(object):
                  minLevel=None, maxLevel=None, logTypeFlags=None,
                  defaultFlag=True, threaded=False, threadQueueSize=1000, recordFilter=None,
                  threadQueuePolicy='drop_oldest', threadBlockTimeout=None, spool=None):
-        """Add a user-supplied output sink to the logger.
+        """
+        Adds an output to the logger. This is the full form of :meth:`add`, which builds the output for you.
+
+        In plain words: an output (a "sink") is where records go. After this call every record whose log type is allowed reaches it.
+        You can give a ready :class:`pysimplelog.sinks.Sink`, or any object with a ``write(text)`` method, such as a file or
+        ``sys.stderr``. Give it its own thread with ``threaded=True`` if it is slow.
 
         The sink receives every log record whose type passes the routing
         rules (enabled flag, per-type flags, and optional level bounds).
@@ -3544,6 +3976,13 @@ class Logger(object):
         :class:`pysimplelog.sinks.StreamSink` that writes the readable text of every record,
         the same text as the log file, without colour codes. The caller
         owns the handler's lifecycle -- the logger never closes it, it only flushes it.
+
+        .. code-block:: python
+
+            import sys
+            logger.add_sink("errors", sys.stderr, minLevel=30)                 ## errors and above, to the error stream
+            logger.add_sink("slow", MySlowSink(), threaded=True)               ## written by a thread of its own
+            logger.remove_sink("errors")
 
         :Parameters:
             #. name (str): Unique string key for this sink. Must not
@@ -3688,11 +4127,14 @@ class Logger(object):
         self.__rebuild_active_sinks()
 
     def remove_sink(self, name, timeout=5.0):
-        """Remove a user-added sink by its registered name.
+        """
+        Removes an output you added, by its name, and stops its thread if it has one.
 
-        If the sink is threaded, its private worker thread is drained
-        (up to *timeout* seconds) and stopped here -- no thread is ever
-        left running after its sink is gone.
+        A threaded output is given up to *timeout* seconds to write what it still holds.
+
+        .. code-block:: python
+
+            logger.remove_sink("errors")
 
         :Parameters:
             #. name (str): The key used when the sink was registered
@@ -3716,16 +4158,29 @@ class Logger(object):
         sink.release(timeout=timeout)
 
     def remove(self, name, timeout=5.0):
-        """Removes a sink by the name :meth:`add` returned, see :meth:`remove_sink`."""
+        """
+        Removes an output by the name :meth:`add` returned. It is the same as :meth:`remove_sink`.
+
+        .. code-block:: python
+
+            name = logger.add("logs/audit.log")
+            logger.remove(name)                    ## stops it and closes the file
+
+        :Parameters:
+            #. name (str): The name that :meth:`add` returned.
+            #. timeout (float): Seconds a threaded output is given to write what it still holds.
+        """
         return self.remove_sink(name, timeout)
 
     def clear_sinks(self, timeout=5.0):
-        """Remove all user-added sinks.
+        """
+        Removes every output you added. The console and the built-in log file stay.
 
-        The two built-in sinks (_SINK_STDOUT and _SINK_FILE) are
-        always preserved. Any threaded sink among them has its private
-        worker thread drained (up to *timeout* seconds) and stopped
-        here. This is a no-op if no user sinks are registered.
+        A threaded output is given up to *timeout* seconds to write what it still holds. Nothing happens if you added none.
+
+        .. code-block:: python
+
+            logger.clear_sinks()
 
         :Parameters:
             #. timeout (float): Seconds to wait for each threaded sink's
@@ -3742,7 +4197,11 @@ class Logger(object):
 
     def force_log_type_stdout_flag(self, logType, flag):
         """
-        Force a logtype standard output logging flag despite minimum and maximum logging level boundaries.
+        Forces a log type on or off on the console, whatever the minimum and maximum levels say. None removes the forcing.
+
+        .. code-block:: python
+
+            logger.force_log_type_stdout_flag("debug", True)       ## debug always shows on the console
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3768,7 +4227,11 @@ class Logger(object):
 
     def force_log_type_file_flag(self, logType, flag):
         """
-        Force a logtype file logging flag despite minimum and maximum logging level boundaries.
+        Forces a log type on or off in the log file, whatever the minimum and maximum levels say. None removes the forcing.
+
+        .. code-block:: python
+
+            logger.force_log_type_file_flag("audit", True)
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3794,7 +4257,11 @@ class Logger(object):
 
     def force_log_type_flags(self, logType, stdoutFlag, fileFlag):
         """
-        Force a logtype logging flags.
+        Forces a log type on or off on the console and in the log file at once. None removes the forcing.
+
+        .. code-block:: python
+
+            logger.force_log_type_flags("audit", stdoutFlag=False, fileFlag=True)
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3812,7 +4279,11 @@ class Logger(object):
 
     def set_log_type_name(self, logType, name):
         """
-        Set a logtype name.
+        Changes the name a log type is shown with, such as ``WARNING`` for ``warn``.
+
+        .. code-block:: python
+
+            logger.set_log_type_name("warn", "WARN")
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3831,7 +4302,11 @@ class Logger(object):
 
     def set_log_type_level(self, logType, level):
         """
-        Set a logtype logging level.
+        Changes the importance number of a log type. The minimum and maximum levels compare against it.
+
+        .. code-block:: python
+
+            logger.set_log_type_level("info", 15)
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -3849,7 +4324,11 @@ class Logger(object):
 
     def remove_log_type(self, logType, _assert=False):
         """
-        Remove a logtype.
+        Deletes a log type you defined.
+
+        .. code-block:: python
+
+            logger.remove_log_type("audit")
 
         :Parameters:
            #. logType (string): The logtype.
@@ -3878,7 +4357,19 @@ class Logger(object):
 
     def add_log_type(self, logType, name=None, level=0, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """
-        Add a new logtype.
+        Defines a new kind of message, with its own name, importance and colour.
+
+        In plain words: ``debug``, ``info``, ``warn``, ``error`` and ``critical`` come ready. Add your own, such as ``audit``, and
+        log with ``logger.log("audit", "...")``. The level decides what the minimum and maximum levels keep or hide.
+
+        The colours are: black, red, green, orange, blue, magenta, cyan, grey, dark grey, light red, light green, yellow, light blue,
+        pink and light cyan. The highlights (background colours) are: black, red, green, orange, blue, magenta, cyan and grey. The
+        attributes are: bold, underline, blink, invisible and strike through. They show only on a terminal that supports them.
+
+        .. code-block:: python
+
+            logger.add_log_type("audit", name="AUDIT", level=15, color="magenta")
+            logger.log("audit", "user exported the report", user="ann")
 
         :Parameters:
            #. logType (string): The logtype.
@@ -3888,12 +4379,15 @@ class Logger(object):
               If None, flag will be set according to minimum and maximum levels.
            #. fileFlag (None, boolean): Force file logging flag.
               If None, flag will be set according to minimum and maximum levels.
-           #. color (None, string): The logging text color. The defined colors are:\n
+           #. color (None, string): The logging text color. The defined colors are:
+
               black , red , green , orange , blue , magenta , cyan , grey , dark grey ,
               light red , light green , yellow , light blue , pink , light cyan
-           #. highlight (None, string): The logging text highlight color. The defined highlights are:\n
+           #. highlight (None, string): The logging text highlight color. The defined highlights are:
+
               black , red , green , orange , blue , magenta , cyan , grey
-           #. attributes (None, string): The logging text attribute. The defined attributes are:\n
+           #. attributes (None, string): The logging text attribute. The defined attributes are:
+
               bold , underline , blink , invisible , strike through
 
         **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
@@ -3918,6 +4412,7 @@ class Logger(object):
 
     def __set_log_type(self, logType, name, level, stdoutFlag, fileFlag, color, highlight, attributes):
         # check name
+        """Stores a log type's name, level, colours and switches. :meth:`add_log_type` and :meth:`update_log_type` use it after checking their arguments."""
         if name is None:
             name = logType
         if not isinstance(name, str):
@@ -3995,7 +4490,12 @@ class Logger(object):
 
     def update_log_type(self, logType, name=None, level=None, stdoutFlag=None, fileFlag=None, color=None, highlight=None, attributes=None):
         """
-        Update a logtype.
+        Changes some properties of a log type that already exists (its name, level, switches or colours). What you leave as None
+        stays as it is.
+
+        .. code-block:: python
+
+            logger.update_log_type("audit", level=25, color="red")
 
         :Parameters:
            #. logType (string): The logtype.
@@ -4005,12 +4505,15 @@ class Logger(object):
               If None, flag will be set according to minimum and maximum levels.
            #. fileFlag (None, boolean): Force file logging flag.
               If None, flag will be set according to minimum and maximum levels.
-           #. color (None, string): The logging text color. The defined colors are:\n
+           #. color (None, string): The logging text color. The defined colors are:
+
               black , red , green , orange , blue , magenta , cyan , grey , dark grey ,
               light red , light green , yellow , light blue , pink , light cyan
-           #. highlight (None, string): The logging text highlight color. The defined highlights are:\n
+           #. highlight (None, string): The logging text highlight color. The defined highlights are:
+
               black , red , green , orange , blue , magenta , cyan , grey
-           #. attributes (None, string): The logging text attribute. The defined attributes are:\n
+           #. attributes (None, string): The logging text attribute. The defined attributes are:
+
               bold , underline , blink , invisible , strike through
 
         **Note:** *logging colour, highlight, and attributes are not supported on all stream types.*
@@ -4115,7 +4618,12 @@ class Logger(object):
 
     def get_timestamp(self, format='%Y-%m-%d %H:%M:%S'):
         """
-        Returns the current date and time in the timezone of the logger as text.
+        Returns the current date and time as text, in the time zone of the logger.
+
+        .. code-block:: python
+
+            logger.get_timestamp()                 ## '2026-10-08 18:45:02'
+            logger.get_timestamp("%H:%M")          ## '18:45'
 
         :Parameters:
             #. format (str): A strftime-compatible format string.
@@ -4219,13 +4727,11 @@ class Logger(object):
         return accepted
 
     def __enqueue_worker(self):
-        """Background thread: drain the log queue and perform all I/O.
+        """
+        The loop of the background thread of ``enqueue``: take items from the queue and write them until told to stop.
 
-        Items are one of two formats:
-          - 2-tuple (sinks, record) from normal log() calls;
-            sinks is a snapshot list of _Sink objects from __activeSinks.
-          - 3-tuple (toStdout, toFile, record) from force_log();
-            toStdout/toFile are caller-supplied booleans that bypass routing.
+        Each item is a 2-tuple (sinks, record): sinks is a snapshot list of _Sink objects, taken from
+        __activeSinks for a normal call, or chosen by force_log() for a forced one.
         The sentinel _QUEUE_STOP signals clean shutdown.
         task_done() is called after every item so flush() can join().
         """
@@ -4241,37 +4747,28 @@ class Logger(object):
 
     def __process_item(self, item):
         """
-        Delivers one item of the queue of the enqueue mode.
+        Delivers one item of the ``enqueue`` queue to its outputs.
 
         :Parameters:
-            #. item (tuple): ``(sinks, record)`` from a normal log call, or ``(toStdout, toFile, record)`` from force_log().
+            #. item (tuple): ``(sinks, record)``.
         """
-        if len(item) == 2:
-            sinks, record = item
-            try:
-                self.__dispatch_sinks_sync(sinks, record)
-            except QueueFull:
-                # A sink refused it, its own queue counted that, and the caller is no longer here to be told
-                pass
-        else:
-            # force_log() path, bypasses routing
-            toStdout, toFile, record = item
-            if record is not None:
-                if toStdout:
-                    self.__sinks[_SINK_STDOUT].handler.emit(record)
-                if toFile:
-                    self.__sinks[_SINK_FILE].handler.emit(record)
+        sinks, record = item
+        try:
+            self.__dispatch_sinks_sync(sinks, record)
+        except QueueFull:
+            # A sink refused it, its own queue counted that, and the caller is no longer here to be told
+            pass
 
     def __put_to_queue(self, item):
-        """Put one item on the queue of the enqueue mode, honouring the overflow policy.
+        """
+        Puts an item on the ``enqueue`` queue, or does what the full-queue policy says if there is no room.
 
         Called by log(), log_external() and force_log() whenever enqueue mode is active.
         The policy is read by the queue on every call, so changes made with
         set_queue_full_policy() take effect immediately.
 
         :Parameters:
-            #. item (tuple): ``(sinks, record)`` from a normal log call, or
-               ``(toStdout, toFile, record)`` from force_log().
+            #. item (tuple): ``(sinks, record)``.
 
         In a forked child the worker thread does not exist, so the item is delivered at once by the calling thread.
 
@@ -4342,10 +4839,13 @@ class Logger(object):
         return "%s%s%s" % (fmt[0], text, fmt[1])
 
     def is_enabled_for_stdout(self, logType):
-        """Return True if the given log type is enabled for standard output logging.
+        """
+        Says whether a log type would be written to the console right now. Both the console switch and the type's own setting
+        must allow it.
 
-        Both the global stdout flag and the per-type stdout flag must be True
-        for the log type to produce any stdout output.
+        .. code-block:: python
+
+            logger.is_enabled_for_stdout("debug")
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -4356,10 +4856,13 @@ class Logger(object):
         return self.__logToStdout and self.__logTypeStdoutFlags[logType]
 
     def is_enabled_for_file(self, logType):
-        """Return True if the given log type is enabled for file logging.
+        """
+        Says whether a log type would be written to the built-in log file right now. Both the file switch and the type's own setting
+        must allow it.
 
-        Both the global file flag and the per-type file flag must be True
-        for the log type to produce any file output.
+        .. code-block:: python
+
+            logger.is_enabled_for_file("debug")
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -4370,25 +4873,25 @@ class Logger(object):
         return self.__logToFile and self.__logTypeFileFlags[logType]
 
     def is_enabled(self, logType):
-        """Return True if logType would write to at least one output stream.
+        """
+        Says whether a log type would be written to at least one output, so you can skip building an expensive message when nobody would see it.
 
-        Combines the stdout and file checks into one call so callers can
-        guard expensive message construction without repeating the two-flag
-        check themselves::
+        In plain words: it answers "would this message go anywhere?". Every output counts: the console, the log file and the ones you added. A log
+        type that is switched off, or below the level of every output, gives False.
 
-            if logger.is_enabled('debug'):
-                logger.debug(json.dumps(large_object))
+        .. code-block:: python
 
-        This is the recommended pattern for deferring costly work -- it keeps
-        the logger's role purely passive (no callables, no execution) while
-        still avoiding unnecessary computation when the level is filtered.
+            if logger.is_enabled("debug"):
+                logger.debug(json.dumps(large_object))        ## the dumps call is made only when someone will see the result
+
+            ## Or let the logger decide, and call the function only if the record is written
+            logger.opt(lazy=True).debug("Object: {}", lambda: json.dumps(large_object))
 
         :Parameters:
             #. logType (string): A defined logging type.
 
         :Returns:
-            #. result (bool): True if at least stdout or file would receive
-               a message of this logType, False otherwise.
+            #. result (bool): True if at least one output would receive a message of this logType, False otherwise.
         """
         # use the pre-computed active-sink cache: covers stdout, file,
         # AND any user-added sinks — a non-empty list means dispatch happens
@@ -4397,7 +4900,10 @@ class Logger(object):
 
     def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
         """
-        Log a message of the specified log type.
+        Writes one record of a log type. This is the call behind ``info()``, ``error()`` and the other shortcuts.
+
+        In plain words: you give a log type, a message and any values you want to keep with it. The values passed as keywords
+        become fields of the record, and ``{}`` in the message is filled from the other values.
 
         Every other keyword argument is a field of the record: ``logger.info("Order created", order_id=123)``.
         The text layout writes the fields as ``key=value`` after the message, JSON keeps them as they are.
@@ -4413,6 +4919,12 @@ class Logger(object):
         reach inside a value (``{0.name}`` is refused). The message is rendered before the processors run,
         so ``redact_fields``, which works by name, cannot see a positional value: use ``redact_text`` for
         the text of the message, or pass the secret as a field.
+
+        .. code-block:: python
+
+            logger.log("info", "User {} logged in", user)                  ## filled in order
+            logger.log("info", "Order created", order_id=123, amount=12.5)  ## kept as fields
+            logger.log("audit", "report exported", count=3, countConstraint=5)   ## logged at most 5 times
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -4437,8 +4949,24 @@ class Logger(object):
         """
         return self._log_call(logType, message, args, fields, exc_info, countConstraint, False, 0)
 
-    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
-        """Does the work of :meth:`log` and of the loggers made by :meth:`opt`, see :meth:`log`."""
+    def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth,
+                  forced=False, sinks=None):
+        """
+        The shared body of every log call: checks it, finds the outputs that want it, builds the record and delivers it.
+
+        :Parameters:
+            #. logType (string): A defined log type.
+            #. message (string): The message to log.
+            #. args (tuple): Values that fill the ``{}`` places of the message.
+            #. fields (dict): The named values of the record.
+            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record.
+            #. countConstraint (None, number): Maximum number of times to log the given message.
+            #. isLazy (bool): True calls the functions given as values, only when the record is wanted.
+            #. depth (int): How many extra calls up the stack the caller is searched.
+            #. forced (bool): True for :meth:`force_log`: the levels, the type flags, ``disable()`` and the filters are
+               ignored, and a sink that is switched off still receives nothing.
+            #. sinks (None, list): The sinks of a forced record, see :meth:`force_log`. Only used when *forced* is True.
+        """
         # reject callables -- the logger is a passive recorder, not an executor.
         # to defer expensive message construction use is_enabled(logType) instead:
         #   if logger.is_enabled('debug'): logger.debug(expensive_fn())
@@ -4450,16 +4978,21 @@ class Logger(object):
             )
         _check_field_names(fields)
         logType, message = self._resolve_log_type(logType, message)
-        # Wrong calls still fail above, a disabled namespace only stops the work below
-        if namespaces.NEEDS_CHECK and is_disabled(self.__name):
-            return message
-        # routing comes first: read from the pre-computed active-sink cache (O(1) lookup), the
-        # list contains only sinks whose enabled flag and logTypeFlags both pass for this logType.
-        # A log type that no sink wants costs nothing more. An unknown log type is not in the
-        # cache, it goes on and fails when its record is built, as it always did
-        activeSinks = self.__activeSinks.get(logType)
-        if activeSinks is not None and len(activeSinks) == 0:
-            return message
+        if forced:
+            # A forced record ignores the levels, the type flags, disable() and the filters, but not a sink that is
+            # switched off. A wrong sink name fails here, before anything is written
+            activeSinks = self.__forced_sinks(sinks)
+        else:
+            # Wrong calls still fail above, a disabled namespace only stops the work below
+            if namespaces.NEEDS_CHECK and is_disabled(self.__name):
+                return message
+            # routing comes first: read from the pre-computed active-sink cache (O(1) lookup), the
+            # list contains only sinks whose enabled flag and logTypeFlags both pass for this logType.
+            # A log type that no sink wants costs nothing more. An unknown log type is not in the
+            # cache, it goes on and fails when its record is built, as it always did
+            activeSinks = self.__activeSinks.get(logType)
+            if activeSinks is not None and len(activeSinks) == 0:
+                return message
         if countConstraint is not None:
             self.__logMessagesCounter.setdefault(message, -1)
             self.__logMessagesCounter[message] += 1
@@ -4474,19 +5007,27 @@ class Logger(object):
         # is minimal and the user frame is as close to the top as possible
         caller = _get_caller_info(depth) if self.__callerInfo else None
         record = self._build_record(logType, message, fields, exc_info, caller)
-        self.__deliver(logType, record, activeSinks)
+        self.__deliver(logType, record, activeSinks, forced)
         # always return logged message
         return message
 
     def log_external(self, logType, message, *, created, processId, threadId, threadName,
                      caller=None, exc_info=None, fields=None):
         """
-        Log what another logging system produced, keeping its time, process, thread and caller.
+        Writes a record that another logging system made, keeping its time, process, thread and caller. It is for bridges, such as
+        the one that carries Python's standard ``logging`` records in.
 
         The record goes through exactly what a record of :meth:`log` goes through: the routing, the
         processors, the filters and the sinks. It is made for bridges, such as
         :class:`pysimplelog.standard_logging.StandardLoggingHandler`. Unlike :meth:`log`, the fields are
         given as one dictionary, so any name can be a field.
+
+        .. code-block:: python
+
+            import time
+
+            logger.log_external("warn", "disk is almost full", created=time.time(), processId=1234,
+                                threadId=1, threadName="MainThread", fields={"disk": "/dev/sda1"})
 
         :Parameters:
            #. logType (string): A defined logging type.
@@ -4519,7 +5060,36 @@ class Logger(object):
         self.__deliver(logType, record, activeSinks)
         return message
 
-    def __deliver(self, logType, record, activeSinks):
+    def __forced_sinks(self, sinks):
+        """
+        Returns the outputs a forced record goes to: the ones named, or all that are switched on.
+
+        A sink that is switched off (``enabled`` is False, as ``logToFile=False`` does for the built-in file) is left out.
+
+        :Parameters:
+            #. sinks (None, list, tuple, set): Names given to :meth:`add` or :meth:`add_sink`, or ``CONSOLE_SINK`` and
+               ``FILE_SINK``. None means every registered sink.
+
+        :Returns:
+            #. targets (list): The _Sink objects that receive the record.
+
+        :Raises:
+            #. TypeError: If *sinks* is not a list, a tuple, a set or None.
+            #. ValueError: If a name is not registered.
+        """
+        if sinks is None:
+            return [sink for sink in self.__sinks.values() if sink.enabled]
+        if not isinstance(sinks, (list, tuple, set, frozenset)):
+            raise TypeError("sinks must be a list of sink names, or None for every sink")
+        targets = []
+        for name in sinks:
+            if name not in self.__sinks:
+                raise ValueError(f"sink {name!r} is not registered")
+            if self.__sinks[name].enabled:
+                targets.append(self.__sinks[name])
+        return targets
+
+    def __deliver(self, logType, record, activeSinks, forced=False):
         """
         Gives a record to the sinks that want it, after the processors and the filters.
 
@@ -4527,11 +5097,13 @@ class Logger(object):
             #. logType (string): The log type of the record.
             #. record (LogRecord): The record built for the log call.
             #. activeSinks (list): The _Sink objects that passed the routing for this log type.
+            #. forced (bool): True when the record is not filtered. The processors still run.
         """
         if self.__processors:
             # None when a processor failed: the record is dropped for every sink
             record = self._process_record(record)
-        if record is not None:
+        # A forced record is not filtered: the filters pick records, and the caller picked this one
+        if record is not None and not forced:
             if self.__filters and not self._passes_filters(record):
                 return
             if self.__hasSinkFilters:
@@ -4549,59 +5121,44 @@ class Logger(object):
             self.__lastRecords[logType] = record
             self.__lastRecord           = record
 
-    def force_log(self, logType, message, *args, exc_info=None, stdout=True, file=True, **fields):
+    def force_log(self, logType, message, *args, exc_info=None, countConstraint=None, sinks=None, **fields):
         """
-        Force logging a message of a certain logtype whether logtype level is allowed or not.
+        Writes a record that must appear, even when its log type is switched off, below a level, filtered or silenced by ``disable()``.
+
+        Use it for the few messages that must always be written, such as "the program is stopping". It goes to every
+        sink that is switched on, or only to the ones you name. A sink that is switched off stays silent. The processors
+        still run, so redaction applies.
+
+        .. code-block:: python
+
+            logger.force_log("info", "Shutting down")                          ## every sink that is on
+            logger.force_log("error", "Audit trail broken", sinks=["audit"])   ## only the sink named audit
+            logger.opt(depth=1).force_log("info", "Stopped by {}", user)       ## the options of opt() work too
 
         :Parameters:
            #. logType (string): A defined logging type.
-           #. message (string): Any message to log.
+           #. message (string): Any message to log, as in :meth:`log`.
            #. args (tuple): Positional arguments that fill the ``{}`` and ``{0}`` placeholders of *message*. They are
               text only, they are not stored as fields. Keyword arguments fill ``{name}`` and stay fields.
            #. exc_info (None, bool, BaseException, tuple, str, list): The exception to record, see :meth:`log`.
-           #. stdout (boolean): Whether to force logging to standard output.
-           #. file (boolean): Whether to force logging to file.
+           #. countConstraint (None, number): Maximum number of times to log the given message.
+           #. sinks (None, list): Names of the sinks to write to, ``CONSOLE_SINK`` and ``FILE_SINK`` for the built-in
+              ones. None writes to every sink that is switched on. An empty list writes to none: the processors run and
+              the record is kept as the last record.
            #. fields: The named values of the record, any number of keyword arguments, see :meth:`log`.
 
         :Returns:
             #. message (string): the logged message
 
         :Raises:
-            #. TypeError: If *message* is callable. Use ``is_enabled(logType)`` to
-               guard expensive message construction instead of passing a callable.
+            #. TypeError: If *message* is callable, or *sinks* is not a list.
+            #. ValueError: If a name in *sinks* is not registered.
         """
-        # reject callables — same policy as log()
-        if callable(message):
-            raise TypeError(
-                "force_log() message must be a string or string-coercible value, "
-                "not a callable. To defer expensive message construction "
-                "guard the call with is_enabled('%s') instead." % logType
-            )
-        _check_field_names(fields)
-        logType, message = self._resolve_log_type(logType, message)
-        message = render_message(message, args, fields)
-        # build on caller thread so timestamp is captured at call time
-        caller = _get_caller_info() if self.__callerInfo else None
-        record = self._build_record(logType, message, fields, exc_info, caller)
-        if self.__processors:
-            record = self._process_record(record)
-        if self.__enqueue:
-            self.__put_to_queue((stdout, file, record))
-        elif record is not None:
-            if stdout:
-                self.__sinks[_SINK_STDOUT].handler.emit(record)
-            if file:
-                self.__sinks[_SINK_FILE].handler.emit(record)
-        # keep the record of this call (on caller thread for immediate visibility)
-        if record is not None:
-            self.__lastRecords[logType] = record
-            self.__lastRecord           = record
-        # always return logged message
-        return message
+        return self._log_call(logType, message, args, fields, exc_info, countConstraint, False, 0, True, sinks)
 
     def opt(self, *, lazy=False, exception=None, depth=0):
         """
-        Returns a logger that applies options to the calls made through it.
+        Gives you a logger with options for the calls you make through it. The normal calls stay simple, and the options live here.
 
         .. code-block:: python
 
@@ -4629,18 +5186,19 @@ class Logger(object):
 
     def catch(self, func=None, logType='error', reraise=False,
               message='An exception was caught'):
-        """Decorator and context manager that catches and logs exceptions.
+        """
+        Logs an error instead of letting it stop the program. It works as a decorator and as a ``with`` block.
 
-        The exception message and traceback go through the processors like any other record,
-        see add_processor().
+        The message and the traceback pass through your processors like any other record, see :meth:`add_processor`.
 
-        Can be used in three ways::
+        .. code-block:: python
 
             @logger.catch
-            def risky(): ...
+            def risky():
+                raise ValueError("something went wrong")      ## logged, and the program continues
 
-            @logger.catch(logType='critical', reraise=True)
-            def risky(): ...
+            @logger.catch(logType="critical", reraise=True)   ## logged, then raised again
+            def very_risky(): ...
 
             with logger.catch():
                 risky_code()
@@ -4669,28 +5227,22 @@ class Logger(object):
         return ctx
 
     def bind(self, **context):
-        """Return a _BoundLogger that attaches values to the context of every record it logs.
+        """
+        Returns a logger that remembers some values and adds them to every record it writes.
 
-        The bound logger delegates all I/O to this Logger unchanged.
-        It holds no state of its own beyond the context dict and the
-        reference to this parent. It is immutable and thread-safe.
-        The bound values are written in the ``context`` of the record, apart from its fields.
-        The text layout shows them in brackets before the message.
+        In plain words: you tag a logger with what it is working for, such as a request, a user or a job. Every line it writes
+        carries the tag, so you do not repeat the values in each call. The original logger does not change, and binding again adds
+        to what is already bound.
 
-        Typical usage in a web request handler::
+        The plain text layout shows the values in brackets before the message, and the pretty layout after it. In JSON they are in
+        ``context``, apart from the fields. The bound logger is immutable and safe to share between threads.
 
-            def handle(requestId, user):
-                L = logger.bind(requestId=requestId, user=user)
-                L.info('started')    # [requestId=x user=y] started
-                L.error('failed')    # [requestId=x user=y] failed
+        .. code-block:: python
 
-        Nested bind() calls merge contexts (right-hand key wins)::
-
-            L2 = L.bind(table='orders')  # adds table to existing context
-            L3 = L.bind(requestId='new')  # overrides requestId only
-
-        This Logger is never modified. All bind() calls are additive
-        and return new _BoundLogger instances.
+            log = logger.bind(request_id="r-42", user="ann")
+            log.info("started")                    ## ... started request_id=r-42 user=ann
+            log2 = log.bind(table="orders")        ## adds to what is already bound
+            log3 = log.bind(request_id="new")      ## replaces request_id only
 
         :Parameters:
             #. context (dict): Arbitrary keyword key-value pairs. Keys should be
@@ -4705,10 +5257,15 @@ class Logger(object):
 
     def context(self, **values):
         """
-        Attach values to every record made inside a ``with`` block, whatever logger makes it.
+        Adds values to every record made inside a ``with`` block, without passing them to each call.
 
         This is :func:`pysimplelog.log_context.context`, see it for how the values follow threads and
         asynchronous tasks and how blocks nest.
+
+        .. code-block:: python
+
+            with logger.context(request_id="r-42"):
+                logger.info("inside")              ## carries request_id
 
         :Parameters:
             #. values: The values to attach, any number of keyword arguments.
@@ -4724,19 +5281,19 @@ class Logger(object):
         return open_context(**values)
 
     def flush(self, timeout=5.0):
-        """Flush all streams.
+        """
+        Waits until everything queued has been written, then flushes the streams. It returns whether it finished in time.
 
-        When enqueue mode is active, blocks until all queued log
-        records have been written before flushing the streams. Any
-        threaded sink's own private queue is drained too (up to
-        *timeout* seconds) before its handler is flushed.
+        Call it before the program ends if you use ``enqueue=True`` or ``threaded=True``. With ``enqueue`` it waits for the main
+        queue, and each threaded output is given up to *timeout* seconds to empty its own queue.
+
+        .. code-block:: python
+
+            if not logger.flush(timeout=5):
+                print("some records are still waiting")
 
         :Parameters:
-            #. timeout (float): Seconds to wait for each threaded
-               sink's private queue to drain. Ignored for non-threaded sinks.
-
-        :Returns:
-            #. isDrained (bool): True when every queued record was written, False when the timeout ended first.
+            #. timeout (float): Seconds to wait at most for each queue to empty.
         """
         isDrained = True
         if self.__enqueue and self.__logQueue is not None and os.getpid() == self.__ownerPid:
@@ -4772,49 +5329,156 @@ class Logger(object):
         return not (fields and ('fields' in fields or 'tback' in fields))
 
     def info(self, message, *args, **kwargs):
-        """Log at information level (alias for log('info', ...))."""
+        """
+        Logs a message at the information level: normal things worth knowing. Same as ``log("info", ...)``.
+
+        .. code-block:: python
+
+            logger.info("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("info", message, kwargs):
             return message
         return self.log("info", message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
-        """Log at information level (alias for log('info', ...))."""
+        """
+        Logs a message at the information level: normal things worth knowing. It is another name for ``info``. Same as ``log("info", ...)``.
+
+        .. code-block:: python
+
+            logger.information("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("info", message, kwargs):
             return message
         return self.log("info", message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
-        """Log at warning level (alias for log('warn', ...))."""
+        """
+        Logs a message at the warning level: something unexpected that did not stop anything. Same as ``log("warn", ...)``.
+
+        .. code-block:: python
+
+            logger.warn("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("warn", message, kwargs):
             return message
         return self.log("warn", message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        """Log at warning level (alias for log('warn', ...))."""
+        """
+        Logs a message at the warning level: something unexpected that did not stop anything. It is another name for ``warn``. Same as ``log("warn", ...)``.
+
+        .. code-block:: python
+
+            logger.warning("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("warn", message, kwargs):
             return message
         return self.log("warn", message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        """Log at error level (alias for log('error', ...))."""
+        """
+        Logs a message at the error level: something failed. Same as ``log("error", ...)``.
+
+        .. code-block:: python
+
+            logger.error("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("error", message, kwargs):
             return message
         return self.log("error", message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        """Log at critical level (alias for log('critical', ...))."""
+        """
+        Logs a message at the critical level: something failed so badly that the program may not go on. Same as ``log("critical", ...)``.
+
+        .. code-block:: python
+
+            logger.critical("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("critical", message, kwargs):
             return message
         return self.log("critical", message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        """Log at debug level (alias for log('debug', ...))."""
+        """
+        Logs a message at the debug level: detail for finding a problem, usually hidden in production. Same as ``log("debug", ...)``.
+
+        .. code-block:: python
+
+            logger.debug("Order {} created", 7, customer="ann")
+
+        :Parameters:
+            #. message (str, callable): The text to log. Put ``{}`` or ``{name}`` where values should go. A
+               function is also accepted: it is called to build the text only if the record is
+               really written.
+            #. args (tuple): Values that fill the ``{}`` places of the message, in order.
+            #. kwargs (dict): Values that fill the ``{name}`` places of the message. They are also kept as
+               fields of the record. The options of :meth:`Logger.log` (``exc_info``,
+               ``countConstraint``) are accepted too.
+        """
         if self._is_silent("debug", message, kwargs):
             return message
         return self.log("debug", message, *args, **kwargs)
 
     def exception(self, message, *args, logType='error', **fields):
         """
+        Logs an error together with the traceback of the exception you are handling. Call it inside an ``except`` block.
+
         Logs a message with the exception being handled, at error level unless *logType* says otherwise.
 
         .. code-block:: python
@@ -4837,7 +5501,16 @@ class Logger(object):
 
 
 class SingleLogger(Logger):
-    """Singleton implementation of Logger.
+    """
+    A ``Logger`` that exists only once: every ``SingleLogger(...)`` in the program gives the same object. Use it when several
+    modules must share one configuration without passing a logger around.
+
+    .. code-block:: python
+
+        from pysimplelog import SingleLogger
+
+        log = SingleLogger("app")
+        same = SingleLogger()            ## the same object, not a new one
 
     The first instantiation creates the shared Logger instance and performs
     full initialisation. Every subsequent instantiation with any arguments

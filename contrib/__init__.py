@@ -1,4 +1,7 @@
-"""Optional, zero-mandatory-dependency integrations for pysimplelog.
+"""
+Optional extras that send your logs to other systems: a SIEM (security log collector) and OpenTelemetry. The core package never imports them, so you only pay for what you use.
+
+Optional, zero-mandatory-dependency integrations for pysimplelog.
 
 Nothing under ``pysimplelog.contrib`` is imported by the core package and
 nothing here modifies ``simple_log.py``. Everything is a pure consumer of

@@ -1,6 +1,4 @@
-"""
-Writes the text of an exception as Python does, but keeps the text of the frames, so the same place is formatted once.
-"""
+"""Writing a traceback is slow because Python reads the source files. When the same line fails again and again, this remembers the text instead."""
 
 import builtins
 import traceback
@@ -18,7 +16,7 @@ _STACKS = {}
 
 
 def _stack_text(traceback_):
-    """Returns the frames of a traceback as Python writes them, from the cache when the same places were formatted before."""
+    """Returns the frames of a traceback as Python writes them, from memory when the same places were written before."""
     key = []
     entry = traceback_
     while entry is not None:
@@ -35,7 +33,7 @@ def _stack_text(traceback_):
 
 
 def _append_segments(value, traceback_, seen, parts):
-    """Appends the text of an exception, and before it the text of the ones chained to it, in the order Python writes them."""
+    """Adds the text of an exception, and before it the text of the exceptions chained to it, in the order Python writes them."""
     cause, context = value.__cause__, value.__context__
     if cause is not None:
         chained, message = cause, _CAUSE_MESSAGE
@@ -55,10 +53,17 @@ def _append_segments(value, traceback_, seen, parts):
 
 def format_exception_text(excType, excValue, excTraceback):
     """
-    Formats an exception and its traceback exactly as ``traceback.format_exception`` does, without the final line break.
+    Writes an exception and its traceback exactly as Python's ``traceback.format_exception`` does, but faster when the same place fails again.
 
     The text of the frames is kept, so an exception raised again at the same place, as in a loop of failures, costs a
     fraction of the first one. An exception group, or something that is not an exception, is formatted by Python itself.
+
+    .. code-block:: python
+
+        try:
+            1 / 0
+        except ZeroDivisionError as error:
+            text = format_exception_text(type(error), error, error.__traceback__)
 
     :Parameters:
         #. excType (type): The exception class.

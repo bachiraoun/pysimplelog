@@ -1,4 +1,4 @@
-"""Turns an immutable LogRecord into the text that one sink writes."""
+"""Formatters turn a record into the text that an output writes: a tidy console line, a plain text line, one line of JSON, or your own template or function. Pick one for an output with ``set_sink_formatter`` or ``add(..., format=...)``."""
 
 import json
 import math
@@ -31,7 +31,7 @@ _SECOND_CACHE = (None, '', '', '')
 
 
 def _second_parts(timestamp):
-    """Returns the cached (key, ISO text, readable text, offset text) tuple for the second of timestamp."""
+    """Returns, for the second a timestamp falls in, the texts that do not change within that second (ISO date and time, readable date and time, UTC offset). They are remembered, because most records of a busy program share a second."""
     global _SECOND_CACHE
     key = (int(timestamp.timestamp()), timestamp.utcoffset())
     cache = _SECOND_CACHE
@@ -45,18 +45,18 @@ def _second_parts(timestamp):
 
 
 def _format_timestamp(timestamp):
-    """Returns the timestamp as International Organization for Standardization (ISO) 8601 text with milliseconds."""
+    """Writes a timestamp as ISO 8601 text with milliseconds, such as ``2026-10-08T21:30:00.100-05:00``."""
     parts = _second_parts(timestamp)
     return f"{parts[1]}.{timestamp.microsecond // 1000:03d}{parts[3]}"
 
 
 def _format_timestamp_text(timestamp):
-    """Returns the timestamp as ``YYYY-MM-DD HH:MM:SS`` text."""
+    """Writes a timestamp as ``YYYY-MM-DD HH:MM:SS`` text."""
     return _second_parts(timestamp)[2]
 
 
 def _readable_timestamp(timestamp, isUtc, hasMilliseconds):
-    """Returns ``YYYY-MM-DD HH:MM:SS`` text, with ``.mmm`` when asked, and in UTC with a trailing ``Z`` when asked."""
+    """Writes a timestamp as ``YYYY-MM-DD HH:MM:SS``, with ``.mmm`` added when asked, and in UTC with a trailing ``Z`` when asked."""
     if isUtc:
         timestamp = timestamp.astimezone(timezone.utc)
     text = _format_timestamp_text(timestamp)
@@ -66,16 +66,22 @@ def _readable_timestamp(timestamp, isUtc, hasMilliseconds):
 
 
 def _format_caller(caller):
-    """Returns the caller as ``file:line in function`` text."""
+    """Writes the caller of a log call as ``file:line in function``."""
     return f"{caller.fileName}:{caller.line} in {caller.function}"
 
 
 def safe_str(value):
     """
-    Returns the text of a value, or a placeholder when the value cannot be turned into text.
+    Turns a value into text without ever failing. An object whose own ``__str__`` crashes gives a placeholder that names its type
+    and the kind of error.
 
     A value can raise from its own ``__str__``. The placeholder names the type and the class of the error, never
     the error message, because that message can hold sensitive text.
+
+    .. code-block:: python
+
+        safe_str(42)                  ## '42'
+        safe_str(BrokenObject())      ## '<unprintable BrokenObject: RuntimeError>'
 
     :Parameters:
         #. value (object): Any value.
@@ -95,7 +101,7 @@ _CONTROL_NAMES = {'\n': '\\n', '\r': '\\r'}
 
 
 def _escape_control(match):
-    """Returns the escaped text of one control character."""
+    """Writes one control character as a visible escape, such as ``\\n`` for a line break or ``\\x1b`` for the escape character."""
     character = match.group()
     name = _CONTROL_NAMES.get(character)
     if name is not None:
@@ -106,10 +112,16 @@ def _escape_control(match):
 
 def escape_control_characters(text):
     """
-    Writes the line breaks and the other control characters of a text as visible escapes such as ``\\n`` and ``\\x1b``.
+    Makes a text safe to put on one line: line breaks, the escape character and other control characters are written as
+    visible escapes, and everything else is left alone.
 
     A value written on one ``key=value`` line must not be able to start a new line or paint the terminal. The
     tab is kept.
+
+    .. code-block:: python
+
+        escape_control_characters("a\\nb")             ## 'a\\\\nb'
+        escape_control_characters("plain text")       ## 'plain text'
 
     :Parameters:
         #. text (str): Any text.
@@ -124,10 +136,17 @@ def escape_control_characters(text):
 
 def describe_error(error):
     """
-    Describes an error by its class and the place it was raised, never by its message.
+    Describes an error in one short phrase without its message, so a secret hidden in the message cannot reach the error stream.
 
     The message of an error can hold sensitive text, such as a password in a connection string, so it must not be written to
     the standard error stream. The details stay in the error object, for example in ``sink_stats``.
+
+    .. code-block:: python
+
+        try:
+            connect("password=hunter2")
+        except Exception as error:
+            describe_error(error)          ## 'ConnectionError at db.py:12 in connect'
 
     :Parameters:
         #. error (BaseException): The error.
@@ -143,12 +162,12 @@ def describe_error(error):
 
 
 def _pair_text(key, value, convert):
-    """Returns ``key=value`` for one line: control characters in the key or in the value are written as escapes."""
+    """Writes ``key=value`` for one line, with control characters in the key or the value written as visible escapes."""
     return f"{escape_control_characters(str(key))}={escape_control_characters(convert(value))}"
 
 
 def _safe_repr(value):
-    """Returns ``repr(value)``, or the placeholder of safe_str when the value cannot give one. JSON uses it for unknown types."""
+    """Returns ``repr(value)``, or a placeholder when the value cannot give one. JSON uses it for values it does not know."""
     try:
         return repr(value)
     except Exception as error:
@@ -156,17 +175,14 @@ def _safe_repr(value):
 
 
 def _non_finite_text(value):
-    """Returns the text a number that JSON cannot hold is written as: ``NaN``, ``Infinity`` or ``-Infinity``."""
+    """Returns the text for a number JSON cannot hold: ``NaN``, ``Infinity`` or ``-Infinity``."""
     if value != value:
         return 'NaN'
     return 'Infinity' if value > 0 else '-Infinity'
 
 
 def _to_jsonable(value, depth):
-    """
-    Returns a copy of a value that json can always write: keys become text, and a structure nested too deep,
-    or containing itself, is replaced by a placeholder.
-    """
+    """Returns a copy of a value that JSON can always write: keys become text, and a structure that is too deep or contains itself is replaced by a placeholder."""
     if depth > MAX_JSON_DEPTH:
         return '<too deep>'
     if isinstance(value, dict):
@@ -181,7 +197,7 @@ def _to_jsonable(value, depth):
 
 
 def _dumps(value):
-    """Returns the JSON text of a value, using repr for what JSON cannot represent, and never raising for a bad value."""
+    """Returns the JSON text of a value. What JSON cannot represent is written with ``repr``, and a bad value never raises."""
     try:
         return json.dumps(value, default=_safe_repr, separators=JSON_SEPARATORS, allow_nan=False)
     except (TypeError, ValueError):
@@ -190,7 +206,7 @@ def _dumps(value):
 
 
 def _require_record(record):
-    """Raises TypeError with a clear message when record is not a LogRecord."""
+    """Raises a clear error when the thing given to a formatter is not a record."""
     if not isinstance(record, LogRecord):
         raise TypeError(f"formatter needs a LogRecord, got {type(record).__name__}")
 
@@ -204,14 +220,14 @@ _KEY_TEXTS = {}
 
 
 def _remember(cache, key, text):
-    """Keeps a text in a cache, emptying the cache first when it is full."""
+    """Keeps a text in a small memory, which starts again when it is full."""
     if len(cache) >= MAX_CACHED_TEXTS:
         cache.clear()
     cache[key] = text
 
 
 def _json_scalar(value):
-    """Returns the JSON text of a plain str, int, float, bool or None, and None for any other value."""
+    """Returns the JSON text of a plain text, whole number, decimal, true/false or None, and None for anything else."""
     kind = type(value)
     if kind is str:
         return encode_basestring_ascii(value)
@@ -227,7 +243,7 @@ def _json_scalar(value):
 
 
 def _json_value(value):
-    """Returns the JSON text of any value, using repr for what JSON cannot represent."""
+    """Returns the JSON text of any value, using ``repr`` for what JSON cannot represent."""
     text = _json_scalar(value)
     if text is None:
         text = _dumps(value)
@@ -235,7 +251,7 @@ def _json_value(value):
 
 
 def _mapping_to_json(mapping):
-    """Returns the JSON object text of a mapping, writing plain values by hand because that is faster."""
+    """Returns the JSON object text of a dictionary, writing plain values by hand because that is faster."""
     entries = []
     for key, value in mapping.items():
         text = _json_scalar(value)
@@ -252,7 +268,7 @@ def _mapping_to_json(mapping):
 
 class JsonFormatter:
     """
-    Renders a record as one line of JSON, with a fixed and documented schema.
+    Writes a record as one line of JSON that a program can read back.
 
     The line has no trailing newline. The keys ``schema``, ``timestamp``,
     ``severity``, ``log_type``, ``level``, ``logger``, ``message``, ``process`` and ``thread``
@@ -260,6 +276,14 @@ class JsonFormatter:
     are present only when they have content. Values that JSON cannot represent
     are written with ``repr``. A key that is not text is written as its text, and a value that cannot give
     a ``repr`` is written as ``<unprintable TypeName: ErrorClass>``, so a bad value never loses the record.
+
+    .. code-block:: python
+
+        from pysimplelog import logger, CONSOLE_SINK, JsonFormatter
+
+        logger.set_sink_formatter(CONSOLE_SINK, JsonFormatter(utc=True))
+        logger.info("Order created", order_id=123)
+        ## {"schema":1,"timestamp":"...Z","severity":"INFO",...,"message":"Order created",...,"fields":{"order_id":123}}
 
     :Parameters:
         #. flatten (bool): When True, ``fields`` and ``context`` entries are written at the top level
@@ -335,7 +359,7 @@ class JsonFormatter:
 
     @staticmethod
     def _fixed_items(record, timestamp):
-        """Returns the JSON entries that every layout shares, as a list of ``"key":value`` texts."""
+        """Returns the entries of the JSON document that every layout has: schema, time, severity, message, exception, caller, process and thread."""
         level = 'null' if record.level is None else _json_value(record.level)
         items = [f'"schema":{SCHEMA_VERSION}',
                  f'"timestamp":"{_format_timestamp(timestamp)}"',
@@ -365,7 +389,7 @@ class JsonFormatter:
 
     @staticmethod
     def _flat_items(record):
-        """Returns the context and field entries as top-level JSON entries, renaming names that clash with a fixed key."""
+        """Returns the context and field entries as top-level JSON entries, renaming a name that clashes with a fixed key."""
         merged = {}
         for prefix, source in (('context', record.context), ('fields', record.fields)):
             for key, value in source.items():
@@ -376,6 +400,8 @@ class JsonFormatter:
 
 class TextFormatter:
     """
+    Writes a record as one readable line, the way the log file does by default.
+
     Renders a record as one human-readable line, followed by the traceback when there is one.
 
     The layout is ``timestamp - logger <SEVERITY> [caller] [context] message key=value``. A field named
@@ -422,7 +448,7 @@ class TextFormatter:
             return self._render(record, safe_str)
 
     def _render(self, record, convert):
-        """Builds the text of a record, turning every field and context value into text with *convert*."""
+        """Builds the line for a record, turning every field and context value into text with *convert*."""
         parts = [f"{_readable_timestamp(record.timestamp, self.__utc, self.__milliseconds)} - {record.logger} <{record.severity}> "]
         if record.caller is not None:
             parts.append(f"[{_format_caller(record.caller)}] ")
@@ -449,10 +475,16 @@ DEFAULT_SEVERITY_COLORS = {'DEBUG': '\x1b[36m', 'INFO': '\x1b[32m', 'WARNING': '
 
 def stream_supports_color(stream):
     """
-    Says whether colour codes belong in a stream.
+    Says whether colour codes belong in a stream: true for a terminal, unless the ``NO_COLOR`` variable is set or the terminal is
+    ``dumb``.
 
     They do when the stream is a terminal, the user did not refuse colour with the ``NO_COLOR`` variable, and the
     terminal is not ``dumb``. A pipe, a file or a CI log is not a terminal, so it stays plain.
+
+    .. code-block:: python
+
+        import sys
+        stream_supports_color(sys.stdout)         ## True in a terminal, False when piped to a file
 
     :Parameters:
         #. stream (file-like): The stream the text will be written to.
@@ -473,7 +505,7 @@ def stream_supports_color(stream):
 
 class ConsoleFormatter:
     """
-    Renders a record as a tidy line of columns for a console, in colour when it is asked to.
+    Writes a record as a tidy line of columns for the console, in colour when you ask for it. It is what the ``"pretty"`` layout uses.
 
     The layout is ``timestamp.mmm | SEVERITY | logger | message``, with a ``file:line in function`` column before
     the message when the record has a caller. The context and the fields follow the message as ``key=value``,
@@ -548,7 +580,7 @@ class ConsoleFormatter:
             return self._render(record, safe_str)
 
     def _render(self, record, convert):
-        """Builds the text of a record, turning every field and context value into text with *convert*."""
+        """Builds the line for a record, turning every field and context value into text with *convert*."""
         columns = [self._dim(_readable_timestamp(record.timestamp, self.__utc, self.__milliseconds)),
                    self._paint(f"{record.severity:<8}", record),
                    record.logger]
@@ -566,7 +598,7 @@ class ConsoleFormatter:
         return ''.join(parts)
 
     def _traceback_text(self, exception):
-        """Returns the traceback as the formatter was asked to write it."""
+        """Returns the traceback the way the formatter was asked to write it: in full or shortened."""
         if self.__traceback == 'full' or exception.typeName is None:
             # A text made elsewhere has no known layout, so it is never cut
             return exception.stacktrace
@@ -580,7 +612,7 @@ class ConsoleFormatter:
         return '\n'.join(kept)
 
     def _dim(self, text):
-        """Returns the text dimmed when colours are on."""
+        """Returns the text in a dim style when colours are on."""
         return f"{SGR_DIM}{text}{SGR_RESET}" if self.__colors else text
 
     def _paint(self, text, record):
@@ -606,7 +638,7 @@ class ConsoleFormatter:
 
 
 class _SafeValue:
-    """Wraps a value so that formatting it never raises: a value that cannot be formatted gives the placeholder."""
+    """Wraps a value so that formatting it never fails: a value that cannot be formatted gives a placeholder."""
 
     __slots__ = ('value',)
 
@@ -626,7 +658,7 @@ class _SafeValue:
 
 
 class _TimestampView:
-    """A timestamp for templates: ISO text with no format spec, ``strftime`` with a spec that has a ``%``, and plain text alignment otherwise."""
+    """A timestamp for templates: ISO text by default, ``strftime`` when the format has a ``%``, and plain text alignment otherwise."""
 
     __slots__ = ('value',)
 
@@ -643,7 +675,7 @@ class _TimestampView:
 
 
 class _TemplateView(dict):
-    """A dictionary that gives an empty string for a placeholder the record does not have, whatever its format spec."""
+    """A dictionary that gives an empty text for a name the record does not have, whatever its format."""
 
     def __missing__(self, key):
         # A spec such as 05d fails on an empty string, and a record must not be lost for a field it does not have
@@ -652,7 +684,7 @@ class _TemplateView(dict):
 
 class TemplateFormatter:
     """
-    Renders a record from a template with ``{name}`` placeholders.
+    Writes a record from a template with ``{name}`` placeholders, the way you would write an f-string.
 
     Available names: ``timestamp`` (ISO text, or a ``strftime`` spec such as ``{timestamp:%H:%M:%S}``),
     ``timestamp_utc`` (the same in UTC), ``severity``, ``log_type``, ``level``, ``logger``, ``message``,
@@ -662,6 +694,13 @@ class TemplateFormatter:
     A name the record does not have renders as an empty string, whatever its format spec. A field never overrides a
     fixed name. Only plain names are allowed: ``{message.upper}`` and ``{fields[x]}`` are rejected,
     so a template cannot reach attributes of the values.
+
+    .. code-block:: python
+
+        from pysimplelog import logger, CONSOLE_SINK
+
+        logger.set_sink_formatter(CONSOLE_SINK, "{timestamp:%H:%M:%S} [{severity}] {message} user={user_id:05d}")
+        logger.info("login", user_id=7)          ## 21:30:00 [INFO] login user=00007
 
     :Parameters:
         #. template (str): The template text, for example ``"{timestamp} {severity} {message} {order_id}"``.
@@ -736,7 +775,12 @@ FORMATTERS = {'json': JsonFormatter, 'jsonl': JsonFormatter, 'text': TextFormatt
 
 def register_formatter(name, factory):
     """
-    Registers a keyword that resolve_formatter turns into a formatter.
+    Adds your own name for a layout, so ``format="short"`` works like ``format="json"``.
+
+    .. code-block:: python
+
+        register_formatter("short", lambda: (lambda record: f"{record.severity}: {record.message}"))
+        logger.add("logs/short.log", format="short")
 
     :Parameters:
         #. name (str): The new keyword. It must not contain ``{`` and must not be registered already.
@@ -759,7 +803,14 @@ def register_formatter(name, factory):
 
 def resolve_formatter(formatter):
     """
+    Turns any way of naming a layout (a keyword, a template, a function, or None) into the function that writes records.
+
     Turns any accepted formatter value into a callable ``f(record) -> str``.
+
+    .. code-block:: python
+
+        render = resolve_formatter("json")
+        text = render(record)
 
     :Parameters:
         #. formatter (None, str, callable): None gives JSON. A string is a registered keyword

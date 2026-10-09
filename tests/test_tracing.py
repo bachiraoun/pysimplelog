@@ -344,7 +344,7 @@ class TestEveryWayToLog(TracingCase):
         logger, _ = self._setup()
         seen = []
         logger.add_processor(lambda record: seen.append(record.trace) or record)
-        logger.force_log('info', 'forced', stdout=False, file=False)
+        logger.force_log('info', 'forced', sinks=[])
         self.assertEqual(seen, [TraceInfo(TRACE_TEXT, SPAN_TEXT, 1)])
 
     def test_an_exception_record(self):

@@ -29,6 +29,9 @@ Every scenario logs the same message the same number of times with each library.
 * ``drain``: seconds the background work took to finish after the last call, for the asynchronous cases, and ``backlog`` the
   records still waiting at that moment, where the library can say.
 * ``rss``: kilobytes by which the resident memory grew while handing over the records, for the asynchronous cases only.
+* ``peak`` and ``held``: from a short separate run with the Python memory tracer on, which slows it down, so no time is taken from
+  it. ``peak`` is the kilobytes of Python memory the calls needed at their highest, and ``held`` the bytes still held per event
+  when the last call returned, before any background work is awaited: for an asynchronous case it is what a waiting record costs.
 
 Read the numbers with these in mind:
 
@@ -64,6 +67,7 @@ import tempfile
 import threading
 import time
 import timeit
+import tracemalloc
 from typing import NamedTuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -881,6 +885,42 @@ def folder_size(folder):
     return sum(os.path.getsize(os.path.join(path, name)) for path, _, names in os.walk(folder) for name in names)
 
 
+def measure_memory(build, folder, count, threadCount):
+    """
+    Measures the Python memory of a case in a separate run, because the tracer slows the calls down.
+
+    :Parameters:
+        #. build (callable): ``f(folder) -> Built``.
+        #. folder (str): The folder the case may write in.
+        #. count (int): Calls made while the memory is traced.
+        #. threadCount (int): Threads that make the calls.
+
+    :Returns:
+        #. memory (dict): ``mem_peak`` (kilobytes above the start) and ``mem_held`` (bytes per event still held when the last
+           call returned).
+    """
+    built = build(folder)
+    try:
+        for _ in range(min(100, count)):
+            built.call()
+        if built.drain is not None:
+            built.drain()
+        gc.collect()
+        tracemalloc.start()
+        try:
+            base = tracemalloc.get_traced_memory()[0]
+            tracemalloc.reset_peak()
+            _, total = run_threads(built.call, count, threadCount)
+            held, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        if built.drain is not None:
+            built.drain()
+    finally:
+        built.finish()
+    return {'mem_peak': max(peak - base, 0) / 1024, 'mem_held': max(held - base, 0) / total}
+
+
 def measure_once(build, count, samples, threadCount):
     """
     Measures one library on one scenario, once.
@@ -896,7 +936,8 @@ def measure_once(build, count, samples, threadCount):
 
     :Returns:
         #. metrics (dict): ``events_per_second``, ``e2e_per_second``, ``mean``, ``p50``, ``p95``, ``p99`` (microseconds),
-           ``cpu`` (microseconds per event), ``rss`` (kilobytes), ``drain`` (seconds) and ``backlog`` (records, or None).
+           ``cpu`` (microseconds per event), ``rss`` (kilobytes), ``mem_peak`` (kilobytes), ``mem_held`` (bytes per event),
+           ``drain`` (seconds) and ``backlog`` (records, or None).
     """
     process = psutil.Process() if psutil is not None else None
     folder = tempfile.mkdtemp(prefix='bench-compare-')
@@ -923,6 +964,7 @@ def measure_once(build, count, samples, threadCount):
             built.drain()
         built.finish()
         cpu = time.process_time() - cpuBefore
+        memory = measure_memory(build, folder, min(count, 3000), threadCount)
         return {'events_per_second': total / seconds,
                 'e2e_per_second': total / (seconds + drainSeconds),
                 'mean': statistics.fmean(latencies) / 1000,
@@ -931,6 +973,8 @@ def measure_once(build, count, samples, threadCount):
                 'p99': percentile(latencies, 0.99) / 1000,
                 'cpu': cpu / (total + len(latencies)) * 1e6,
                 'rss': (rssAfter - rssBefore) / 1024,
+                'mem_peak': memory['mem_peak'],
+                'mem_held': memory['mem_held'],
                 'drain': drainSeconds,
                 'backlog': backlog}
     finally:
@@ -1002,7 +1046,7 @@ def machine_load():
 def format_table(title, rows, isAsync):
     """Returns the lines of a table: *rows* is a list of ``(label, metrics or text, characters per event)``."""
     header = (f"  {'library':22s} {'events/s':>9s} {'e2e/s':>9s} {'mean':>7s} {'p50':>7s} {'p50 range':>13s} {'p95':>7s} "
-              f"{'p99':>7s} {'cpu':>7s} {'bytes':>6s} {'drain':>6s} {'backlog':>8s} {'rss':>6s}")
+              f"{'p99':>7s} {'cpu':>7s} {'bytes':>6s} {'drain':>6s} {'backlog':>8s} {'rss':>6s} {'peak':>7s} {'held':>6s}")
     lines = [title, header]
     for label, metrics, size in rows:
         if isinstance(metrics, str):
@@ -1015,7 +1059,7 @@ def format_table(title, rows, isAsync):
         rss = f"{metrics['rss']:6.0f}" if isAsync else f"{'-':>6s}"
         lines.append(f"  {label:22s} {metrics['events_per_second']:9.0f} {metrics['e2e_per_second']:9.0f} {metrics['mean']:7.2f} "
                      f"{metrics['p50']:7.2f} {span:>13s} {metrics['p95']:7.2f} {metrics['p99']:7.2f} {metrics['cpu']:7.2f} "
-                     f"{written} {drain} {backlog} {rss}")
+                     f"{written} {drain} {backlog} {rss} {metrics['mem_peak']:7.0f} {metrics['mem_held']:6.0f}")
     return lines
 
 
@@ -1236,8 +1280,8 @@ def main():
               'libraries: ' + ', '.join(f"{name} {version}" for name, version in environment['libraries'].items()),
               f"{arguments.count} calls in the first pass, {arguments.samples} timed one by one, "
               f"median of {arguments.repeats} runs (at least {max(s.minRepeats for s in SCENARIOS)} for the unstable cases)",
-              'times in microseconds per call, cpu in microseconds per event, bytes in characters per event, rss in kilobytes, '
-              'drain in seconds']
+              'times in microseconds per call, cpu in microseconds per event, bytes in characters per event, rss and peak in kilobytes, '
+              'held in bytes per event, drain in seconds']
     if percent is not None:
         report.append(f"machine load before the start: {percent:.0f} percent of the processors"
                       + ('' if averages is None else f", load averages {averages[0]:.2f} {averages[1]:.2f} {averages[2]:.2f}"))

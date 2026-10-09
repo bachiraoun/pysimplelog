@@ -1,4 +1,4 @@
-"""Ready-made record processors: values added to every record, redaction of sensitive values, and a bridge for text functions."""
+"""A processor is a small function that changes every record before an output sees it. These are the ready-made ones: hide secrets, add values that belong to the whole program, and turn your own text function into a processor."""
 
 import os
 import re
@@ -13,7 +13,7 @@ except ImportError:
     from secret import Secret
     from formatters import safe_str, _safe_repr
 
-DEFAULT_SENSITIVE_NAMES = ('password', 'token', 'authorization', 'api_key', 'ssn', 'credit_card', 'secret')
+DEFAULT_SENSITIVE_NAMES = ('password', 'token', 'authorization', 'api_key', 'ssn', 'credit_card', 'secret', 'cookie', 'credential')
 DEFAULT_REPLACEMENT = '[REDACTED]'
 
 # Nesting deeper than this is replaced, which also stops a structure that contains itself
@@ -29,12 +29,12 @@ MAX_CACHED_KEYS = 2048
 
 
 def _normalize_name(name):
-    """Returns a name in lower case with hyphens and spaces as underscores, so ``API-Key`` matches ``api_key``."""
+    """Writes a name in lower case with hyphens and spaces as underscores, so ``API-Key`` matches ``api_key``."""
     return str(name).lower().replace('-', '_').replace(' ', '_')
 
 
 def _redact_mapping(mapping, isSensitive, replacement, depth):
-    """Returns ``(mapping, changed)``: the mapping with the value of every sensitive key replaced, at any depth."""
+    """Replaces the value of every sensitive key in a dictionary, at any depth. Returns the result and whether anything changed."""
     if depth > MAX_DEPTH:
         return replacement, True
     entries = {}
@@ -52,7 +52,7 @@ def _redact_mapping(mapping, isSensitive, replacement, depth):
 
 
 def _redact_value(value, isSensitive, replacement, depth):
-    """Returns ``(value, changed)`` for a value that can hold mappings: a mapping, a list or a tuple."""
+    """Looks inside a value that can hold dictionaries (a dictionary, a list or a tuple) and replaces the sensitive values it finds. Returns the result and whether anything changed."""
     if type(value) in _PLAIN_TYPES or type(value) is str:
         return value, False
     if isinstance(value, Mapping):
@@ -74,7 +74,7 @@ def _redact_value(value, isSensitive, replacement, depth):
 
 def redact_fields(names=DEFAULT_SENSITIVE_NAMES, replacement=DEFAULT_REPLACEMENT):
     """
-    Makes a record processor that replaces the value of every sensitive key in the fields and the context.
+    Hides the value of every sensitive field, such as a password or a token, by looking at the **name**. It does not read the message text; for that use :func:`redact_patterns`.
 
     A key is sensitive when its name, in lower case with hyphens and spaces turned into underscores,
     contains one of *names*. So ``token`` also hides ``access_token`` and ``API-Token``. Keys are looked
@@ -117,6 +117,12 @@ def redact_fields(names=DEFAULT_SENSITIVE_NAMES, replacement=DEFAULT_REPLACEMENT
     answers = {}
 
     def is_sensitive(key):
+        """
+        Says whether a key looks sensitive. The answer is remembered, because the same few keys repeat.
+
+        :Parameters:
+            #. key (str): The name of a field.
+        """
         answer = answers.get(key)
         if answer is None:
             answer = pattern.search(_normalize_name(key)) is not None
@@ -125,6 +131,12 @@ def redact_fields(names=DEFAULT_SENSITIVE_NAMES, replacement=DEFAULT_REPLACEMENT
         return answer
 
     def processor(record):
+        """
+        Replaces the sensitive values in the fields and the context of a record, and returns the record.
+
+        :Parameters:
+            #. record (LogRecord): The record to clean.
+        """
         fields, fieldsChanged = record.fields, False
         context, contextChanged = record.context, False
         if len(fields) > 0:
@@ -139,7 +151,7 @@ def redact_fields(names=DEFAULT_SENSITIVE_NAMES, replacement=DEFAULT_REPLACEMENT
 
 
 def _apply_text_to_object(function, value):
-    """Returns the value, or the changed text when the function changes what the formatters would write for it."""
+    """Returns the value, or its changed text when the function changes what a formatter would write for it."""
     for text in (safe_str(value), _safe_repr(value)):
         redacted = function(text)
         if redacted != text:
@@ -148,7 +160,7 @@ def _apply_text_to_object(function, value):
 
 
 def _replace_secrets(value, function, depth):
-    """Returns ``(value, changed)``: the value with every Secret inside mappings, lists and tuples replaced by ``function(secret)``."""
+    """Replaces every ``Secret`` inside a value, even inside dictionaries, lists and tuples, with the answer of a function."""
     if isinstance(value, Secret):
         return function(value), True
     if type(value) in _PLAIN_TYPES or type(value) is str or depth > MAX_DEPTH:
@@ -175,8 +187,7 @@ def _replace_secrets(value, function, depth):
 
 def hash_secrets(key=None):
     """
-    Makes a record processor that replaces every :class:`pysimplelog.secret.Secret` in the fields and the context
-    with a short keyed hash, such as ``hmac:9f2a41c07b3d``.
+    Replaces every ``Secret`` by a short code, so two records with the same secret can be matched without showing it.
 
     Two records with the same secret get the same hash, so they can be matched without showing the secret. With no
     *key* a random one is made for this process, so the hashes only match inside it and cannot be guessed by trying
@@ -206,11 +217,23 @@ def hash_secrets(key=None):
         raise TypeError("key must be None, a string or bytes")
 
     def digest(secret):
+        """
+        Turns one secret into its short keyed code, such as ``hmac:9f2a41c07b3d``.
+
+        :Parameters:
+            #. secret (Secret): The secret to turn into a code.
+        """
         value = secret.reveal()
         data = value if isinstance(value, bytes) else safe_str(value).encode('utf-8')
         return 'hmac:' + hmac.new(key, data, hashlib.sha256).hexdigest()[:12]
 
     def processor(record):
+        """
+        Replaces the secrets in the fields and the context of a record, and returns the record.
+
+        :Parameters:
+            #. record (LogRecord): The record to clean.
+        """
         fields, fieldsChanged = _replace_secrets(record.fields, digest, 0)
         context, contextChanged = _replace_secrets(record.context, digest, 0)
         if not fieldsChanged and not contextChanged:
@@ -221,7 +244,7 @@ def hash_secrets(key=None):
 
 
 def _apply_text(function, value, depth):
-    """Returns the value with the text function applied to every string in it, inside mappings, lists and tuples too."""
+    """Applies a text function to every text inside a value, including texts in dictionaries, lists and tuples."""
     if isinstance(value, str):
         result = function(value)
         if not isinstance(result, str):
@@ -243,7 +266,7 @@ def _apply_text(function, value, depth):
 
 def redact_text(function):
     """
-    Turns a text function into a record processor.
+    Makes your own text function into a processor, for example to hide the folders of your servers.
 
     The function is applied to the message, the exception message and traceback, and every string inside the
     fields and the context, including strings in nested dictionaries, lists and tuples. Keys are not changed.
@@ -275,6 +298,12 @@ def redact_text(function):
         raise TypeError("function must be callable")
 
     def processor(record):
+        """
+        Applies the text function to the message, the exception and every text in the fields and the context, and returns the record.
+
+        :Parameters:
+            #. record (LogRecord): The record to clean.
+        """
         exception = record.exception
         if exception is not None:
             exception = exception._replace(
@@ -301,7 +330,7 @@ TEXT_PATTERNS = MappingProxyType({
 
 def redact_patterns(names=None, custom=None, replacement=DEFAULT_REPLACEMENT):
     """
-    Makes a record processor that hides secrets found in text, by pattern.
+    Hides secrets by their **shape** in any text: the message, the exception and every text in the fields. It knows URLs with a password, bearer tokens, JWTs and ``password=...``, and you can add your own.
 
     It is :func:`redact_text` with ready-made patterns, so it covers the message, the exception and every string
     in the fields and the context. The built-in patterns are ``url_password`` (``user:pass@host``), ``bearer``
@@ -347,12 +376,24 @@ def redact_patterns(names=None, custom=None, replacement=DEFAULT_REPLACEMENT):
         raise ValueError(f"a pattern is not a valid regular expression: {error}") from None
 
     def replace_one(match):
+        """
+        Writes the replacement in place of the secret part of one match, and keeps the words around it.
+
+        :Parameters:
+            #. match (re.Match): One match of a pattern found in the text.
+        """
         if 'secret' not in match.re.groupindex:
             return replacement
         offset = match.start()
         return match.group(0)[:match.start('secret') - offset] + replacement + match.group(0)[match.end('secret') - offset:]
 
     def hide(text):
+        """
+        Hides the secrets of every pattern in a text.
+
+        :Parameters:
+            #. text (str): The text to clean.
+        """
         for pattern in compiled:
             text = pattern.sub(replace_one, text)
         return text
@@ -361,7 +402,7 @@ def redact_patterns(names=None, custom=None, replacement=DEFAULT_REPLACEMENT):
 
 def add_context(**values):
     """
-    Makes a processor that adds the same named values to the context of every record.
+    Adds the same values to every record, such as the service name, the environment and the host.
 
     Use it for what describes the whole program and not one call: the service, the environment, the host, the version. The values
     are in the context of the record, next to a request identifier, so every sink and every format shows them. They reach
@@ -397,6 +438,12 @@ def add_context(**values):
     reported = set()
 
     def processor(record):
+        """
+        Adds the values to the context of a record, unless the call already gave them, and returns the record.
+
+        :Parameters:
+            #. record (LogRecord): The record to complete.
+        """
         context = record.context
         added = None
         for name, value in static.items():

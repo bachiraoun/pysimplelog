@@ -1,11 +1,15 @@
-"""Ready-made record filters, to give to ``Logger.add_filter`` or to ``Logger.set_sink_filter``."""
+"""A filter is a small function that decides whether a record goes on: it returns True to keep it and False to drop it. These are the ready-made ones."""
 
 import random
 
 
 def sample(rate):
     """
-    Makes a filter that keeps a random share of the records.
+    Keeps only a share of the records, chosen at random. Useful to thin out a very noisy log.
+
+    .. code-block:: python
+
+        logger.add_filter(sample(0.1))          ## about one record in ten
 
     :Parameters:
         #. rate (int, float): The share of records to keep, from 0 (none) to 1 (all). 0.1 keeps about one in ten.
@@ -28,12 +32,18 @@ def sample(rate):
         raise ValueError("rate must be between 0 and 1")
 
     def keep(record):
+        """
+        Says whether to keep this record, by chance.
+
+        :Parameters:
+            #. record (LogRecord): The record to judge.
+        """
         return random.random() < rate
     return keep
 
 
 def _check_names(names, what):
-    """Checks that at least one name is given and that each is a non-empty string."""
+    """Checks that at least one name is given and that each name is a non-empty text."""
     if len(names) == 0:
         raise ValueError(f"give at least one {what}")
     for name in names:
@@ -42,17 +52,22 @@ def _check_names(names, what):
 
 
 def _is_within(name, prefixes):
-    """True when *name* is one of the prefixes or inside one: ``urllib3.connectionpool`` is inside ``urllib3``."""
+    """Says whether a name is one of the prefixes or inside one, such as ``urllib3.connectionpool`` inside ``urllib3``."""
     return any(name == prefix or name.startswith(prefix + '.') for prefix in prefixes)
 
 
 def match_logger(*names, exclude=False):
     """
-    Makes a filter on the name of the logger a record comes from.
+    Keeps, or drops, the records of the loggers you name, and of everything inside them.
 
     A record of the standard ``logging`` bridge carries the name of the standard logger, ``urllib3.connectionpool`` for example,
     and the name ``urllib3`` matches it and everything inside it, but not ``urllib3x``. Any other record is matched on the name of
     the pysimplelog logger.
+
+    .. code-block:: python
+
+        logger.add_filter(match_logger("urllib3", "asyncio", exclude=True))     ## silence two libraries
+        logger.add("logs/db.log", filter=match_logger("app.db"))                ## only this part of the program
 
     :Parameters:
         #. names (str): One or more names. A record is kept when its logger is one of them or inside one.
@@ -74,6 +89,12 @@ def match_logger(*names, exclude=False):
         raise TypeError("exclude must be a boolean")
 
     def keep(record):
+        """
+        Says whether to keep this record, from the name of its logger.
+
+        :Parameters:
+            #. record (LogRecord): The record to judge.
+        """
         name = record.fields.get('logger_name', record.logger)
         return _is_within(name, names) != exclude
     return keep
@@ -81,10 +102,14 @@ def match_logger(*names, exclude=False):
 
 def match_module(*names, exclude=False):
     """
-    Makes a filter on the module the log call was made in.
+    Keeps, or drops, the records made by the modules you name. It needs the logger to record the caller (``callerInfo=True``).
 
     The module is known only when the logger records the caller (``callerInfo=True``). A record without it cannot be told
     apart, so it is kept, whatever *exclude* is: the filter never drops what it cannot judge.
+
+    .. code-block:: python
+
+        logger.add_filter(match_module("myapp.billing"))
 
     :Parameters:
         #. names (str): One or more module names. A record is kept when its module is one of them or inside one.
@@ -107,6 +132,12 @@ def match_module(*names, exclude=False):
         raise TypeError("exclude must be a boolean")
 
     def keep(record):
+        """
+        Says whether to keep this record, from the module of the code that made the call.
+
+        :Parameters:
+            #. record (LogRecord): The record to judge.
+        """
         caller = record.caller
         if caller is None:
             return True
@@ -116,10 +147,15 @@ def match_module(*names, exclude=False):
 
 def match_field(name, *values, exclude=False):
     """
-    Makes a filter on the value of a field or of a context value, for the environment, the tenant, the category.
+    Keeps, or drops, the records whose field or context value is one of the values you give.
 
     The name is looked for in the fields of the record and in its context. A record that has neither is not a match: with
     the default it is dropped, and with ``exclude=True`` it is kept.
+
+    .. code-block:: python
+
+        logger.add_filter(match_field("environment", "test", exclude=True))              ## nothing from tests
+        logger.set_sink_filter("audit", match_field("category", "security", "billing"))   ## two categories only
 
     :Parameters:
         #. name (str): The name of the field or context value.
@@ -146,6 +182,12 @@ def match_field(name, *values, exclude=False):
         raise TypeError("exclude must be a boolean")
 
     def keep(record):
+        """
+        Says whether to keep this record, from the value of the field.
+
+        :Parameters:
+            #. record (LogRecord): The record to judge.
+        """
         for source in (record.fields, record.context):
             if name in source and source[name] in values:
                 return not exclude

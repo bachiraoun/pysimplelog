@@ -1,4 +1,4 @@
-"""Defines the immutable structured record that represents one log event."""
+"""A record is the finished description of one log event: when, how important, who, what, and the values. Everything a log call produces is one of these, and every output turns the same record into its own text."""
 
 from datetime import datetime
 from types import MappingProxyType
@@ -9,7 +9,12 @@ EMPTY_MAPPING = MappingProxyType({})
 
 class ExceptionInfo(NamedTuple):
     """
-    Describes the exception attached to a log record.
+    The exception of a record: its type name, its message and its traceback as text.
+
+    .. code-block:: python
+
+        ## Drop the records of an exception you do not care about
+        logger.add_filter(lambda record: record.exception is None or record.exception.typeName != "KeyboardInterrupt")
 
     :Parameters:
         #. typeName (str, None): Exception class name. None when only the traceback text is known.
@@ -24,7 +29,12 @@ class ExceptionInfo(NamedTuple):
 
 class CallerInfo(NamedTuple):
     """
-    Describes the place in user code that produced a log record.
+    Where in your code a log call was made: file, line, function and module.
+
+    .. code-block:: python
+
+        ## The logger must be made with callerInfo=True. Keep only the records made by your own package
+        logger.add_filter(lambda record: record.caller is None or record.caller.moduleName.startswith("myapp."))
 
     :Parameters:
         #. fileName (str): Base name of the source file.
@@ -41,9 +51,13 @@ class CallerInfo(NamedTuple):
 
 class TraceInfo(NamedTuple):
     """
-    Describes the distributed trace a log record was made in, for the sinks that send records to a tracing backend.
+    Which distributed trace and step (span) a record was made in, for outputs that send records to a tracing system.
 
     The built-in formatters do not write it, so adding it changes no existing output.
+
+    .. code-block:: python
+
+        logger.add(lambda text, record: print(record.trace.traceId if record.trace is not None else "no trace"))
 
     :Parameters:
         #. traceId (str): The trace identifier, 32 lower case hexadecimal characters, not all zero.
@@ -58,7 +72,7 @@ class TraceInfo(NamedTuple):
 
 class LogRecord(NamedTuple):
     """
-    Represents one log event as immutable structured data.
+    One log event, as data that cannot be changed. A processor receives it and returns a changed copy with ``_replace``.
 
     Formatting is not part of the record: every sink renders the same record with its own
     formatter. A record is built by :meth:`create`, which wraps *fields* and *context* in
@@ -67,6 +81,13 @@ class LogRecord(NamedTuple):
 
     Nothing is type checked when a record is built, because the logger builds records from
     values it has already checked. Call :func:`validate_record` on a record built anywhere else.
+
+    .. code-block:: python
+
+        def shout(record):
+            return record._replace(message=record.message.upper())
+
+        record.message, record.severity, record.fields["order_id"], record.timestamp
 
     :Parameters:
         #. timestamp (datetime.datetime): Time of the log call, timezone aware.
@@ -124,7 +145,14 @@ class LogRecord(NamedTuple):
     def create(cls, timestamp, severity, logType, level, logger, message, processId, threadId, threadName,
                fields=None, context=None, exception=None, caller=None, trace=None):
         """
-        Builds a record whose fields and context are read-only views.
+        Builds a record. The dictionaries you give for the fields and the context become read-only views, so do not change them
+        afterwards.
+
+        .. code-block:: python
+
+            from datetime import datetime, timezone
+            record = LogRecord.create(datetime.now(timezone.utc), "INFO", "info", 10.0, "app", "hello", 1, 1, "MainThread",
+                                      fields={"order_id": 7})
 
         :Parameters:
             #. timestamp (datetime.datetime): Time of the log call, timezone aware.
@@ -152,24 +180,24 @@ class LogRecord(NamedTuple):
 
 
 def _rebuild_record(values):
-    """Rebuilds a record from the plain values that ``LogRecord.__reduce__`` saved, wrapping fields and context in read-only views."""
+    """Rebuilds a record from the plain values saved for copying or pickling, wrapping the fields and the context in read-only views again."""
     fields, context = values[9], values[10]
     return LogRecord(*values[:9], EMPTY_MAPPING if len(fields) == 0 else MappingProxyType(fields),
                      EMPTY_MAPPING if len(context) == 0 else MappingProxyType(context), *values[11:])
 
 
 def _is_number(value):
-    """Returns True for an int or float, False for anything else including a bool."""
+    """Says whether a value is a whole number or a decimal, not a true/false value."""
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _is_int(value):
-    """Returns True for an int, False for anything else including a bool."""
+    """Says whether a value is a whole number, not a true/false value."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _validate_mapping(name, mapping):
-    """Raises TypeError when mapping is not a mapping with string keys."""
+    """Raises an error unless the value is a dictionary-like object with text keys."""
     if not isinstance(mapping, Mapping):
         raise TypeError(f"{name} must be a mapping")
     for key in mapping:
@@ -178,7 +206,7 @@ def _validate_mapping(name, mapping):
 
 
 def _is_hex_identifier(value, length):
-    """Returns True for a lower case hexadecimal string of exactly *length* characters that is not all zero."""
+    """Says whether a value is a lower case hexadecimal text of the given length that is not all zeros, as trace identifiers are."""
     if not isinstance(value, str) or len(value) != length:
         return False
     if value.strip('0123456789abcdef') != '':
@@ -188,11 +216,16 @@ def _is_hex_identifier(value, length):
 
 def validate_record(record):
     """
-    Checks that a record has the documented types, for records built outside the logger.
+    Checks that a record has the documented types. Use it on a record that came from somewhere else; the logger does not check its
+    own, which keeps logging fast.
 
     The logger does not call this on its own records, which keeps the logging path fast.
     Use it where a record comes from elsewhere: built by hand, received from the standard
     logging bridge, or read back from a disk spool.
+
+    .. code-block:: python
+
+        validate_record(record)          ## raises TypeError or ValueError if something is wrong
 
     :Parameters:
         #. record (LogRecord): The record to check.

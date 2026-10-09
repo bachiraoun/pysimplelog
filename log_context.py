@@ -1,4 +1,4 @@
-"""Context values that follow the flow of the program and are attached to every record."""
+"""Context is information that describes where a log call happens, such as the request or the user. You set it once, and every record made afterwards carries it."""
 
 import contextvars
 import functools
@@ -16,9 +16,20 @@ CURRENT_CONTEXT = contextvars.ContextVar('pysimplelog_context', default=EMPTY_MA
 
 class ContextScope:
     """
+    What ``context(...)`` returns. It works in a ``with`` block, in ``async with`` and as a function decorator.
+
     A context manager that attaches values to every record made inside its ``with`` block.
 
     Make one with :func:`context`. Each ``with`` needs its own scope.
+
+    .. code-block:: python
+
+        with context(request_id="r-1"):
+            logger.info("inside")
+
+        @context(job="nightly")
+        def run():
+            logger.info("inside the job")
 
     :Parameters:
         #. values (dict): The values to attach, with string keys.
@@ -88,7 +99,7 @@ class ContextScope:
 
 def context(**values):
     """
-    Attaches values to every record made inside a ``with`` block, whatever logger makes it.
+    Adds values to every record made inside a ``with`` block, without passing them to each call.
 
     The values are kept in a ``contextvars`` variable, so they follow the flow of the program: they reach
     every function the block calls, and every asynchronous task started inside it, each task keeping its
@@ -101,6 +112,11 @@ def context(**values):
     Blocks nest. An inner value replaces an outer one with the same name until the inner block ends, and
     the outer value is back after it, also when the block ends by an exception. The values are written
     in the ``context`` of the record, apart from its fields.
+
+    .. code-block:: python
+
+        with context(request_id="r-42"):
+            logger.info("inside")          ## ... inside request_id=r-42
 
     :Parameters:
         #. values: The values to attach, any number of keyword arguments.
@@ -120,7 +136,12 @@ def context(**values):
 
 def current_context():
     """
-    Returns the values attached by the blocks the program is in right now.
+    Shows the context values that are active right now.
+
+    .. code-block:: python
+
+        with context(request_id="r-42"):
+            dict(current_context())        ## {'request_id': 'r-42'}
 
     :Returns:
         #. values (Mapping): A read-only view of the values, empty outside every block.
@@ -151,5 +172,12 @@ def keep_context(function):
 
     @functools.wraps(function)
     def wrapper(*args, **kwargs):
+        """
+        Runs the wrapped function with a copy of the context values saved when it was wrapped.
+
+        :Parameters:
+            #. args (tuple): The positional arguments of the wrapped function, passed on unchanged.
+            #. kwargs (dict): The keyword arguments of the wrapped function, passed on unchanged.
+        """
         return snapshot.copy().run(function, *args, **kwargs)
     return wrapper

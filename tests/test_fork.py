@@ -103,7 +103,7 @@ class TestDelivery(unittest.TestCase):
         logger.add_sink('k', sink)
         logger.info('before')
         logger.flush()
-        child = in_child(lambda: (logger.info('from the child'), logger.force_log('info', 'forced', stdout=False, file=False),
+        child = in_child(lambda: (logger.info('from the child'), logger.force_log('info', 'forced', sinks=[]),
                                   time.sleep(0.05), sink.in_this_process())[3])
         self.assertEqual(child, ['from the child'])
         logger.info('after')

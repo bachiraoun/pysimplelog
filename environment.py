@@ -1,5 +1,5 @@
 """
-Reads the PYSIMPLELOG_ environment variables that set up a logger, so a program is configured without changing its code.
+Reads the ``PYSIMPLELOG_`` environment variables that set up a logger, so a program is configured without changing its code.
 """
 
 import os
@@ -14,7 +14,7 @@ COLOR_MODES = ('auto', 'always', 'never')
 
 
 class _NotGiven:
-    """The default of an argument that the environment may set, so a value the caller gave can be told apart."""
+    """The marker for "the caller did not say", so the environment can fill the gap without overriding something the caller chose."""
 
     def __repr__(self):
         return "<default>"
@@ -25,11 +25,15 @@ NOT_GIVEN = _NotGiven()
 
 def read_environment():
     """
-    Reads the variables that configure the console of a logger.
+    Reads the three variables that set up the console, and returns what is set.
 
     ``PYSIMPLELOG_LEVEL`` is a number or the key or name of a log type, such as ``DEBUG``. ``PYSIMPLELOG_FORMAT`` is
     ``pretty``, ``text``, ``json`` or a template such as ``{timestamp} {message}``. ``PYSIMPLELOG_COLOR`` is
     ``auto``, ``always`` or ``never``. A variable that is empty or not set is ignored.
+
+    .. code-block:: console
+
+        PYSIMPLELOG_LEVEL=WARNING PYSIMPLELOG_FORMAT=json PYSIMPLELOG_COLOR=never python app.py
 
     :Returns:
         #. settings (dict): ``stdoutMinLevel`` (float, str), ``consoleFormatter`` (str) and ``consoleColor`` (str),

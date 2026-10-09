@@ -1,4 +1,4 @@
-"""Sinks deliver one rendered LogRecord to one destination and never raise into the application."""
+"""A sink is an output: the place records finally go, such as the console, a file, a function or a network collector. This module has the ready-made ones and the base class for your own."""
 
 import collections
 import os
@@ -43,7 +43,7 @@ _FULLSYNC = getattr(fcntl, 'F_FULLFSYNC', None)
 
 def validate_flush_mode(flush):
     """
-    Checks a flush mode and returns it.
+    Checks how sure you want a record to be on disk before the next one is written, and returns the mode.
 
     ``none`` leaves the data in the buffer of the stream, and None means the same. ``flush``
     pushes it to the operating system after every record, which survives a crash of the
@@ -53,6 +53,11 @@ def validate_flush_mode(flush):
     ``fullsync`` also empties that cache, which survives a power loss, and costs thousands of times
     more per record than ``flush`` on a Mac, about 19 milliseconds on the one it was measured on. Anywhere but
     macOS ``fullsync`` is the same as ``fsync``.
+
+    .. code-block:: python
+
+        validate_flush_mode("flush")        ## 'flush'
+        validate_flush_mode(None)           ## 'none'
 
     :Parameters:
         #. flush (str, None): One of ``none``, ``flush``, ``fsync``, ``fullsync``, or None for ``none``.
@@ -86,7 +91,7 @@ def _is_int(value):
 
 def sync_descriptor(descriptor, isFull=False):
     """
-    Forces what was written to a file onto the drive.
+    Asks the operating system to really write a file's data to the drive, not just to its cache. It is what the ``fsync`` and ``fullsync`` modes use.
 
     :Parameters:
         #. descriptor (int): The file descriptor.
@@ -185,7 +190,7 @@ def _check_first_number(firstNumber):
 
 def ensure_spoolable(sink):
     """
-    Checks that a sink writes to something outside this process, so that its records can be kept for later.
+    Checks that a sink sends records somewhere outside this program, because only then is there something to wait for. A console, a stream or a file cannot be spooled.
 
     :Parameters:
         #. sink (Sink): The sink.
@@ -200,7 +205,10 @@ def ensure_spoolable(sink):
 
 class Sink:
     """
-    Base class of every sink: renders a record with its own formatter and delivers it.
+    The base class of every output. To make your own, subclass it and write ``write(self, text, record)``.
+
+    In plain words: the logger gives a sink each record. The sink turns it into text with its formatter, then calls your
+    ``write``. A sink never lets an error escape into your program: a failure is counted and reported once.
 
     :meth:`emit` is what the logger calls. It never raises: when the formatter or
     :meth:`write` fails, the record is dropped, the failure is counted in :attr:`stats`,
@@ -211,6 +219,18 @@ class Sink:
 
     A sink can have its record kept on disk until it is delivered, see :meth:`spool_destination` for what a
     sink must say about where its records go.
+
+    .. code-block:: python
+
+        class Counter(Sink):
+            def __init__(self):
+                super().__init__(formatter="text")
+                self.count = 0
+
+            def write(self, text, record):
+                self.count += 1                 ## return False to say "I could not deliver this"
+
+        logger.add(Counter(), level="WARNING")
 
     :Parameters:
         #. formatter (None, str, callable): How a record becomes text. None gives JSON, see
@@ -279,22 +299,27 @@ class Sink:
 
     @property
     def captureTrace(self):
-        """True when the logger records the identifiers of the active trace for this sink."""
+        """True when the logger also records the identifiers of the active trace for this sink."""
         return self.__captureTrace
 
     @property
     def batchSize(self):
-        """Largest number of records delivered in one call. 1 means one at a time."""
+        """The most records handed to the sink in one call. 1 means one at a time."""
         return self.__batchSize
 
     @property
     def batchInterval(self):
-        """Seconds a worker waits for a group of records to fill before it sends what it has."""
+        """How many seconds a worker waits for a group of records to fill before it sends what it has."""
         return self.__batchInterval
 
     def set_formatter(self, formatter):
         """
-        Changes how the sink turns a record into text. The next record is rendered with it.
+        Changes how the sink turns a record into text, from the next record on.
+
+        .. code-block:: python
+
+            sink.set_formatter("json")
+            sink.set_formatter(lambda record: record.message)
 
         :Parameters:
             #. formatter (None, str, callable): None gives JSON, see
@@ -309,6 +334,8 @@ class Sink:
     @property
     def stats(self):
         """
+        What the sink has done so far, as a dictionary: how many records it processed and how many failed, the last error, and how long deliveries took.
+
         Dictionary with what the sink did: the counts ``processed`` and ``failed``, ``last_error`` (the last exception,
         or None), and ``latency_mean`` and ``latency_max``, the seconds it took to render and write one delivery call
         that went through (None for the mean while nothing has). A call delivers one record, or a whole group for a sink with
@@ -321,7 +348,12 @@ class Sink:
 
     def emit(self, record):
         """
-        Renders a record and delivers it, without ever raising an exception.
+        What the logger calls to give the sink a record. It renders the record and delivers it, and it never raises.
+
+        .. code-block:: python
+
+            sink = MySink()
+            sink.emit(record)       ## renders the record and calls sink.write(text, record); never raises
 
         :Parameters:
             #. record (LogRecord): The record to deliver.
@@ -330,7 +362,14 @@ class Sink:
 
     def deliver(self, record):
         """
-        Renders a record and delivers it like :meth:`emit`, and says how it went. It never raises an exception.
+        Renders a record and delivers it, like :meth:`emit`, and also says how it went. It never raises.
+
+        .. code-block:: python
+
+            from pysimplelog.sinks import DELIVERED
+
+            if sink.deliver(record) != DELIVERED:
+                print("the sink could not write this record")
 
         :Parameters:
             #. record (LogRecord): The record to deliver.
@@ -372,7 +411,17 @@ class Sink:
 
     def write(self, text, record):
         """
-        Delivers the rendered text to the destination. Subclasses implement this.
+        The one method you write in your own sink: send this text to its destination.
+
+        Return ``False`` to say the record could not be delivered and should be kept for another try, if the sink has a spool.
+
+        .. code-block:: python
+
+            class PrintSink(Sink):
+                def write(self, text, record):
+                    print("got:", text.strip())
+
+            logger.add(PrintSink(formatter="text"), level="WARNING")
 
         :Parameters:
             #. text (str): The rendered record, with the terminator.
@@ -391,8 +440,16 @@ class Sink:
 
     def write_batch(self, items):
         """
-        Delivers a group of rendered records to the destination in one go. A sink that sets *batchSize* above 1 implements
-        this.
+        For a sink that sends groups of records: deliver a whole group in one call. Set ``batchSize`` above 1 to use it.
+
+        .. code-block:: python
+
+            class BatchSink(Sink):
+                def __init__(self):
+                    super().__init__(formatter="json", batchSize=50, batchInterval=1.0)
+
+                def write_batch(self, items):
+                    send_all([text for text, record in items])     ## one network call for up to 50 records
 
         :Parameters:
             #. items (list): The group, oldest first, as tuples ``(text, record)``: the rendered record with its terminator,
@@ -410,10 +467,14 @@ class Sink:
 
     def deliver_batch(self, records):
         """
-        Renders a group of records and delivers them in one call, and says how it went for each. It never raises an exception.
+        Renders a group of records and delivers them in one call, and says how it went for each. It never raises.
 
         A record whose formatter raises an exception is ``REJECTED`` on its own, the others are delivered. The records that
         could be rendered share one outcome, the one of :meth:`write_batch`.
+
+        .. code-block:: python
+
+            results = sink.deliver_batch(records)      ## one result per record, in order: DELIVERED, RETRY, REJECTED or SPLIT
 
         :Parameters:
             #. records (list): The records, oldest first.
@@ -465,8 +526,11 @@ class Sink:
 
     def emit_batch(self, records):
         """
-        Delivers a group of records like :meth:`deliver_batch`, and leaves what failed: the records that were not delivered are
-        dropped, as :meth:`emit` does for one record. It never raises an exception.
+        Gives the sink a group of records, like :meth:`deliver_batch`. The ones that fail are dropped and counted. It never raises.
+
+        .. code-block:: python
+
+            sink.emit_batch(records)       ## a record that fails is dropped and counted, the others still go
 
         :Parameters:
             #. records (list): The records, oldest first.
@@ -475,7 +539,7 @@ class Sink:
 
     def spool_destination(self):
         """
-        Says where this sink sends its records, as the values that identify the receiver.
+        Says where the sink sends its records, so that a disk spool is only ever taken over by a sink with the same destination.
 
         A spool keeps the records of a sink on disk, and hands them only to a sink with the same destination: a
         record meant for one receiver must never go to another. The values are the protocol, the host, the port, the
@@ -483,6 +547,12 @@ class Sink:
         part of it, because changing them does not change the receiver.
 
         A sink says it with the names of the attributes in ``SPOOL_DESTINATION``, or by overriding this method.
+
+        .. code-block:: python
+
+            class CollectorSink(Sink):
+                def spool_destination(self):
+                    return ("https", "collector.example.org", 443)    ## a spool only joins a sink with this destination
 
         :Returns:
             #. destination (dict): The names and values, each value a str, an int, a bool or None.
@@ -502,14 +572,28 @@ class Sink:
                             f"{error}") from None
 
     def flush(self):
-        """Pushes buffered data to the destination. Does nothing here, sinks that buffer override it."""
+        """
+        Pushes anything the sink holds to its destination. A sink that buffers overrides it.
+
+        .. code-block:: python
+
+            class BufferedSink(Sink):
+                def flush(self):
+                    self.connection.send_buffered()
+        """
 
     def maintain(self):
         """
-        Does the housekeeping this sink needs, such as deleting old files. Does nothing here, sinks that need it override it.
+        Does the sink's housekeeping, such as deleting old files. A sink that needs it overrides it.
 
         It never sends or loses a record. It is safe to call at any time, from any thread, also while the sink is in use.
         :meth:`pysimplelog.simple_log.Logger.maintain` calls it for every sink.
+
+        .. code-block:: python
+
+            class RotatingSink(Sink):
+                def maintain(self):
+                    delete_old_files("logs/", days=30)
 
         :Returns:
             #. result (dict, None): What was done, as counts, or None when the sink has no housekeeping.
@@ -517,7 +601,15 @@ class Sink:
         return None
 
     def close(self):
-        """Releases what the sink owns. Does nothing here, sinks that open resources override it."""
+        """
+        Releases what the sink owns, such as an open file. A sink that opens something overrides it.
+
+        .. code-block:: python
+
+            class SocketSink(Sink):
+                def close(self):
+                    self.connection.close()
+        """
 
     def _record_failure(self, error):
         """
@@ -542,7 +634,13 @@ class Sink:
 
 class StreamSink(Sink):
     """
-    Writes records to a file-like object. The sink never closes the stream, its owner does.
+    An output that writes to a file-like object, such as ``sys.stderr`` or an open file. It never closes the stream: whoever
+    opened it closes it.
+
+    .. code-block:: python
+
+        import sys
+        logger.add_sink("err", StreamSink(sys.stderr, formatter="text"), minLevel=30)
 
     :Parameters:
         #. stream (file-like): Any object with a ``write(str)`` method. It needs a ``flush()`` method
@@ -583,7 +681,7 @@ class StreamSink(Sink):
 
     @property
     def flushMode(self):
-        """The flush mode: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
+        """How sure the sink makes a record safe before going on: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
         return self.__flushMode
 
     @property
@@ -593,7 +691,11 @@ class StreamSink(Sink):
 
     def set_flush_mode(self, flush):
         """
-        Changes the flush mode. The next record is written with it.
+        Changes how the sink flushes, from the next record on.
+
+        .. code-block:: python
+
+            sink.set_flush_mode("flush")        ## flush after every record
 
         :Parameters:
             #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
@@ -616,12 +718,23 @@ class StreamSink(Sink):
             self.__flushMode = flush
 
     def close(self):
-        """Flushes the stream. The stream itself is never closed, its owner does that."""
+        """
+        Flushes the stream. The stream itself is not closed: whoever opened it closes it.
+
+        .. code-block:: python
+
+            sink.close()          ## the stream stays open: you close it yourself
+        """
         self.flush()
 
     def write(self, text, record):
         """
-        Writes the text to the stream, then flushes as the flush mode says.
+        Writes the text to the stream and flushes as the flush mode says.
+
+        .. code-block:: python
+
+            sink = StreamSink(io.StringIO())
+            sink.write("hello\\n", record)
 
         :Parameters:
             #. text (str): The rendered record, with the terminator.
@@ -634,7 +747,13 @@ class StreamSink(Sink):
             _apply_flush(stream, self.__flushMode)
 
     def flush(self):
-        """Flushes the stream, whatever the flush mode is."""
+        """
+        Flushes the stream now, whatever the flush mode is.
+
+        .. code-block:: python
+
+            sink.flush()          ## push the text to the stream right now
+        """
         stream = self._get_stream()
         with self.__writeLock:
             if hasattr(stream, 'flush'):
@@ -647,7 +766,11 @@ class StreamSink(Sink):
 
 class ConsoleSink(StreamSink):
     """
-    Writes records to the console.
+    The output for the terminal. It follows ``sys.stdout`` even if the program replaces it.
+
+    .. code-block:: python
+
+        logger.add_sink("console2", ConsoleSink(formatter="pretty"))
 
     :Parameters:
         #. stream (file-like, None): The stream to write to. None means the current ``sys.stdout``,
@@ -671,7 +794,7 @@ class ConsoleSink(StreamSink):
         ## One JSON object per line, for a log collector that reads the console
         sink = ConsoleSink(formatter=None)
         ## Every line in red
-        sink = ConsoleSink(decorate=lambda text, record: f"\033[31m{text}\033[0m")
+        sink = ConsoleSink(decorate=lambda text, record: f"[31m{text}[0m")
     """
 
     def __init__(self, stream=None, formatter='text', flush='flush', terminator='\n', decorate=None):
@@ -686,7 +809,11 @@ class ConsoleSink(StreamSink):
 
     def set_formatter(self, formatter):
         """
-        Changes how the console turns a record into text, the colours are still applied to it.
+        Changes how the console turns a record into text. The log type colours still apply to it.
+
+        .. code-block:: python
+
+            console.set_formatter("json")        ## the console now prints JSON lines
 
         :Parameters:
             #. formatter (None, str, callable): None gives JSON, see
@@ -712,7 +839,12 @@ class ConsoleSink(StreamSink):
 
 class CallbackSink(Sink):
     """
-    Hands every rendered record to a function.
+    An output that gives every record to a function of yours.
+
+    .. code-block:: python
+
+        lines = []
+        logger.add_sink("memory", CallbackSink(lambda text, record: lines.append(text), formatter="text"))
 
     :Parameters:
         #. callback (callable): ``f(text, record)``, called once for every record.
@@ -738,7 +870,12 @@ class CallbackSink(Sink):
 
     def write(self, text, record):
         """
-        Calls the callback with the text and the record.
+        Calls your function with the text and the record.
+
+        .. code-block:: python
+
+            sink = CallbackSink(lambda text, record: alerts.append(text))
+            logger.add(sink, level="CRITICAL")
 
         :Parameters:
             #. text (str): The rendered record.
@@ -749,21 +886,29 @@ class CallbackSink(Sink):
 
 class FileSink(Sink):
     """
-    Writes records to a log file, starting a new file when the current one is full.
+    An output that writes to a log file, and starts a new file when the current one is full.
+
+    In plain words: give it a path without extension and a limit, and it keeps ``app_0.log``, ``app_1.log`` and so on, deleting
+    or compressing the old ones as you say. ``logger.add("app.log", rotation=...)`` builds one for you.
 
     Files are named ``<basename>_<N>.<extension>``, and ``<basename>.<extension>`` when
     *firstNumber* is None. The sink continues in the newest file that already exists, and starts the
     next number when that file has reached *maxSize*. With *roll*, the oldest files are deleted so that
-    no more than that many remain: this is the only place where old files are deleted, see
-    :meth:`_enforce_retention`. The file is created on the first record, and the sink owns it:
+    no more than that many remain: this is the only place where old files are deleted. The file is created on the first record, and the sink owns it:
     :meth:`close` closes it.
 
     The sink writes UTF-8 bytes and keeps its own size count, so *maxSize* is exact for any text. A file
     can exceed *maxSize* by the size of one record, because the check happens before a write.
 
+    .. code-block:: python
+
+        sink = FileSink("logs/app", extension="log", maxSize=10, roll=5, compress="gz")
+        logger.add_sink("file", sink)
+
     :Parameters:
         #. basename (str): Directory and file name without extension, for example ``logs/app``. The
-           directory is created when it does not exist.
+           directory is created when it does not exist. A relative path is made absolute when the sink is created, so a
+           program that changes its working folder later keeps writing in the same place.
         #. extension (str): File extension. A leading or trailing dot is ignored.
         #. formatter (None, str, callable): How a record becomes text. The default ``'text'`` gives a
            readable line. None gives JSON.
@@ -805,7 +950,8 @@ class FileSink(Sink):
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
                  maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False):
         super().__init__(formatter, terminator)
-        self.__basename = _check_basename(basename)
+        # Fixed now, so a program that changes its working folder later keeps writing in the same place
+        self.__basename = os.path.abspath(_check_basename(basename))
         self.__extension = _check_extension(extension)
         self.__flushMode = validate_flush_mode(flush)
         self.__maxBytes = _check_max_size(maxSize)
@@ -849,10 +995,7 @@ class FileSink(Sink):
 
     @property
     def stats(self):
-        """
-        What the sink did, as :attr:`Sink.stats` says, and ``files_deleted`` (by *roll* or *maxAge*), ``files_compressed`` and
-        ``compress_failed``.
-        """
+        """What the sink did: the usual counts, and how many files it deleted or compressed."""
         stats = dict(super().stats)
         with self.__workLock:
             stats.update(self.__counters)
@@ -860,17 +1003,22 @@ class FileSink(Sink):
 
     @property
     def path(self):
-        """Path of the file the next record is written to."""
+        """The path of the file the next record will be written to."""
         return self._current_path()
 
     @property
     def flushMode(self):
-        """The flush mode: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
+        """How sure the sink makes a record safe before going on: ``none``, ``flush``, ``fsync`` or ``fullsync``."""
         return self.__flushMode
 
     def write(self, text, record):
         """
-        Writes the text to the current file, first starting a new file when the current one is full.
+        Writes the text to the current file, first starting a new file if the current one is full.
+
+        .. code-block:: python
+
+            sink = FileSink("logs/app", maxSize=10 * 1024 * 1024)
+            sink.write("a line\\n", record)        ## starts a new file when the current one is full
 
         :Parameters:
             #. text (str): The rendered record, with the terminator.
@@ -895,7 +1043,11 @@ class FileSink(Sink):
 
     def flush(self):
         """
-        Flushes the file, whatever the flush mode is.
+        Writes whatever the file holds in memory to the disk now.
+
+        .. code-block:: python
+
+            sink.flush()          ## write what is held in memory to the disk now
 
         :Raises:
             #. OSError: If the buffered data cannot be written.
@@ -906,13 +1058,17 @@ class FileSink(Sink):
 
     def set_path(self, basename, extension):
         """
-        Changes the base name and the extension of the files, and picks the file to continue in.
+        Changes the folder and name of the files, and picks the file to continue in.
 
         The current file is closed. The new file is chosen like at creation, with the retention settings,
         and is opened by the next record.
 
+        .. code-block:: python
+
+            sink.set_path("logs/other", "log")        ## continue in logs/other_N.log
+
         :Parameters:
-            #. basename (str): Directory and file name without extension.
+            #. basename (str): Directory and file name without extension. A relative path is made absolute now.
             #. extension (str): File extension. A leading or trailing dot is ignored.
 
         :Raises:
@@ -920,7 +1076,7 @@ class FileSink(Sink):
             #. ValueError: If basename or extension is empty.
             #. OSError: If the buffered data of the current file cannot be written.
         """
-        basename = _check_basename(basename)
+        basename = os.path.abspath(_check_basename(basename))
         extension = _check_extension(extension)
         with self.__lock:
             self._close_stream()
@@ -930,7 +1086,11 @@ class FileSink(Sink):
 
     def set_max_size(self, maxSize):
         """
-        Changes the largest size of a file. The next record is checked against it.
+        Changes the size at which a new file is started. The next record is checked against it.
+
+        .. code-block:: python
+
+            sink.set_max_size(5 * 1024 * 1024)      ## start a new file after 5 MB
 
         :Parameters:
             #. maxSize (None, int, float): Largest size of a file in megabytes. None means no limit.
@@ -947,8 +1107,11 @@ class FileSink(Sink):
 
     def set_roll(self, roll):
         """
-        Changes the number of files to keep. Old files are deleted the next time a file is chosen, at the next
-        rotation or when the base name or extension changes.
+        Changes how many files are kept.
+
+        .. code-block:: python
+
+            sink.set_roll(10)          ## keep the last 10 files
 
         :Parameters:
             #. roll (None, int): Largest number of files to keep, at least 1. None means files are never deleted.
@@ -963,7 +1126,11 @@ class FileSink(Sink):
 
     def set_compress(self, compress):
         """
-        Changes the compression of rotated files. It applies from the next rotation or start.
+        Changes whether rotated files are compressed (``"gz"``) or left as they are (None).
+
+        .. code-block:: python
+
+            sink.set_compress("gz")      ## compress files when they are rotated
 
         :Parameters:
             #. compress (None, str): ``gz`` or None, see the class.
@@ -980,7 +1147,11 @@ class FileSink(Sink):
 
     def set_max_age(self, maxAge):
         """
-        Changes the age after which rotated files are deleted. The next record tests it.
+        Changes the age after which rotated files are deleted.
+
+        .. code-block:: python
+
+            sink.set_max_age(30 * 24 * 3600)      ## delete rotated files older than 30 days
 
         :Parameters:
             #. maxAge (None, int, float): Seconds, or None to keep files whatever their age.
@@ -996,7 +1167,11 @@ class FileSink(Sink):
 
     def set_first_number(self, firstNumber):
         """
-        Changes the number of the first file. It is used the next time a file is chosen and no file exists yet.
+        Changes the number of the first file, such as the 0 of ``app_0.log``.
+
+        .. code-block:: python
+
+            sink.set_first_number(1)       ## files are named app_1.log, app_2.log ...
 
         :Parameters:
             #. firstNumber (None, int): Number of the first file, at least 0. None means the first file has no number.
@@ -1011,7 +1186,11 @@ class FileSink(Sink):
 
     def set_flush_mode(self, flush):
         """
-        Changes the flush mode. The next record is written with it.
+        Changes how the sink flushes, from the next record on.
+
+        .. code-block:: python
+
+            sink.set_flush_mode("flush")        ## flush after every record
 
         :Parameters:
             #. flush (str, None): ``none`` (or None), ``flush``, ``fsync`` or ``fullsync``, see :func:`validate_flush_mode`.
@@ -1026,8 +1205,11 @@ class FileSink(Sink):
 
     def close(self):
         """
-        Closes the file, and waits for the compression of a rotated file that is in progress. A record written afterwards
-        opens it again.
+        Closes the file and waits for a compression in progress. A record written afterwards opens it again.
+
+        .. code-block:: python
+
+            sink.close()          ## the file is closed; writing again opens it again
 
         :Raises:
             #. OSError: If the buffered data cannot be written.
@@ -1093,11 +1275,15 @@ class FileSink(Sink):
 
     def enforce_retention(self):
         """
-        Deletes the rotated files that are too many or too old, now, and queues the ones that are to be compressed.
+        Deletes the rotated files that are too many or too old, right now, without waiting for the next record.
 
         It is what happens at a rotation, only it can be called at any moment, from any thread, also while records are written.
         Call it from a scheduler when files must go on time even if nothing is logged. The file being written is never
         deleted.
+
+        .. code-block:: python
+
+            deleted = sink.enforce_retention()      ## for example from a scheduler, once an hour
 
         :Returns:
             #. deleted (int): The number of files deleted.
@@ -1114,7 +1300,11 @@ class FileSink(Sink):
 
     def maintain(self):
         """
-        Does the housekeeping of the files, see :meth:`enforce_retention`.
+        Does the file housekeeping now: deletes old files and queues rotated ones for compression.
+
+        .. code-block:: python
+
+            sink.maintain()       ## delete old files and compress rotated ones now
 
         :Returns:
             #. result (dict): ``files_deleted``, the number of files deleted by this call.

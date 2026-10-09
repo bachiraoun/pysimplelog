@@ -1,4 +1,4 @@
-"""A bounded queue with explicit overflow policies, and the counters that make every loss visible."""
+"""A queue is a waiting line for records. This one has a limit, and you choose what happens when the line is full. Whatever is thrown away is counted."""
 
 import collections
 import queue
@@ -15,17 +15,33 @@ QUEUE_POLICIES = ('block', 'drop_newest', 'drop_oldest', 'reject')
 
 
 class QueueFull(queue.Full):
-    """Raised when a record is put in a full queue whose policy is ``reject``."""
+    """
+    The error a log call raises when the queue is full and its policy is ``reject``.
+
+    .. code-block:: python
+
+        from pysimplelog import QueueFull
+
+        logger.add("logs/app.log", threaded=True, threadQueueSize=1000, threadQueuePolicy="reject")
+        try:
+            logger.info("busy")
+        except QueueFull:
+            pass        ## that output is full: decide here whether to wait, drop or fail
+    """
 
 
 def validate_queue_policy(policy):
     """
-    Checks a queue overflow policy and returns it.
+    Checks a policy name and returns it. The policies are ``block`` (wait), ``drop_newest``, ``drop_oldest`` and ``reject`` (raise an error).
 
     ``block`` makes the caller wait for a free place, for at most the block timeout when there is one, and
     drops the new record if the timeout ends. ``drop_newest`` throws the new record away. ``drop_oldest`` throws the
     record that has waited longest away and keeps the new one. ``reject`` makes the caller's log call raise
     :class:`QueueFull`. Every record that is thrown away or rejected is counted.
+
+    .. code-block:: python
+
+        validate_queue_policy("drop_oldest")        ## 'drop_oldest'
 
     :Parameters:
         #. policy (str): One of ``block``, ``drop_newest``, ``drop_oldest`` or ``reject``.
@@ -46,11 +62,17 @@ def validate_queue_policy(policy):
 
 class BoundedQueue:
     """
-    A thread-safe first-in first-out queue that says what happens when it is full.
+    A waiting line with a limit and a rule for when it is full. Every record that is thrown away or refused is counted.
 
     Nothing is lost without being counted: :meth:`stats` gives the number of records that were queued, thrown away
     and rejected, and how many wait now. One warning is written to the standard error stream for each run of lost
     records.
+
+    .. code-block:: python
+
+        queue = BoundedQueue(maxSize=1000, policy="drop_oldest")
+        queue.put(record)
+        queue.stats()          ## {'policy': 'drop_oldest', 'capacity': 1000, 'depth': 1, 'queued': 1, 'dropped': 0, 'rejected': 0}
 
     :Parameters:
         #. maxSize (None, int): Largest number of waiting records. None means no limit.
@@ -90,7 +112,11 @@ class BoundedQueue:
 
     def set_max_size(self, maxSize):
         """
-        Changes the largest number of waiting records. The next put uses it.
+        Changes how many records the queue may hold. The next ``put`` uses it.
+
+        .. code-block:: python
+
+            queue.set_max_size(10000)       ## allow 10000 waiting records from now on
 
         :Parameters:
             #. maxSize (None, int): The new size, or None for no limit.
@@ -111,7 +137,13 @@ class BoundedQueue:
 
     def set_policy(self, policy):
         """
+        Changes what a full queue does with a new record.
+
         Changes what a full queue does with a new record. The next put that finds the queue full uses it.
+
+        .. code-block:: python
+
+            queue.set_policy("drop_oldest")      ## when full, throw the oldest record away
 
         :Parameters:
             #. policy (str): The new policy, see :func:`validate_queue_policy`.
@@ -126,7 +158,11 @@ class BoundedQueue:
 
     def set_block_timeout(self, blockTimeout):
         """
-        Changes the seconds the ``block`` policy waits for a free place.
+        Changes how many seconds the ``block`` policy waits for a free place.
+
+        .. code-block:: python
+
+            queue.set_block_timeout(2.0)      ## "block" waits at most 2 seconds
 
         :Parameters:
             #. blockTimeout (None, int, float): The new timeout, or None to wait as long as it takes.
@@ -145,7 +181,12 @@ class BoundedQueue:
 
     def put(self, item):
         """
-        Puts an item in the queue, or does what the policy says when the queue is full.
+        Adds a record to the queue, or does what the policy says when the queue is full.
+
+        .. code-block:: python
+
+            queue = BoundedQueue(maxSize=100, policy="drop_newest")
+            queue.put(record)         ## True when kept, False when thrown away because it was full
 
         :Parameters:
             #. item (object): The item to queue.
@@ -189,7 +230,11 @@ class BoundedQueue:
 
     def put_last(self, item):
         """
-        Puts an item at the end of the queue whatever the policy and the size, to tell the worker to stop.
+        Adds an item at the end whatever the policy and the size. It is used to tell the worker to stop.
+
+        .. code-block:: python
+
+            queue.put_last(STOP_MARKER)      ## goes in even when the queue is full
 
         :Parameters:
             #. item (object): The item to queue.
@@ -200,6 +245,13 @@ class BoundedQueue:
     def get(self, timeout=None):
         """
         Takes the oldest item, waiting until there is one.
+
+        Takes the oldest item, waiting until there is one.
+
+        .. code-block:: python
+
+            item = queue.get(timeout=1.0)
+            queue.task_done()
 
         :Parameters:
             #. timeout (None, int, float): Seconds to wait. None waits as long as it takes.
@@ -224,6 +276,8 @@ class BoundedQueue:
 
     def get_batch(self, limit, linger, isMarker, timeout=None):
         """
+        Takes the oldest item and the ones that follow it, up to a limit, so a sink can send them as a group.
+
         Takes the oldest item, waiting until there is one, then takes the items that follow it, up to a limit.
 
         After the first item, it waits at most *linger* seconds, counted from the first item, for the rest of the
@@ -232,6 +286,11 @@ class BoundedQueue:
         apart, so that the caller delivers the group first and then deals with it.
 
         Every item taken, the marker too, needs its own :meth:`task_done`.
+
+        .. code-block:: python
+
+            items, marker = queue.get_batch(50, 0.5, lambda item: item is STOP_MARKER, timeout=1.0)
+            ## items: up to 50 records; marker: the stop marker that ended the group, or None
 
         :Parameters:
             #. limit (int): Largest number of items in the group.
@@ -277,7 +336,15 @@ class BoundedQueue:
             return items, marker
 
     def task_done(self):
-        """Says that an item taken with :meth:`get` has been dealt with, so :meth:`join` can end."""
+        """
+        Says that an item taken with :meth:`get` has been dealt with, so :meth:`join` can finish.
+
+        .. code-block:: python
+
+            item = queue.get()
+            write(item)
+            queue.task_done()        ## now queue.join() can finish
+        """
         with self.__condition:
             self.__unfinished -= 1
             if self.__unfinished <= 0:
@@ -285,7 +352,12 @@ class BoundedQueue:
 
     def join(self, timeout=None):
         """
-        Waits until every queued item has been taken and dealt with.
+        Waits until every item has been taken and dealt with. Returns whether it finished in time.
+
+        .. code-block:: python
+
+            if not queue.join(timeout=5):
+                print("not everything was written in time")
 
         :Parameters:
             #. timeout (None, int, float): Seconds to wait. None waits as long as it takes.
@@ -304,28 +376,32 @@ class BoundedQueue:
 
     @property
     def depth(self):
-        """Number of records waiting now."""
+        """How many records are waiting now."""
         with self.__condition:
             return len(self.__items)
 
     @property
     def policy(self):
-        """What a full queue does with a new record."""
+        """What the queue does with a new record when it is full."""
         return self.__policy
 
     @property
     def maxSize(self):
-        """Largest number of waiting records, None when there is no limit."""
+        """The most records the queue can hold, or None for no limit."""
         return self.__maxSize
 
     @property
     def blockTimeout(self):
-        """Seconds the ``block`` policy waits for a free place, None when it waits as long as it takes."""
+        """How many seconds the ``block`` policy waits for a free place, or None to wait as long as it takes."""
         return self.__blockTimeout
 
     def stats(self):
         """
-        Returns the counters of the queue.
+        Returns the counters of the queue: policy, capacity, how many wait now, how many were accepted, thrown away and refused.
+
+        .. code-block:: python
+
+            print(queue.stats())        ## policy, size, waiting, accepted, dropped ...
 
         :Returns:
             #. stats (dict): ``policy``, ``capacity`` (None without limit), ``depth`` (records waiting now),
@@ -337,14 +413,14 @@ class BoundedQueue:
                     'queued': self.__queued, 'dropped': self.__dropped, 'rejected': self.__rejected}
 
     def _append(self, item):
-        """Adds an item at the end, the condition is held by the caller."""
+        """Adds an item at the end. The caller holds the lock."""
         self.__items.append(item)
         self.__unfinished += 1
         self.__queued += 1
         self.__condition.notify_all()
 
     def _count_drop(self):
-        """Counts a record that was thrown away, and warns once for each run of them. The condition is held."""
+        """Counts a record that was thrown away, and writes one warning for each run of them. The caller holds the lock."""
         self.__dropped += 1
         if not self.__isDropping:
             self.__isDropping = True

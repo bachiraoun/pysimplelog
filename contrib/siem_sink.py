@@ -1,4 +1,7 @@
-"""RFC 5424 structured-syslog forwarding sink for pysimplelog.
+"""
+Sends your logs to a SIEM (Security Information and Event Management) system or a syslog collector, in the standard RFC 5424 format, without slowing your program.
+
+RFC 5424 structured-syslog forwarding sink for pysimplelog.
 
 Design summary (see the code-audit notes this was born from):
 
@@ -66,7 +69,10 @@ _WHITESPACE_RE = re.compile(r'\s+')
 
 
 class SeverityMap:
-    """Maps a pysimplelog logType name to an RFC 5424 severity.
+    """
+    Decides which syslog severity (Error, Warning, Informational, ...) each of your log types is sent as.
+
+    Maps a pysimplelog logType name to an RFC 5424 severity.
 
     RFC 5424 severities: 0 Emergency, 1 Alert, 2 Critical, 3 Error,
     4 Warning, 5 Notice, 6 Informational, 7 Debug.
@@ -100,7 +106,7 @@ class SeverityMap:
 
     def resolve(self, logType, level):
         """
-        Return the RFC 5424 severity for a given logType.
+        Returns the syslog severity number for a log type.
 
         :Parameters:
             #. logType (str, None): The pysimplelog logType name to resolve.
@@ -119,7 +125,10 @@ class SeverityMap:
 
 
 class RFC5424Formatter:
-    """Wraps an already-formatted pysimplelog line in an RFC 5424 syslog header.
+    """
+    Wraps a finished log line in the header that syslog collectors expect (priority, time, host, program).
+
+    Wraps an already-formatted pysimplelog line in an RFC 5424 syslog header.
 
     Output shape::
 
@@ -160,12 +169,15 @@ class RFC5424Formatter:
         self._pid = os.getpid()
 
     def format(self, line, logType, severity, fields=None):
-        """Build one RFC 5424 syslog message for a single log record.
+        """
+        Builds one syslog message for one record.
 
         :Parameters:
             #. line (str): The fully-formatted pysimplelog record text.
             #. logType (str): The pysimplelog logType this record belongs to.
             #. severity (int): RFC 5424 severity (0-7), from SeverityMap.
+            #. fields (None, dict): The named values of the record. They are written in the structured-data part of
+               the message.
 
         :Returns:
             #. message (str): Ready-to-encode RFC 5424 syslog line.
@@ -213,7 +225,10 @@ class RFC5424Formatter:
 
 
 class CircuitBreaker:
-    """Stops hammering a dead collector with connection attempts.
+    """
+    A safety switch: after too many failed sends it stops trying for a while, so a dead collector does not eat the program's time, and then lets one try through.
+
+    Stops hammering a dead collector with connection attempts.
 
     Simple closed/open state machine (no half-open bookkeeping beyond
     "let one probe through after the reset timeout"): after
@@ -240,7 +255,7 @@ class CircuitBreaker:
 
     def allow(self):
         """
-        Return whether a send attempt should proceed right now.
+        Says whether a send may be tried right now.
 
         :Returns:
             #. allowed (bool): True if the breaker is closed or the reset timeout has elapsed.
@@ -251,13 +266,13 @@ class CircuitBreaker:
             return (time.monotonic() - self._openedAt) >= self.resetTimeout
 
     def record_success(self):
-        """Reset the breaker back to closed after a successful send."""
+        """Closes the breaker again after a send worked."""
         with self._lock:
             self._failures = 0
             self._openedAt = None
 
     def record_failure(self):
-        """Count one failed send and open the breaker once the threshold is reached."""
+        """Counts one failed send, and opens the breaker when there are too many."""
         with self._lock:
             self._failures += 1
             if self._failures >= self.failureThreshold and self._openedAt is None:
@@ -265,7 +280,10 @@ class CircuitBreaker:
 
 
 class SiemForwardSink(Sink):
-    """Formats and sends one RFC 5424 record at a time -- a pysimplelog
+    """
+    The output that sends each record to the collector, with retries and the circuit breaker. ``attach()`` sets it up for you.
+
+    Formats and sends one RFC 5424 record at a time -- a pysimplelog
     :class:`pysimplelog.sinks.Sink`, safe to register directly via ``add_sink()``,
     but only non-blocking when registered with ``threaded=True`` (which
     ``attach()`` does by default).
@@ -342,7 +360,11 @@ class SiemForwardSink(Sink):
 
     @property
     def stats(self):
-        """Dictionary with the counts ``sent``, ``dropped`` and ``errors`` of the forwarding, and ``processed``, ``failed`` and ``last_error`` of the sink."""
+        """
+        What the sink did: how many records were sent, dropped, or failed.
+
+        Dictionary with the counts ``sent``, ``dropped`` and ``errors`` of the forwarding, and ``processed``, ``failed`` and ``last_error`` of the sink.
+        """
         counts = dict(super().stats)
         with self._statsLock:
             counts.update(self._counts)
@@ -357,6 +379,8 @@ class SiemForwardSink(Sink):
 
     def write(self, text, record):
         """
+        Sends one record's syslog line to the collector, retrying when it fails, and giving up when the retries are used up or the breaker is open.
+
         Sends the RFC 5424 line of a record, retrying on failure and dropping it when the retries are exhausted
         or the circuit breaker is open. Register this sink threaded (the ``attach()`` default) so
         this work happens on its own dedicated thread instead of blocking pysimplelog's shared dispatch.
@@ -403,6 +427,8 @@ class SiemForwardSink(Sink):
 
     def spool_destination(self):
         """
+        Says where the transport sends, so a disk spool is only ever picked up by a sink for the same collector.
+
         Returns where the transport sends, to identify the receiver of a spool, see
         :meth:`pysimplelog.sinks.Sink.spool_destination`.
 
@@ -433,7 +459,8 @@ class SiemForwardSink(Sink):
             pass  # a broken user callback must never take down the calling thread
 
     def close(self):
-        """Close the transport.
+        """
+        Closes the connection to the collector.
 
         If this sink is registered threaded, call ``logger.flush(timeout=...)`` first to wait for the queue of the sink to
         drain, or use :func:`detach`, which does it.
@@ -452,7 +479,10 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
            logTypeFlags=None, defaultFlag=True, threaded=True, threadQueueSize=1000,
            threadQueuePolicy='drop_oldest', threadBlockTimeout=None, spool=None,
            **sinkKwargs):
-    """Wire a SIEM (Security Information and Event Management) forwarder
+    """
+    Connects your logger to a SIEM collector with one call, using a transport you built.
+
+    Wire a SIEM (Security Information and Event Management) forwarder
     into a pysimplelog ``Logger`` as a single sink.
 
     Delivery is best-effort, not guaranteed -- see :class:`SiemForwardSink`
@@ -468,6 +498,13 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
     to restrict which log types actually reach it -- e.g.
     ``logTypeFlags={'error': True, 'critical': True}, defaultFlag=False``
     to forward only errors and criticals.
+
+    .. code-block:: python
+
+        from pysimplelog.contrib import siem_sink, siem_transport
+
+        transport = siem_transport.TCPSyslogTransport("siem.example.org", 6514, useTls=True)
+        sink = siem_sink.attach(logger, transport, logTypeFlags={"error": True, "critical": True}, defaultFlag=False)
 
     :Parameters:
         #. logger (pysimplelog.Logger): The logger to attach to.
@@ -546,7 +583,12 @@ def attach(logger, transport, formatter=None, severityMap=None, sinkName='siem',
 
 
 def detach(logger, sink, sinkName='siem', close=True, timeout=5.0):
-    """Undo ``attach()``: remove the registered sink and close the transport.
+    """
+    Disconnects the SIEM sink and closes its connection, after sending what is waiting.
+
+    .. code-block:: python
+
+        siem_sink.detach(logger, sink)
 
     :Parameters:
         #. logger (pysimplelog.Logger): The logger ``attach()`` was called on.
@@ -572,6 +614,8 @@ def quick_attach(logger, protocol, host=None, port=None, url=None,
                   payloadBuilder=None, stream=None, consolePrefix='[SIEM] ',
                   **sinkKwargs):
     """
+    The shortest way to send logs to a SIEM: name a protocol (``"console"``, ``"udp"``, ``"tcp"``, ``"tcps"`` or ``"https"``) and the address, and it builds the transport and connects it.
+
     Build the right transport from a plain protocol string, then wire it
     into *logger* with :func:`attach`.
 

@@ -1,19 +1,17 @@
-"""
-The default logger, made on first use so that importing the package does nothing.
-"""
+"""Gives you the ready-made ``logger`` of ``from pysimplelog import logger``. It is made the first time you use it."""
 
 import threading
 
 try:
     from .simple_log import Logger
-    from .environment import read_environment
 except ImportError:
     from simple_log import Logger
-    from environment import read_environment
 
 
 class _DefaultLogger:
     """
+    The object behind the shared ``logger``. Anything you do with it, such as ``logger.info(...)``, is passed on to the real logger.
+
     A stand-in for the shared default logger, which is made when the first attribute is read.
 
     It reads ``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and ``PYSIMPLELOG_COLOR`` when it is made.
@@ -33,13 +31,11 @@ class _DefaultLogger:
 
     @property
     def instance(self):
-        """The real :class:`Logger`, made on first access. It writes to the console and not to a file."""
+        """The real :class:`Logger`, made on first use. It writes to the console and not to a file."""
         with self.__lock:
             if self.__instance is None:
-                # 'pretty' is the library default, so a PYSIMPLELOG_FORMAT value replaces it
-                consoleFormatter = read_environment().get('consoleFormatter', 'pretty')
-                self.__instance = Logger(name="pysimplelog", logToFile=False, env=True,
-                                         consoleFormatter=consoleFormatter)
+                # 'pretty' is the default layout of a Logger, and a PYSIMPLELOG_FORMAT value replaces it
+                self.__instance = Logger(name="pysimplelog", logToFile=False, env=True)
             return self.__instance
 
     def __getattr__(self, attributeName):

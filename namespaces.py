@@ -1,6 +1,4 @@
-"""
-Switches off the records of the loggers under a namespace, for every logger of the process.
-"""
+"""Lets you switch a whole library's logging off by name, without touching its code. A library names its loggers with dots, such as ``payments.stripe``, and ``disable("payments")`` silences the whole branch."""
 
 import os
 import threading
@@ -21,13 +19,13 @@ NEEDS_CHECK = True
 
 
 def _refresh_flag():
-    """Sets NEEDS_CHECK from the current state. The lock is held by the caller."""
+    """Remembers whether any namespace is disabled, so a log call can skip the check when none is. The lock is held by the caller."""
     global NEEDS_CHECK
     NEEDS_CHECK = len(_DISABLED) > 0 or not _isEnvironmentRead
 
 
 def _check_namespace(namespace):
-    """Raises ValueError unless the namespace is a dotted name such as ``payments`` or ``payments.stripe``."""
+    """Raises an error unless the name is a dotted name such as ``payments`` or ``payments.stripe``."""
     if not isinstance(namespace, str):
         raise TypeError("namespace must be a string")
     if namespace == '' or '' in namespace.split('.'):
@@ -35,13 +33,13 @@ def _check_namespace(namespace):
 
 
 def _names_in_environment():
-    """Returns the namespaces in the environment variable, in order, without blank pieces and without checking them."""
+    """Returns the names listed in the environment variable, in order, without blanks and without checking them."""
     text = os.environ.get(NAMESPACE_ENV_NAME, '')
     return [name.strip() for name in text.split(',') if name.strip() != '']
 
 
 def _update_environment(namespace, isAdded):
-    """Adds a namespace to the environment variable, or removes it, so processes started later inherit the change."""
+    """Adds a name to the environment variable, or removes it, so that programs started later inherit the change."""
     names = [name for name in _names_in_environment() if name != namespace]
     if isAdded:
         names.append(namespace)
@@ -53,6 +51,8 @@ def _update_environment(namespace, isAdded):
 
 def _load_environment():
     """
+    Reads the names listed in ``PYSIMPLELOG_NAMESPACE_DISABLE`` once, the first time they matter.
+
     Adds the namespaces of ``PYSIMPLELOG_NAMESPACE_DISABLE`` to the disabled ones, once per process.
 
     The variable is a comma separated list. A process that is already running never sees a change of it.
@@ -77,6 +77,14 @@ def _load_environment():
 
 def disable(namespace, env=False):
     """
+    Silences a library by name.
+
+    .. code-block:: python
+
+        import pysimplelog
+        pysimplelog.disable("payments")                 ## payments, payments.stripe, ... are dropped
+        pysimplelog.disable("urllib3", env=True)        ## and the programs started afterwards
+
     Drops the records of every logger named *namespace* or under it, such as ``payments.stripe`` for ``payments``.
 
     It applies to every logger of the process, including the ones made later, and to the records that the
@@ -121,8 +129,14 @@ def disable(namespace, env=False):
 
 def enable(namespace, env=False):
     """
+    Switches a silenced library back on.
+
     Takes back a :func:`disable` of exactly the same namespace, whether it came from a call or from the
     environment variable. Nothing happens when it was not disabled.
+
+    .. code-block:: python
+
+        pysimplelog.enable("payments")
 
     :Parameters:
         #. namespace (str): The namespace given to :func:`disable`.
@@ -147,7 +161,12 @@ def enable(namespace, env=False):
 
 def is_disabled(name):
     """
-    Says whether a logger name is under a disabled namespace.
+    Says whether a logger name is silenced, either itself or through a name above it.
+
+    .. code-block:: python
+
+        pysimplelog.disable("payments")
+        is_disabled("payments.stripe")      ## True
 
     :Parameters:
         #. name (str): A logger name, for example ``payments.stripe``.

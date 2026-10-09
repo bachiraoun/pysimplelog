@@ -1,8 +1,10 @@
 """
+Sends your logs to an OpenTelemetry collector over HTTP, in groups, using only the standard library.
+
 A sink that sends records to an OpenTelemetry receiver over OTLP/HTTP, in groups, with no third-party package.
 
-It joins three parts: :class:`pysimplelog.contrib.otlp_encoder.OtlpLogEncoder` makes the body, :class:`pysimplelog.contrib.otlp_transport.
-OtlpHttpTransport` posts it, and the group delivery of pysimplelog gathers up to ``batchSize`` records, or waits ``batchInterval``
+It joins three parts: :class:`pysimplelog.contrib.otlp_encoder.OtlpLogEncoder` makes the body,
+:class:`pysimplelog.contrib.otlp_transport.OtlpHttpTransport` posts it, and the group delivery of pysimplelog gathers up to ``batchSize`` records, or waits ``batchInterval``
 seconds, before it sends them. Add it with ``threaded=True``, so that a log call never waits for the network, and with a ``spool`` when
 a record must survive a receiver that is down or a crash. :func:`attach` does the first for you:
 
@@ -64,6 +66,8 @@ def _no_text(record):
 
 class OtlpLogSink(Sink):
     """
+    The output that sends records to an OpenTelemetry (OTLP) receiver, in groups. ``attach()`` sets it up for you.
+
     Sends records to an OTLP/HTTP receiver, in groups.
 
     :Parameters:
@@ -132,12 +136,18 @@ class OtlpLogSink(Sink):
 
     @property
     def url(self):
-        """The address requests are posted to, without the headers."""
+        """
+        The address the requests are posted to.
+
+        The address requests are posted to, without the headers.
+        """
         return self._transport.url
 
     @property
     def stats(self):
         """
+        What the sink did: how many records and requests were sent, retried, refused or failed.
+
         Dictionary with the counts of the sink and of the sending: ``sent`` (records the receiver took), ``batches`` (requests it
         took), ``bytes`` (the size of the JSON bodies of those requests, before any compression), ``partial_rejected`` (records a ``partialSuccess`` said
         the receiver refused), ``retries`` (requests sent again at once), ``refused`` (groups refused as a payload), ``errors`` (answers
@@ -149,12 +159,16 @@ class OtlpLogSink(Sink):
         return counts
 
     def spool_destination(self):
-        """Returns the protocol, the host, the port and the path of the receiver. The headers are left out, they hold a token."""
+        """
+        Says where the sink sends, so a disk spool is only ever picked up by a sink for the same receiver.
+
+        Returns the protocol, the host, the port and the path of the receiver. The headers are left out, they hold a token.
+        """
         return self._transport.describe_destination()
 
     def write_batch(self, items):
         """
-        Sends a group of records in one request, and says what became of it. See the description of the module.
+        Sends a group of records in one request and says what became of it.
 
         :Parameters:
             #. items (list): The group, as tuples ``(text, record)``. The text is not used.
@@ -246,7 +260,7 @@ class OtlpLogSink(Sink):
             pass
 
     def close(self):
-        """Stops the waits between retries and closes the connection. Idempotent."""
+        """Stops waiting between retries and closes the connection."""
         self._closing.set()
         self._transport.close()
 
@@ -254,10 +268,18 @@ class OtlpLogSink(Sink):
 def attach(logger, endpoint, sinkName='otlp', enabled=True, minLevel=None, maxLevel=None, logTypeFlags=None, defaultFlag=True,
            threadQueueSize=10000, threadQueuePolicy='drop_oldest', threadBlockTimeout=None, spool=None, **sinkKwargs):
     """
+    Connects your logger to an OpenTelemetry collector with one call. The sink runs in its own thread, so a log call never waits for the network.
+
     Adds an :class:`OtlpLogSink` to a logger as a threaded sink, so that a log call never waits for the network.
 
     It registers exactly one sink and does nothing else. Without a *spool* the records wait in a queue of memory, and the policy says
     what a full one does. With a spool the records are on disk first, a full queue loses nothing, and *threadQueuePolicy* is not used.
+
+    .. code-block:: python
+
+        from pysimplelog.contrib.otlp_sink import attach
+
+        attach(logger, "https://collector.example.org:4318", resource={"service.name": "orders"})
 
     :Parameters:
         #. logger (Logger): The logger to add the sink to.

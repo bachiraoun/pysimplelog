@@ -77,21 +77,53 @@ def __getattr__(name):
 
 
 def get_version():
-    """Get pysimplelog's version number."""
+    """
+    Returns the version of pysimplelog, such as ``'6.0.0'``.
+
+    .. code-block:: python
+
+        import pysimplelog
+
+        print(pysimplelog.get_version())        ## for example 6.0.0
+    """
     return __version__
 
 def get_author():
-    """Get pysimplelog's author's name."""
+    """
+    Returns the name of the author.
+
+    .. code-block:: python
+
+        print(pysimplelog.get_author())
+    """
     return __author__
 
 def get_email():
-    """Get pysimplelog's author's email."""
+    """
+    Returns the e-mail address of the author.
+
+    .. code-block:: python
+
+        print(pysimplelog.get_email())
+    """
     return __email__
 
 def get_doc():
-    """Get pysimplelog's official online documentation link."""
+    """
+    Returns the address of the online documentation.
+
+    .. code-block:: python
+
+        print(pysimplelog.get_doc())             ## where to read the documentation
+    """
     return __onlinedoc__
 
 def get_repository():
-    """Get pysimplelog's official online repository link."""
+    """
+    Returns the address of the GitHub repository.
+
+    .. code-block:: python
+
+        print(pysimplelog.get_repository())      ## where to get the code
+    """
     return __repository__

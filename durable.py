@@ -1,4 +1,4 @@
-"""Delivery of the records of one sink from a disk spool: in order, retried until they go through, never lost silently."""
+"""Takes the records of one sink from a disk spool and delivers them from a thread of its own: in order, retrying until they go through, never losing one silently."""
 
 import os
 import queue
@@ -51,7 +51,7 @@ def _is_control(item):
 
 def resolve_target_id(handler, config):
     """
-    Returns the identity of the receiver of a spooled sink.
+    Works out where a spooled sink sends its records, as a short code, from the sink or from the settings.
 
     :Parameters:
         #. handler (Sink): The sink.
@@ -72,7 +72,7 @@ def resolve_target_id(handler, config):
 
 class DurableDelivery:
     """
-    Keeps the records of one sink on disk, and delivers them from a worker thread of its own.
+    The helper behind ``spool=``: it keeps a sink's records on disk, and a thread delivers them one by one, retrying after a growing wait.
 
     A record is written to the spool in the thread that logs it, then a hint with the record is put in a small queue. The
     worker delivers the records in order, and acknowledges each one once the sink has it. When the hints run out of
@@ -85,7 +85,7 @@ class DurableDelivery:
     With *adoptOrphans*, the worker also sends what slots left behind by dead processes hold, when it is idle, but only
     slots made for the same spool id, sink class and target. :meth:`adopt_orphans` does it once, on request.
 
-    None of the methods raises an exception into the caller, except :class:`QueueFull` when the spool is full and its
+    None of the methods raises an exception into the caller, except :class:`pysimplelog.queues.QueueFull` when the spool is full and its
     policy is ``reject``, which the application chose.
 
     :Parameters:
@@ -137,7 +137,7 @@ class DurableDelivery:
 
     def submit(self, record):
         """
-        Keeps a record on disk and hands it to the worker.
+        Keeps a record on disk and hands it to the delivery thread. Problems with the disk are counted and reported once, never raised.
 
         Anything that goes wrong with the spool, a full disk, a folder that vanished, is counted and reported once, and never
         raised. In a forked child the spool and the worker of the parent are not usable, so the record is delivered at once
@@ -173,6 +173,8 @@ class DurableDelivery:
 
     def flush(self, timeout):
         """
+        Waits until every record is delivered, or the time runs out. Returns whether it finished.
+
         Waits until every record is delivered, or the time runs out.
 
         :Parameters:
@@ -193,7 +195,7 @@ class DurableDelivery:
 
     def stop(self, timeout):
         """
-        Delivers what it can in *timeout* seconds, then ends the worker and closes the spool.
+        Delivers what it can in *timeout* seconds, then stops the thread and closes the spool. What is left stays on disk for the next run.
 
         What is not delivered stays on disk for the next run, or for another process that adopts it.
 
@@ -211,7 +213,7 @@ class DurableDelivery:
 
     def adopt_orphans(self, timeout):
         """
-        Sends what slots left behind by dead processes hold, once, in the worker thread.
+        Sends, once, what spool folders left behind by programs that died still hold.
 
         :Parameters:
             #. timeout (int, float): Seconds to wait for the worker to be done.
@@ -233,6 +235,8 @@ class DurableDelivery:
         """
         Returns what the spool holds and what the delivery did.
 
+        Returns what the spool holds and what the delivery did.
+
         :Returns:
             #. stats (dict): Everything :meth:`pysimplelog.spool.Spool.stats` gives, and ``retries`` (sends that failed and
                were tried again), ``unspooled`` (records sent without the spool, by a forked child),
@@ -248,7 +252,7 @@ class DurableDelivery:
 
     def maintain(self):
         """
-        Does the housekeeping of the spool, see :meth:`pysimplelog.spool.Spool.maintain`. Nothing is sent.
+        Does the spool's housekeeping. Nothing is sent.
 
         :Returns:
             #. result (dict, None): What the spool did, or None in a forked child, which does not own it.
@@ -261,7 +265,7 @@ class DurableDelivery:
             return None
 
     def queue_stats(self):
-        """Returns the counters of the queue of hints. A hint that was dropped lost no record."""
+        """Returns the counters of the small queue that tells the thread about new records. A hint that was dropped lost no record."""
         return self.__hints.stats()
 
     # ------------------------------------------------------------------ the worker thread

@@ -47,7 +47,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from simple_log import Logger, _SINK_STDOUT, _SINK_FILE  # noqa: E402
+from simple_log import Logger, CONSOLE_SINK, _SINK_STDOUT, _SINK_FILE  # noqa: E402
 from sinks import StreamSink  # noqa: E402
 from formatters import safe_str  # noqa: E402
 from log_context import context  # noqa: E402
@@ -61,7 +61,8 @@ def make_logger(**kwargs):
     Any keyword argument is forwarded to Logger(). logToFile defaults to
     False so tests do not create disk files unless they need to.
     """
-    defaults = dict(name='test', logToFile=False, logToStdout=True)
+    # These tests read the text layout, which is not the default layout of the console
+    defaults = dict(name='test', logToFile=False, logToStdout=True, consoleFormatter='text')
     defaults.update(kwargs)
     buf = io.StringIO()
     defaults.setdefault('stdout', buf)
@@ -939,20 +940,20 @@ class TestForceLog(unittest.TestCase):
         """force_log routes to stdout even when the type flag is False."""
         L, buf = make_logger()
         L.set_log_type_flags('debug', stdoutFlag=False, fileFlag=False)
-        L.force_log('debug', 'forced-debug', stdout=True, file=False)
+        L.force_log('debug', 'forced-debug', sinks=[CONSOLE_SINK])
         self.assertIn('forced-debug', buf.getvalue())
 
-    def test_force_log_does_not_reach_user_sinks(self):
-        """By design, force_log bypasses user-added sinks."""
+    def test_force_log_reaches_user_sinks(self):
+        """A forced record goes to every sink that is switched on, the ones that were added too."""
         L, _ = make_logger()
         sink = _CaptureSink()
         L.add_sink('s', sink)
-        L.force_log('info', 'force-only', stdout=True, file=False)
-        self.assertFalse(sink.contains('force-only'))
+        L.force_log('info', 'force-only')
+        self.assertTrue(sink.contains('force-only'))
 
-    def test_force_log_stdout_false_suppresses_stdout(self):
+    def test_force_log_with_no_sinks_writes_nowhere(self):
         L, buf = make_logger()
-        L.force_log('info', 'no-show', stdout=False, file=False)
+        L.force_log('info', 'no-show', sinks=[])
         self.assertNotIn('no-show', buf.getvalue())
 
 

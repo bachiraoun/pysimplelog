@@ -68,3 +68,5 @@ valid field name. In JSON the fields are kept inside ``fields``, so a field can 
 ``message``.
 
 Values that are the same for a whole request or a whole program are better as context.
+
+Next: :doc:`context`.

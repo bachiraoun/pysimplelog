@@ -1,4 +1,7 @@
-"""Stdlib-only network transports for shipping log bytes to a collector.
+"""
+The ways to carry log messages to a collector: TCP (optionally encrypted), UDP, HTTP(S), and a console one that just prints, for trying things out.
+
+Stdlib-only network transports for shipping log bytes to a collector.
 
 Every transport implements the same two-method contract (``send`` and
 ``close``) so :class:`pysimplelog.contrib.siem_sink.SiemForwardSink` can
@@ -47,7 +50,10 @@ __all__ = [
 
 
 class Transport:
-    """Minimal transport contract: send bytes, close cleanly.
+    """
+    What every transport offers: ``send`` some bytes, and ``close``. Write your own by following it.
+
+    Minimal transport contract: send bytes, close cleanly.
 
     Not an ``abc.ABC`` on purpose -- pysimplelog's own style favours
     duck typing (see ``add_sink``'s ``write()``-only handler contract)
@@ -56,14 +62,21 @@ class Transport:
     """
 
     def send(self, payload):
-        """Send *payload* (bytes) to the collector or raise on failure."""
+        """
+        Sends the bytes to the collector, or raises an error if it cannot.
+
+        :Parameters:
+            #. payload (bytes): The finished message to deliver.
+        """
         raise NotImplementedError
 
     def close(self):
-        """Release any held resources (sockets, connections). Idempotent."""
+        """Releases any connection it holds. It is safe to call twice."""
 
     def describe_destination(self):
         """
+        Says where the transport sends, so a disk spool can be matched to the right collector.
+
         Says where this transport sends, as the values that identify the receiver, for the identity of a spool.
 
         Credentials, headers, timeouts and TLS settings are not part of it.
@@ -78,7 +91,10 @@ class Transport:
 
 
 class TCPSyslogTransport(Transport):
-    """RFC 6587 octet-counted TCP syslog transport, with optional TLS.
+    """
+    Sends syslog messages over a TCP connection, optionally encrypted with TLS, and reconnects when it drops.
+
+    RFC 6587 octet-counted TCP syslog transport, with optional TLS.
 
     Octet-counting (``f"{len(msg)} {msg}"``) is used instead of
     newline-delimited framing because pysimplelog messages may contain
@@ -121,7 +137,11 @@ class TCPSyslogTransport(Transport):
         self._sock = None
 
     def describe_destination(self):
-        """Returns the protocol (``tcps`` with TLS, ``tcp`` without), the host and the port."""
+        """
+        Says where it sends: the protocol, the host and the port.
+
+        Returns the protocol (``tcps`` with TLS, ``tcp`` without), the host and the port.
+        """
         return {'protocol': 'tcps' if self.useTls else 'tcp', 'host': str(self.host).lower(), 'port': int(self.port)}
 
     def _connect(self):
@@ -133,7 +153,8 @@ class TCPSyslogTransport(Transport):
         return raw
 
     def send(self, payload):
-        """Send *payload* over the octet-counted TCP stream, reconnecting first if needed.
+        """
+        Sends the bytes over the connection, reconnecting first if needed.
 
         :Parameters:
             #. payload (bytes): The already-encoded RFC 5424 message to send.
@@ -162,14 +183,16 @@ class TCPSyslogTransport(Transport):
             self._sock = None
 
     def close(self):
-        """Close the underlying socket, if open. Idempotent -- safe to call
-        more than once or on a transport that never connected."""
+        """Closes the connection if one is open. It is safe to call twice."""
         with self._lock:
             self._close_locked()
 
 
 class UDPSyslogTransport(Transport):
-    """Fire-and-forget UDP syslog transport.
+    """
+    Sends syslog messages as UDP datagrams: very fast and never blocks, but nothing confirms that they arrive.
+
+    Fire-and-forget UDP syslog transport.
 
     No connection state, no delivery guarantee, effectively zero
     latency impact on the caller. RFC 5424 recommends keeping UDP
@@ -187,11 +210,18 @@ class UDPSyslogTransport(Transport):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def describe_destination(self):
-        """Returns the protocol, the host and the port. UDP gives no confirmation, so a spool only proves that a datagram left."""
+        """
+        Says where it sends: the protocol, the host and the port.
+
+        Returns the protocol, the host and the port. UDP gives no confirmation, so a spool only proves that a datagram left.
+        """
         return {'protocol': 'udp', 'host': str(self.addr[0]).lower(), 'port': int(self.addr[1])}
 
     def send(self, payload):
-        """Fire *payload* as a single UDP datagram. Never raises on
+        """
+        Sends the bytes as one datagram. Success only means the operating system accepted it, not that it arrived.
+
+        Fire *payload* as a single UDP datagram. Never raises on
         delivery -- UDP has no delivery confirmation, so a send() success
         here only means the OS accepted the datagram, not that it arrived.
 
@@ -201,7 +231,7 @@ class UDPSyslogTransport(Transport):
         self._sock.sendto(payload, self.addr)
 
     def close(self):
-        """Close the underlying socket. Idempotent -- exceptions are swallowed."""
+        """Closes the socket. It is safe to call twice."""
         try:
             self._sock.close()
         except Exception:
@@ -209,7 +239,10 @@ class UDPSyslogTransport(Transport):
 
 
 class HTTPTransport(Transport):
-    """Generic HTTP(S) POST transport using only ``urllib`` (no ``requests``).
+    """
+    Sends messages to a web address with HTTP POST, for collectors such as Splunk HEC. It uses only the standard library.
+
+    Generic HTTP(S) POST transport using only ``urllib`` (no ``requests``).
 
     Suitable for webhook-style ingestion or token-authenticated HTTP
     endpoints (Splunk HEC, Elastic ingest pipelines fronted by an HTTP
@@ -234,6 +267,8 @@ class HTTPTransport(Transport):
 
     def describe_destination(self):
         """
+        Says where it sends: the scheme, host, port and path of the address, without a password or token.
+
         Returns the scheme, the host, the port and the path of the URL.
 
         The user and password, the query and the fragment are left out, because they can hold a token and changing
@@ -251,7 +286,10 @@ class HTTPTransport(Transport):
         return json.dumps({'event': raw.decode('utf-8', 'replace')}).encode('utf-8')
 
     def send(self, payload):
-        """POST *payload* (run through ``payloadBuilder`` first) to ``url``.
+        """
+        Posts the bytes to the address.
+
+        POST *payload* (run through ``payloadBuilder`` first) to ``url``.
 
         :Parameters:
             #. payload (bytes): The already-encoded RFC 5424 message, passed
@@ -268,12 +306,15 @@ class HTTPTransport(Transport):
                 raise RuntimeError(f'HTTP sink received status {response.status} from {self.url}')
 
     def close(self):
-        """No-op -- each ``send()`` opens and closes its own short-lived HTTP request."""
+        """Does nothing: each request opens and closes its own connection."""
         pass
 
 
 class ConsoleTransport(Transport):
-    """Prints every record instead of sending it anywhere -- a stand-in
+    """
+    Prints every message instead of sending it, so you can see what a collector would receive without having one.
+
+    Prints every record instead of sending it anywhere -- a stand-in
     for a real collector.
 
     Same ``send(bytes)``/``close()`` contract as every other transport
@@ -296,6 +337,10 @@ class ConsoleTransport(Transport):
     machinery. Keep that in mind if you're specifically testing failure
     handling; use a transport that can be told to fail for that instead.
 
+    .. code-block:: python
+
+        sink = siem_sink.attach(logger, siem_transport.ConsoleTransport())
+
     :Parameters:
         #. stream (file-like, None): Where to print. Defaults to
            ``sys.stdout``. Never closed by this transport -- same rule
@@ -308,17 +353,23 @@ class ConsoleTransport(Transport):
         self.prefix = prefix
 
     def send(self, payload):
-        """Decode *payload* and print it, prefixed, to the configured stream."""
+        """
+        Prints the message, with a prefix.
+
+        :Parameters:
+            #. payload (bytes): The finished message to print.
+        """
         self.stream.write(f'{self.prefix}{payload.decode("utf-8", "replace")}\n')
         if hasattr(self.stream, 'flush'):
             self.stream.flush()
 
     def close(self):
-        """No-op -- this transport never owns the stream's lifecycle."""
+        """Does nothing."""
 
 
 def splunk_hec_headers(token):
-    """Build the ``Authorization`` header Splunk's HTTP Event Collector expects.
+    """
+    Builds the ``Authorization`` header that Splunk's HTTP Event Collector expects, from your token.
 
     :Parameters:
         #. token (str): The HEC token configured on the Splunk input.
@@ -330,7 +381,8 @@ def splunk_hec_headers(token):
 
 
 def splunk_hec_payload_builder(sourcetype='pysimplelog', index=None, source=None):
-    """Build a ``payloadBuilder`` producing Splunk HEC-shaped JSON events.
+    """
+    Builds the function that wraps each message in the JSON event format Splunk's HTTP Event Collector expects.
 
     :Parameters:
         #. sourcetype (str): Splunk sourcetype tag for these events.
