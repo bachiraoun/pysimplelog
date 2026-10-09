@@ -5,6 +5,7 @@ Welcome to pysimplelog V. |VERSION| documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   guide/index
    getting_started
    api_reference
 

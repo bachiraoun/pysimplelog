@@ -1,7 +1,6 @@
 """Sinks deliver one rendered LogRecord to one destination and never raise into the application."""
 
 import collections
-import gzip
 import os
 import re
 import shutil
@@ -783,6 +782,9 @@ class FileSink(Sink):
            keeps them. The file being written is never deleted. It is tested when a file is rotated out, when the sink
            starts, at most once a minute while records are written, and when :meth:`enforce_retention` is called, so a sink
            that is not written to keeps old files until one of those. There is no timer or thread for it.
+        #. startLazily (bool): False (default) reads the folder, applies the retention settings and picks the file when the
+           sink is made. True waits for the first record, the first read of ``path`` or ``enforce_retention``. It is for a
+           sink that is switched off, so that making it costs nothing.
 
     :Raises:
         #. TypeError: If an argument has the wrong type. A boolean is not accepted where a number is expected.
@@ -801,7 +803,7 @@ class FileSink(Sink):
     RETENTION_CHECK_SECONDS = 60.0
 
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
-                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None):
+                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False):
         super().__init__(formatter, terminator)
         self.__basename = _check_basename(basename)
         self.__extension = _check_extension(extension)
@@ -827,7 +829,14 @@ class FileSink(Sink):
         self.__counters = {'files_deleted': 0, 'files_compressed': 0, 'compress_failed': 0}
         # The file being written is not chosen yet, and the choice already looks at it
         self.__path = None
-        self.__path = self._choose_path()
+        if not startLazily:
+            self.__path = self._choose_path()
+
+    def _current_path(self):
+        """Returns the file being written, choosing it, and making its folder, the first time it is needed."""
+        if self.__path is None:
+            self.__path = self._choose_path()
+        return self.__path
 
     def _reset_after_fork(self):
         """Gives a forked process locks of its own, and no compression in progress, see :func:`pysimplelog.forking.register_for_fork_reset`."""
@@ -852,7 +861,7 @@ class FileSink(Sink):
     @property
     def path(self):
         """Path of the file the next record is written to."""
-        return self.__path
+        return self._current_path()
 
     @property
     def flushMode(self):
@@ -1029,8 +1038,9 @@ class FileSink(Sink):
 
     def _open_stream(self):
         """Opens the current file for appending and starts the size count from what it already holds."""
-        self.__size = self._size_of(self.__path)
-        return open(self.__path, 'ab')
+        path = self._current_path()
+        self.__size = self._size_of(path)
+        return open(path, 'ab')
 
     def _close_stream(self):
         """Closes the current file, the stream is dropped even when closing fails."""
@@ -1095,9 +1105,10 @@ class FileSink(Sink):
         with self.__lock:
             with self.__workLock:
                 before = self.__counters['files_deleted']
+            path = self._current_path()
             self._remove_twins()
-            self._prune_by_count(self.__path)
-            self._tidy(self.__path)
+            self._prune_by_count(path)
+            self._tidy(path)
             with self.__workLock:
                 return self.__counters['files_deleted'] - before
 
@@ -1247,6 +1258,7 @@ class FileSink(Sink):
             # Deleted by someone else, there is nothing to compress
             return
         try:
+            import gzip
             with open(path, 'rb') as source, gzip.open(temporary, 'wb', compresslevel=COMPRESS_LEVEL) as target:
                 shutil.copyfileobj(source, target, 64 * 1024)
             os.utime(temporary, (modified, modified))

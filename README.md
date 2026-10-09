@@ -24,9 +24,13 @@ Python 3.10 or later.
 
 ## Installation
 
+Get the package from GitHub, into a folder named `pysimplelog`:
+
 ```
-pip install pysimplelog
+git clone https://github.com/bachiraoun/pysimplelog.git
 ```
+
+Then put that folder where Python can import it: in your `site-packages` folder, or in any folder that is on `PYTHONPATH`.
 
 ## Online Documentation
 

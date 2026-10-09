@@ -9,19 +9,13 @@ Installation guide
 ==================
 pysimplelog requires Python 3.10 or later and has no mandatory third-party dependencies
 (``pytz`` is optional and only needed when a timezone name is passed to the constructor).
-Install from PyPI using pip:
-
-.. code-block:: console
-
-    pip install pysimplelog
-
-Alternatively, fork pysimplelog's `GitHub repository
-<https://github.com/bachiraoun/pysimplelog/>`_ and copy the package to
-Python's site-packages directory.
+Get the package from pysimplelog's `GitHub repository
+<https://github.com/bachiraoun/pysimplelog/>`_ and copy it to Python's site-packages directory,
+or to any folder on ``PYTHONPATH``.
 """
 
 try:
-    from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
+    from .__pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__
     from .simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from .default_logger import logger
     from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
@@ -33,10 +27,9 @@ try:
     from .log_context import context, current_context, keep_context
     from .queues import QueueFull, validate_queue_policy
     from .spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
-    from .standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
     from .namespaces import disable, enable
 except ImportError:
-    from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__, __pypi__
+    from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__
     from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from default_logger import logger
     from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
@@ -48,7 +41,6 @@ except ImportError:
     from log_context import context, current_context, keep_context
     from queues import QueueFull, validate_queue_policy
     from spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
-    from standard_logging import StandardLoggingHandler, redirect_standard_logging, restore_standard_logging
     from namespaces import disable, enable
 
 __all__ = [
@@ -64,8 +56,24 @@ __all__ = [
     'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError',
     'StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging',
     'disable', 'enable',
-    'get_version', 'get_author', 'get_email', 'get_doc', 'get_repository', 'get_pypi',
+    'get_version', 'get_author', 'get_email', 'get_doc', 'get_repository',
 ]
+
+
+_STANDARD_LOGGING_NAMES = ('StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging')
+
+
+def __getattr__(name):
+    """Loads the standard logging bridge the first time one of its names is asked for, so importing the package does not import ``logging``."""
+    if name in _STANDARD_LOGGING_NAMES:
+        try:
+            from . import standard_logging
+        except ImportError:
+            import standard_logging
+        value = getattr(standard_logging, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_version():
@@ -87,7 +95,3 @@ def get_doc():
 def get_repository():
     """Get pysimplelog's official online repository link."""
     return __repository__
-
-def get_pypi():
-    """Get pysimplelog's PyPI link."""
-    return __pypi__

@@ -9,5 +9,3 @@ __email__      = "bachir.aoun@e-aoun.com"
 __onlinedoc__  = "https://bachiraoun.github.io/pysimplelog"
 
 __repository__ = "https://github.com/bachiraoun/pysimplelog"
-
-__pypi__       = "https://pypi.python.org/pypi/pysimplelog"

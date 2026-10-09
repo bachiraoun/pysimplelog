@@ -1,14 +1,21 @@
 Getting Started
 ===============
 
+New to pysimplelog? Start with the :doc:`user guide <guide/index>`, which follows what you do with a logger. This page
+is the detailed reference for each subject.
+
 Installation
 ------------
 
-Install pysimplelog from PyPI using pip:
+Get pysimplelog from its `GitHub repository <https://github.com/bachiraoun/pysimplelog/>`_, into a folder named
+``pysimplelog``:
 
 .. code-block:: console
 
-    pip install pysimplelog
+    git clone https://github.com/bachiraoun/pysimplelog.git
+
+Then put that folder where Python can import it: in your ``site-packages`` folder, or in any folder that is on
+``PYTHONPATH``.
 
 pysimplelog requires **Python 3.10 or later** and has no mandatory third-party
 dependencies.  ``pytz`` is optional and only needed when a timezone name is

@@ -1,10 +1,8 @@
 """A disk spool: records are written to files before they are delivered, so a crash or an outage does not lose them."""
 
-import hashlib
 import json
 import os
 import re
-import secrets
 import sys
 import threading
 import time
@@ -222,6 +220,7 @@ def target_id(sinkClass, **destination):
         if not (value is None or isinstance(value, (str, int))):
             raise TypeError(f"destination value {key!r} must be a str, an int, a bool or None, got {type(value).__name__}")
     canonical = json.dumps({'class': sinkClass, 'destination': destination}, sort_keys=True, separators=(',', ':'))
+    import hashlib
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
@@ -598,6 +597,7 @@ class Spool:
         :Returns:
             #. spool (Spool): The new spool.
         """
+        import secrets
         os.makedirs(basePath, mode=0o700, exist_ok=True)
         name = f"{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}-{secrets.token_hex(3)}"
         slotPath = os.path.join(basePath, name)

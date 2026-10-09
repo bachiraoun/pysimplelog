@@ -16,6 +16,14 @@ _LOCK = threading.Lock()
 # Replaced as a whole and never changed in place, so a log call reads it without a lock
 _DISABLED = frozenset()
 _isEnvironmentRead = False
+# True until the environment is read and nothing is disabled: while it is False a log call does not ask is_disabled
+NEEDS_CHECK = True
+
+
+def _refresh_flag():
+    """Sets NEEDS_CHECK from the current state. The lock is held by the caller."""
+    global NEEDS_CHECK
+    NEEDS_CHECK = len(_DISABLED) > 0 or not _isEnvironmentRead
 
 
 def _check_namespace(namespace):
@@ -55,13 +63,16 @@ def _load_environment():
             return
         # Set before the check so that a bad value raises once, and not at every later log call
         _isEnvironmentRead = True
-        names = _names_in_environment()
-        for name in names:
-            try:
-                _check_namespace(name)
-            except ValueError as error:
-                raise ValueError(f"{NAMESPACE_ENV_NAME}: {error}") from None
-        _DISABLED = _DISABLED | frozenset(names)
+        try:
+            names = _names_in_environment()
+            for name in names:
+                try:
+                    _check_namespace(name)
+                except ValueError as error:
+                    raise ValueError(f"{NAMESPACE_ENV_NAME}: {error}") from None
+            _DISABLED = _DISABLED | frozenset(names)
+        finally:
+            _refresh_flag()
 
 
 def disable(namespace, env=False):
@@ -103,6 +114,7 @@ def disable(namespace, env=False):
     _load_environment()
     with _LOCK:
         _DISABLED = _DISABLED | {namespace}
+        _refresh_flag()
     if env:
         _update_environment(namespace, True)
 
@@ -128,6 +140,7 @@ def enable(namespace, env=False):
     _load_environment()
     with _LOCK:
         _DISABLED = _DISABLED - {namespace}
+        _refresh_flag()
     if env:
         _update_environment(namespace, False)
 

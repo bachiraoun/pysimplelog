@@ -350,7 +350,7 @@ class TestCompression(FileTestCase):
         buffer, previous = io.StringIO(), sys.stderr
         sys.stderr = buffer
         try:
-            with mock.patch.object(sinks_module.gzip, 'open', side_effect=OSError('disk is full')):
+            with mock.patch.object(gzip, 'open', side_effect=OSError('disk is full')):
                 second = self.make_sink(compress='gz')
                 wait_until(lambda: second.stats['compress_failed'] >= len(plain) and compression_threads() == [], 'the failures')
         finally:

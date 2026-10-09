@@ -55,6 +55,16 @@ def _format_timestamp_text(timestamp):
     return _second_parts(timestamp)[2]
 
 
+def _readable_timestamp(timestamp, isUtc, hasMilliseconds):
+    """Returns ``YYYY-MM-DD HH:MM:SS`` text, with ``.mmm`` when asked, and in UTC with a trailing ``Z`` when asked."""
+    if isUtc:
+        timestamp = timestamp.astimezone(timezone.utc)
+    text = _format_timestamp_text(timestamp)
+    if hasMilliseconds:
+        text += f".{timestamp.microsecond // 1000:03d}"
+    return text + 'Z' if isUtc else text
+
+
 def _format_caller(caller):
     """Returns the caller as ``file:line in function`` text."""
     return f"{caller.fileName}:{caller.line} in {caller.function}"
@@ -107,7 +117,7 @@ def escape_control_characters(text):
     :Returns:
         #. escapedText (str): The text, unchanged when it has no control character.
     """
-    if _CONTROL_RE.search(text) is None:
+    if text.isprintable():
         return text
     return _CONTROL_RE.sub(_escape_control, text)
 
@@ -333,7 +343,20 @@ class TextFormatter:
 
         ## 2026-10-06 19:21:49 - orders <INFO> [request_id=r1] Order created order_id=123
         formatter = TextFormatter()
+
+    :Parameters:
+        #. utc (bool): Writes the time in UTC with a trailing Z.
+        #. milliseconds (bool): Writes .mmm after the seconds.
+
+    :Raises:
+        #. TypeError: If utc or milliseconds is not a boolean.
     """
+
+    def __init__(self, utc=False, milliseconds=False):
+        if not isinstance(utc, bool) or not isinstance(milliseconds, bool):
+            raise TypeError("utc and milliseconds must be booleans")
+        self.__utc = utc
+        self.__milliseconds = milliseconds
 
     def __call__(self, record):
         """
@@ -355,10 +378,9 @@ class TextFormatter:
             # A value that cannot become text must not lose the record, so it is rendered again with a placeholder
             return self._render(record, safe_str)
 
-    @staticmethod
-    def _render(record, convert):
+    def _render(self, record, convert):
         """Builds the text of a record, turning every field and context value into text with *convert*."""
-        parts = [f"{_format_timestamp_text(record.timestamp)} - {record.logger} <{record.severity}> "]
+        parts = [f"{_readable_timestamp(record.timestamp, self.__utc, self.__milliseconds)} - {record.logger} <{record.severity}> "]
         if record.caller is not None:
             parts.append(f"[{_format_caller(record.caller)}] ")
         if len(record.context) > 0:
@@ -410,7 +432,7 @@ class ConsoleFormatter:
     """
     Renders a record as a tidy line of columns for a console, in colour when it is asked to.
 
-    The layout is ``timestamp | SEVERITY | logger | message``, with a ``file:line in function`` column before
+    The layout is ``timestamp.mmm | SEVERITY | logger | message``, with a ``file:line in function`` column before
     the message when the record has a caller. The context and the fields follow the message as ``key=value``,
     a field named ``data`` goes on its own line, and the traceback comes last. The text has no trailing newline.
 
@@ -428,15 +450,28 @@ class ConsoleFormatter:
         #. traceback (str): 'full' writes Python's traceback as it is. 'compact' drops the source lines and the
            'Traceback (most recent call last):' line, and dims the rest, so only the file, line and function of
            each frame and the exception line remain.
+        #. utc (bool): Writes the time in UTC with a trailing Z.
+        #. milliseconds (bool): Writes .mmm after the seconds. True by default.
+        #. colorOf (None, callable): ``f(record) -> escape code``, tried before *severityColors*. None, or an empty
+           answer, falls back to the colour of the severity.
 
     :Raises:
-        #. TypeError: If *colors* is not a boolean, or *severityColors* is not a dictionary of strings.
+        #. TypeError: If *colors* is not a boolean, *severityColors* is not a dictionary of strings, *utc* or
+           *milliseconds* is not a boolean, or *colorOf* is not callable.
         #. ValueError: If *traceback* is not 'full' or 'compact'.
     """
 
-    def __init__(self, colors=False, severityColors=None, traceback='full'):
+    def __init__(self, colors=False, severityColors=None, traceback='full', utc=False, milliseconds=True,
+                 colorOf=None):
         if not isinstance(colors, bool):
             raise TypeError("colors must be a boolean")
+        if not isinstance(utc, bool) or not isinstance(milliseconds, bool):
+            raise TypeError("utc and milliseconds must be booleans")
+        if colorOf is not None and not callable(colorOf):
+            raise TypeError("colorOf must be callable or None")
+        self.__utc = utc
+        self.__milliseconds = milliseconds
+        self.__colorOf = colorOf
         if traceback not in TRACEBACK_STYLES:
             raise ValueError(f"traceback must be one of {TRACEBACK_STYLES}")
         self.__traceback = traceback
@@ -471,8 +506,8 @@ class ConsoleFormatter:
 
     def _render(self, record, convert):
         """Builds the text of a record, turning every field and context value into text with *convert*."""
-        columns = [self._dim(_format_timestamp_text(record.timestamp)),
-                   self._paint(f"{record.severity:<8}", record.severity),
+        columns = [self._dim(_readable_timestamp(record.timestamp, self.__utc, self.__milliseconds)),
+                   self._paint(f"{record.severity:<8}", record),
                    record.logger]
         if record.caller is not None:
             columns.append(_format_caller(record.caller))
@@ -505,12 +540,26 @@ class ConsoleFormatter:
         """Returns the text dimmed when colours are on."""
         return f"{SGR_DIM}{text}{SGR_RESET}" if self.__colors else text
 
-    def _paint(self, text, severity):
-        """Returns the text in the colour of a severity when colours are on and the severity has one."""
-        code = self.__severityColors.get(severity)
-        if not self.__colors or code is None:
+    def _paint(self, text, record):
+        """Returns the text in the colour of a record when colours are on and the record has one."""
+        if not self.__colors:
+            return text
+        code = self._color_code(record)
+        if code is None:
             return text
         return f"{code}{text}{SGR_RESET}"
+
+    def _color_code(self, record):
+        """Returns the colour code of a record: the one *colorOf* gives, else the one of its severity, else None."""
+        if self.__colorOf is not None:
+            try:
+                code = self.__colorOf(record)
+            except Exception:
+                # A colour is a decoration, a function that fails must not lose the record
+                code = None
+            if code:
+                return code
+        return self.__severityColors.get(record.severity)
 
 
 class _SafeValue:
@@ -533,21 +582,41 @@ class _SafeValue:
             return text
 
 
+class _TimestampView:
+    """A timestamp for templates: ISO text with no format spec, ``strftime`` with a spec that has a ``%``, and plain text alignment otherwise."""
+
+    __slots__ = ('value',)
+
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return _format_timestamp(self.value)
+
+    def __format__(self, spec):
+        if '%' in spec:
+            return self.value.strftime(spec)
+        return format(_format_timestamp(self.value), spec)
+
+
 class _TemplateView(dict):
-    """A dictionary that gives an empty string for a placeholder the record does not have."""
+    """A dictionary that gives an empty string for a placeholder the record does not have, whatever its format spec."""
 
     def __missing__(self, key):
-        return ''
+        # A spec such as 05d fails on an empty string, and a record must not be lost for a field it does not have
+        return _SafeValue('')
 
 
 class TemplateFormatter:
     """
     Renders a record from a template with ``{name}`` placeholders.
 
-    Available names: ``timestamp``, ``severity``, ``log_type``, ``level``, ``logger``, ``message``,
+    Available names: ``timestamp`` (ISO text, or a ``strftime`` spec such as ``{timestamp:%H:%M:%S}``),
+    ``timestamp_utc`` (the same in UTC), ``severity``, ``log_type``, ``level``, ``logger``, ``message``,
     ``fields``, ``context``, ``exception`` (the traceback text), ``caller`` (``file:line in function``),
-    ``process``, ``thread``, ``thread_name`` and every key of the record fields and context.
-    A name the record does not have renders as an empty string. A field never overrides a
+    ``file``, ``line``, ``function`` and ``module`` of the caller (when the logger has ``callerInfo``, and unless a
+    field has the same name), ``process``, ``thread``, ``thread_name`` and every key of the record fields and context.
+    A name the record does not have renders as an empty string, whatever its format spec. A field never overrides a
     fixed name. Only plain names are allowed: ``{message.upper}`` and ``{fields[x]}`` are rejected,
     so a template cannot reach attributes of the values.
 
@@ -596,7 +665,8 @@ class TemplateFormatter:
         for source in (record.context, record.fields):
             view.update({key: escape_control_characters(value) if isinstance(value, str) and key != 'data' else value
                          for key, value in source.items()})
-        view.update({'timestamp': _format_timestamp(record.timestamp),
+        view.update({'timestamp': _TimestampView(record.timestamp),
+                     'timestamp_utc': _TimestampView(record.timestamp.astimezone(timezone.utc)),
                      'severity': record.severity,
                      'log_type': record.logType,
                      'level': record.level,
@@ -609,6 +679,11 @@ class TemplateFormatter:
                      'process': record.processId,
                      'thread': record.threadId,
                      'thread_name': record.threadName})
+        if record.caller is not None:
+            # setdefault: a field named line or file keeps its value, as templates written before these names did
+            for name, value in (('file', record.caller.fileName), ('line', record.caller.line),
+                                ('function', record.caller.function), ('module', record.caller.moduleName)):
+                view.setdefault(name, value)
         return view
 
 

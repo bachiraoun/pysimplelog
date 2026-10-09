@@ -487,7 +487,7 @@ Processors
 
 """
 # python standard distribution imports
-import os, sys, copy, re, atexit, threading, traceback, functools, inspect, collections, time
+import os, sys, copy, re, atexit, threading, traceback, functools, collections, time
 from types import MappingProxyType
 from datetime import datetime, timedelta, timezone as FixedOffsetTimezone
 
@@ -540,6 +540,8 @@ try:
     from .sink_options import build_file_sink
     from .environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
     from .namespaces import is_disabled
+    from . import namespaces
+    from .traceback_cache import format_exception_text
     from .delivery_guard import mark_delivery_thread
     from .queues import BoundedQueue, QueueFull, validate_queue_policy
     from .forking import register_for_fork_reset
@@ -556,6 +558,8 @@ except ImportError:
     from sink_options import build_file_sink
     from environment import ENV_PREFIX, COLOR_MODES, NOT_GIVEN, read_environment
     from namespaces import is_disabled
+    import namespaces
+    from traceback_cache import format_exception_text
     from delivery_guard import mark_delivery_thread
     from queues import BoundedQueue, QueueFull, validate_queue_policy
     from forking import register_for_fork_reset
@@ -731,7 +735,7 @@ def _exception_info(excInfo, diagnose=False, diagnoseRedact=()):
             return None
         try:
             if diagnose is False:
-                text = ''.join(traceback.format_exception(excType, excValue, excTraceback)).rstrip('\n')
+                text = format_exception_text(excType, excValue, excTraceback)
             else:
                 text = format_exception_with_values(excType, excValue, excTraceback, diagnose, diagnoseRedact)
             return ExceptionInfo(excType.__name__, str(excValue), text)
@@ -904,7 +908,7 @@ class _Sink(object):
             except Exception as sinkError:
                 sys.stderr.write(
                     'pysimplelog WARNING: sink delivery failed'
-                    ', record dropped. Error: %s\n' % sinkError
+                    ', record dropped. Error: %s\n' % describe_error(sinkError)
                 )
             finally:
                 self._queue.task_done()
@@ -925,7 +929,7 @@ class _Sink(object):
                     except Exception as sinkError:
                         sys.stderr.write(
                             'pysimplelog WARNING: sink delivery failed'
-                            ', %d records dropped. Error: %s\n' % (len(records), sinkError)
+                            ', %d records dropped. Error: %s\n' % (len(records), describe_error(sinkError))
                         )
             finally:
                 for _ in range(len(records) + (0 if marker is None else 1)):
@@ -1172,36 +1176,56 @@ class _BoundLogger(object):
 
     # ── shortcut methods (mirrors Logger shortcuts) ──────────────────
 
+    def _is_silent(self, logType, message, fields):
+        """Says whether a log call can return at once, see :meth:`Logger._is_silent`."""
+        return self.__parent._is_silent(logType, message, fields)
+
     def info(self, message, *args, **kwargs):
         """Log at info level, with the bound values in the context."""
+        if self._is_silent('info', message, kwargs):
+            return message
         return self.log('info', message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
         """Log at info level (alias for info)."""
+        if self._is_silent('info', message, kwargs):
+            return message
         return self.log('info', message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
         """Log at warn level, with the bound values in the context."""
+        if self._is_silent('warn', message, kwargs):
+            return message
         return self.log('warn', message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
         """Log at warn level (alias for warn)."""
+        if self._is_silent('warn', message, kwargs):
+            return message
         return self.log('warn', message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
         """Log at error level, with the bound values in the context."""
+        if self._is_silent('error', message, kwargs):
+            return message
         return self.log('error', message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
         """Log at critical level, with the bound values in the context."""
+        if self._is_silent('critical', message, kwargs):
+            return message
         return self.log('critical', message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
         """Log at debug level, with the bound values in the context."""
+        if self._is_silent('debug', message, kwargs):
+            return message
         return self.log('debug', message, *args, **kwargs)
 
     def exception(self, message, *args, logType='error', **fields):
         """Logs the exception being handled, with the bound values in the context."""
+        if self._is_silent(logType, message, fields):
+            return message
         return self.log(logType, message, *args, exc_info=True, **fields)
 
     def _log_call(self, logType, message, args, fields, exc_info, countConstraint, isLazy, depth):
@@ -1313,6 +1337,8 @@ class _OptLogger(object):
 
     def log(self, logType, message, *args, exc_info=None, countConstraint=None, **fields):
         """Logs a message of a log type with the options, see :meth:`Logger.log`."""
+        if self.__parent._is_silent(logType, message, fields):
+            return message
         if exc_info is None:
             exc_info = self.__exception
         return self.__parent._log_call(logType, message, args, fields, exc_info, countConstraint,
@@ -2515,7 +2541,7 @@ class Logger(object):
                     self.__maintainWarned.add(name)
                 if isNew:
                     sys.stderr.write(f"pysimplelog WARNING: the housekeeping of sink {name!r} failed. "
-                                     f"Error: {type(error).__name__}: {error}\n")
+                                     f"Error: {describe_error(error)}\n")
                 result = {'error': type(error).__name__}
             if result is not None:
                 results[name] = result
@@ -4264,9 +4290,10 @@ class Logger(object):
         :Returns:
             #. sink (FileSink): A sink that writes the readable text of a record to the log files.
         """
+        # A switched off log file has nothing to start, so it does not read the folder until it is used
         return FileSink(self.__logFileBasename, self.__logFileExtension, formatter=self.__fileFormatter,
                         flush=self.__flushMode, maxSize=self.__logFileMaxSize, roll=self.__logFileRoll,
-                        firstNumber=self.__logFileFirstNumber)
+                        firstNumber=self.__logFileFirstNumber, startLazily=not self.__logToFile)
 
     def __plain_flush_mode(self, stream):
         """
@@ -4300,9 +4327,14 @@ class Logger(object):
                 isColored = stream_supports_color(sys.stdout if stream is None else stream)
             else:
                 isColored = self.__consoleColor == 'always'
-            formatter = ConsoleFormatter(colors=isColored)
+            formatter = ConsoleFormatter(colors=isColored, colorOf=self.__type_color)
         return ConsoleSink(stream, formatter=formatter, flush='flush' if isFlushed else 'none',
                            decorate=decorate)
+
+    def __type_color(self, record):
+        """Returns the colour code the developer gave to the log type of a record, or None when it has none."""
+        wrap = self.__logTypeFormat.get(record.logType)
+        return (wrap[0] or None) if wrap else None
 
     def __decorate_console(self, text, record):
         """Wraps the text of a record in the colour codes of its log type."""
@@ -4419,7 +4451,7 @@ class Logger(object):
         _check_field_names(fields)
         logType, message = self._resolve_log_type(logType, message)
         # Wrong calls still fail above, a disabled namespace only stops the work below
-        if is_disabled(self.__name):
+        if namespaces.NEEDS_CHECK and is_disabled(self.__name):
             return message
         # routing comes first: read from the pre-computed active-sink cache (O(1) lookup), the
         # list contains only sinks whose enabled flag and logTypeFlags both pass for this logType.
@@ -4473,7 +4505,7 @@ class Logger(object):
         logType, message = self._resolve_log_type(logType, message)
         # A bridged record keeps the name of its own logger in the field logger_name
         bridgedName = None if fields is None else fields.get('logger_name')
-        if is_disabled(self.__name) or (isinstance(bridgedName, str) and is_disabled(bridgedName)):
+        if namespaces.NEEDS_CHECK and (is_disabled(self.__name) or (isinstance(bridgedName, str) and is_disabled(bridgedName))):
             return message
         activeSinks = self.__activeSinks.get(logType)
         if activeSinks is not None and len(activeSinks) == 0:
@@ -4719,32 +4751,66 @@ class Logger(object):
                 sys.stderr.write('pysimplelog WARNING: sink flush failed. Error: %s\n' % describe_error(flushError))
         return isDrained
 
+    def _is_silent(self, logType, message, fields):
+        """
+        Says whether a log call can return at once, because no sink wants its log type.
+
+        A call that the full path has to look at, a message that is a function or a field named ``fields`` or ``tback``,
+        is never silent, so its error is raised as it is when the level is on.
+
+        :Parameters:
+            #. logType (str): The log type of the call.
+            #. message (object): The message given by the caller.
+            #. fields (dict): The keyword arguments of the call.
+
+        :Returns:
+            #. isSilent (bool): True when the call can return without doing anything.
+        """
+        activeSinks = self.__activeSinks.get(logType)
+        if activeSinks is None or len(activeSinks) > 0 or namespaces.NEEDS_CHECK or callable(message):
+            return False
+        return not (fields and ('fields' in fields or 'tback' in fields))
+
     def info(self, message, *args, **kwargs):
         """Log at information level (alias for log('info', ...))."""
+        if self._is_silent("info", message, kwargs):
+            return message
         return self.log("info", message, *args, **kwargs)
 
     def information(self, message, *args, **kwargs):
         """Log at information level (alias for log('info', ...))."""
+        if self._is_silent("info", message, kwargs):
+            return message
         return self.log("info", message, *args, **kwargs)
 
     def warn(self, message, *args, **kwargs):
         """Log at warning level (alias for log('warn', ...))."""
+        if self._is_silent("warn", message, kwargs):
+            return message
         return self.log("warn", message, *args, **kwargs)
 
     def warning(self, message, *args, **kwargs):
         """Log at warning level (alias for log('warn', ...))."""
+        if self._is_silent("warn", message, kwargs):
+            return message
         return self.log("warn", message, *args, **kwargs)
 
     def error(self, message, *args, **kwargs):
         """Log at error level (alias for log('error', ...))."""
+        if self._is_silent("error", message, kwargs):
+            return message
         return self.log("error", message, *args, **kwargs)
 
     def critical(self, message, *args, **kwargs):
         """Log at critical level (alias for log('critical', ...))."""
+        if self._is_silent("critical", message, kwargs):
+            return message
         return self.log("critical", message, *args, **kwargs)
 
     def debug(self, message, *args, **kwargs):
         """Log at debug level (alias for log('debug', ...))."""
+        if self._is_silent("debug", message, kwargs):
+            return message
         return self.log("debug", message, *args, **kwargs)
 
     def exception(self, message, *args, logType='error', **fields):
@@ -4764,6 +4830,8 @@ class Logger(object):
             #. logType (str): The log type of the record. A field of that name cannot be given.
             #. fields: The structured values of the record.
         """
+        if self._is_silent(logType, message, fields):
+            return message
         return self.log(logType, message, *args, exc_info=True, **fields)
 
 

@@ -2,7 +2,6 @@
 
 import contextvars
 import functools
-import inspect
 from types import MappingProxyType
 
 try:
@@ -70,6 +69,7 @@ class ContextScope:
             #. TypeError: If *function* is a generator function, because the scope would end when the generator
                is made and not when it is used up.
         """
+        import inspect
         if inspect.isgeneratorfunction(function) or inspect.isasyncgenfunction(function):
             raise TypeError("context cannot decorate a generator function: use a with block inside it")
         values = self.__values

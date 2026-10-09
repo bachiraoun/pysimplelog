@@ -10,8 +10,10 @@ from collections import defaultdict, deque
 
 try:
     from .processors import DEFAULT_SENSITIVE_NAMES, _normalize_name
+    from .traceback_cache import format_exception_text
 except ImportError:
     from processors import DEFAULT_SENSITIVE_NAMES, _normalize_name
+    from traceback_cache import format_exception_text
 
 DIAGNOSE_MODES = ('summary', 'full')
 MAX_VALUE_LENGTH = 200
@@ -43,7 +45,7 @@ def format_exception_with_values(excType, excValue, excTraceback, mode, extraNam
         #. text (str): The traceback text without a trailing newline. It is the plain Python traceback when
            the variables cannot be collected.
     """
-    text = ''.join(traceback.format_exception(excType, excValue, excTraceback)).rstrip('\n')
+    text = format_exception_text(excType, excValue, excTraceback)
     try:
         sensitiveNames = tuple(_normalize_name(name) for name in DEFAULT_SENSITIVE_NAMES + tuple(extraNames))
         variableLines = _collect_variable_lines(excValue, excTraceback, mode, sensitiveNames)

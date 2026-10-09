@@ -2,7 +2,6 @@
 This script will work from within the main package directory.
 
 python setup.py sdist bdist_wheel
-twine upload dist/pysimplelog-...
 
 
 
@@ -89,7 +88,7 @@ PACKAGE_INFO = {}
 infoPath = convert_path('__pkginfo__.py')
 with open(infoPath) as fd:
     _src = fd.read()
-for _m in _re.finditer(r"^(__\w+__)\s*=\s*['\""]([^'\""]*)['\"""]" , _src, _re.MULTILINE):
+for _m in _re.finditer(r'''^(__\w+__)\s*=\s*['"]([^'"]*)['"]''', _src, _re.MULTILINE):
     PACKAGE_INFO[_m.group(1)] = _m.group(2)
 
 

@@ -1,7 +1,5 @@
 """Ready-made record processors: values added to every record, redaction of sensitive values, and a bridge for text functions."""
 
-import hashlib
-import hmac
 import os
 import re
 import sys
@@ -198,6 +196,8 @@ def hash_secrets(key=None):
         logger.add_processor(hash_secrets())
         logger.info("login", token=Secret(token))    ## token=hmac:9f2a41c07b3d
     """
+    import hashlib
+    import hmac
     if key is None:
         key = os.urandom(32)
     elif isinstance(key, str):

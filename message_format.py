@@ -2,6 +2,8 @@
 Fills the placeholders of a log message with the arguments and the fields of the call.
 """
 
+import functools
+import re
 from string import Formatter
 
 try:
@@ -36,6 +38,15 @@ class _SafeFormatter(Formatter):
 
 _FORMATTER = _SafeFormatter()
 
+# Braces holding only a name, a number or nothing: no attribute, no index, no conversion and no format spec
+_PLAIN_TEMPLATE_RE = re.compile(r'(?:[^{}]|\{\{|\}\}|\{[A-Za-z0-9_]*\})*')
+
+
+@functools.lru_cache(maxsize=512)
+def _is_plain_template(template):
+    """Says whether every placeholder of a template is a plain name or number, cached because the same few templates repeat."""
+    return _PLAIN_TEMPLATE_RE.fullmatch(template) is not None
+
 
 def render_message(template, args, fields):
     """
@@ -63,6 +74,12 @@ def render_message(template, args, fields):
         return template
     if '{' not in template and '}' not in template:
         return template
+    try:
+        if _is_plain_template(template):
+            return template.format(*args, **fields)
+    except Exception:
+        # A value that cannot be printed, or a name or index that is missing: the safe formatter decides what to write
+        pass
     try:
         return _FORMATTER.vformat(template, args, fields)
     except Exception:
