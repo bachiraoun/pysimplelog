@@ -15,7 +15,7 @@ import unittest
 PACKAGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, PACKAGE_DIR)
 import namespaces  # noqa: E402
-from simple_log import Logger  # noqa: E402
+from simple_log import Logger, FILE_SINK  # noqa: E402
 from default_logger import _DefaultLogger  # noqa: E402
 from environment import read_environment  # noqa: E402
 from sink_options import parse_size, parse_duration  # noqa: E402
@@ -617,6 +617,8 @@ class TestConsoleLayout(unittest.TestCase):
             logger.warning('to the file')
             logger.flush()
             logger.clear_sinks()
+            # Windows cannot delete a file that is still open, and clear_sinks() leaves the built-in file alone
+            logger.sinks[FILE_SINK].close()
             text = ''
             for name in os.listdir(folder):
                 with open(os.path.join(folder, name)) as handle:
@@ -646,6 +648,8 @@ class TestRelativePaths(unittest.TestCase):
             logger.info('after the move {} {}', number, 'x' * 100)
         logger.flush()
         logger.clear_sinks()
+        # Windows cannot delete a file that is still open, and clear_sinks() leaves the built-in file alone
+        logger.sinks[FILE_SINK].close()
         return sorted(os.listdir(os.path.join(self.folder, 'first'))), sorted(os.listdir(os.path.join(self.folder, 'second')))
 
     def test_a_file_added_with_a_relative_path_stays_where_it_started(self):
@@ -671,6 +675,7 @@ class TestRelativePaths(unittest.TestCase):
         logger.info('written after the switch')
         logger.flush()
         logger.clear_sinks()
+        logger.sinks[FILE_SINK].close()
         self.assertEqual(sorted(os.listdir(os.path.join(self.folder, 'first'))), ['logs'])
         self.assertEqual(sorted(os.listdir(os.path.join(self.folder, 'second'))), [])
 

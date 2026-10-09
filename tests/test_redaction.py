@@ -422,6 +422,9 @@ class TestEveryOutput(unittest.TestCase):
             found = b''
             for root, _, files in os.walk(base):
                 for file in files:
+                    # On Windows the first byte of the file named lock is locked by the spool, so it cannot be read
+                    if file == 'lock':
+                        continue
                     with open(os.path.join(root, file), 'rb') as handle:
                         found += handle.read()
         finally:

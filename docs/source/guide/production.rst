@@ -90,9 +90,12 @@ This is what the tests prove, and nothing more. Each row names the test file tha
    * - Many threads, one process
      - No record is lost or doubled. The records of one thread keep their order. There is no order between threads.
      - ``test_concurrency``
-   * - Many processes, each with its own logger, one file
+   * - Many processes, each with its own logger, one file (Linux and macOS)
      - No line is torn and none is lost, with ``fork``, ``spawn`` and ``forkserver`` (where the system has it). Order is kept
        inside one thread of one process only.
+     - ``test_concurrency_matrix``
+   * - Many processes, each with its own logger and a file of its own (every system, Windows included)
+     - Counts are exact, and the order inside each thread is kept.
      - ``test_concurrency_matrix``
    * - asyncio tasks and threads
      - Each task sees its own context and never the context of another task. A plain thread does not inherit a task's context.
@@ -123,6 +126,10 @@ This is what the tests prove, and nothing more. Each row names the test file tha
    * - A forked child
      - It delivers in the thread that logs, and does not wait for threads it does not have.
      - ``test_fork``
+
+Several processes sharing one file is safe only where the operating system makes an append atomic: Linux and macOS. On Windows
+two processes can overwrite each other's bytes, so give each process a file of its own (see ``examples/20_many_processes.py``), or
+send the records to one place with a network sink. Python's own ``logging`` module has the same limit.
 
 What is not promised: an order between different threads or processes, a delivery that is exactly once, and the survival of a
 record that was only in memory when the process was killed.

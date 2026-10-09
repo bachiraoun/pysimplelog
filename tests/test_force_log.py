@@ -164,6 +164,8 @@ class TestWhereItGoes(unittest.TestCase):
         logger = Logger('app', logToFile=True, logToStdout=False, logFile=os.path.join(folder, 'app.log'))
         logger.force_log('debug', 'forced', sinks=[FILE_SINK])
         logger.flush()
+        # Windows cannot delete a file that is still open
+        logger.sinks[FILE_SINK].close()
         text = ''
         for name in os.listdir(folder):
             with open(os.path.join(folder, name)) as handle:

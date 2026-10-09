@@ -45,7 +45,7 @@ it shows. Run one from the folder that holds the ``pysimplelog`` folder, or with
    * - ``19_force_log.py``
      - A message that must appear, and where it goes.
    * - ``20_many_processes.py``
-     - Several processes writing one file, each with its own logger.
+     - Several processes, each with its own logger and a file of its own.
 
 The scripts ``01``, ``02``, ``08``, ``09`` and ``13`` to ``20`` are run by ``tests/test_examples.py``, so they stay correct when the
 library changes.

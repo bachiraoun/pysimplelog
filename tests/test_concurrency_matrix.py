@@ -40,6 +40,11 @@ from spool import Spool  # noqa: E402
 SCRIPT_SECONDS = 120
 WAIT_SECONDS = 15.0
 
+# Several processes can append to one file only where the operating system makes an append atomic. On Windows the C runtime moves
+# to the end of the file and then writes, in two steps, so two processes can overwrite each other: each process needs its own file
+IS_WINDOWS = os.name == 'nt'
+WINDOWS_SHARED_FILE = "on Windows several processes cannot safely append to one file, each needs a file of its own"
+
 # The header of every script: the package on the path, and the helpers they share
 HEADER = '''
 import asyncio, json, multiprocessing, os, signal, sys, threading, time
@@ -50,10 +55,10 @@ from log_context import context
 ''' % PACKAGE_DIR
 
 FILE_WORKER = HEADER + '''
-def log_from_threads(path, processNumber, threadCount, perThread):
-    """Makes the logger of this process, and logs from many threads into the shared file."""
+def log_from_threads(path, processNumber, threadCount, perThread, ownFile):
+    """Makes the logger of this process, and logs from many threads into the shared file, or into a file of its own."""
     logger = Logger('matrix', logToFile=False, logToStdout=False)
-    logger.add(path, format='json')
+    logger.add(path + '.' + str(processNumber) if ownFile else path, format='json')
     def run(threadNumber):
         for index in range(perThread):
             logger.info('{}-{}-{}', processNumber, threadNumber, index, process=processNumber, thread=threadNumber, index=index)
@@ -67,8 +72,9 @@ def log_from_threads(path, processNumber, threadCount, perThread):
 
 def main():
     method, path, processCount, threadCount, perThread = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+    ownFile = len(sys.argv) > 6 and sys.argv[6] == 'own'
     context_ = multiprocessing.get_context(method)
-    processes = [context_.Process(target=log_from_threads, args=(path, number, threadCount, perThread)) for number in range(processCount)]
+    processes = [context_.Process(target=log_from_threads, args=(path, number, threadCount, perThread, ownFile)) for number in range(processCount)]
     for process in processes:
         process.start()
     for process in processes:
@@ -132,8 +138,13 @@ class MatrixCase(unittest.TestCase):
 
 class TestProcessesAndThreads(MatrixCase):
 
-    def check_file(self, path, processCount, threadCount, perThread):
-        records = read_records(path)
+    def check_file(self, path, processCount, threadCount, perThread, ownFiles=False):
+        if ownFiles:
+            records = []
+            for number in range(processCount):
+                records.extend(read_records(f"{path}.{number}"))
+        else:
+            records = read_records(path)
         self.assertEqual(len(records), processCount * threadCount * perThread)
         seen = {}
         for record in records:
@@ -146,14 +157,16 @@ class TestProcessesAndThreads(MatrixCase):
             self.assertEqual(indexes, list(range(perThread)))
         return records
 
-    def run_method(self, method, processCount=4, threadCount=4, perThread=150):
+    def run_method(self, method, processCount=4, threadCount=4, perThread=150, ownFiles=False):
         if method not in multiprocessing.get_all_start_methods():
             self.skipTest(f"{method} is not available on this system")
+        if IS_WINDOWS and processCount > 1 and not ownFiles:
+            self.skipTest(WINDOWS_SHARED_FILE)
         path = self.path('shared.jsonl')
-        done = run_script(FILE_WORKER, method, path, processCount, threadCount, perThread)
+        done = run_script(FILE_WORKER, method, path, processCount, threadCount, perThread, *(['own'] if ownFiles else []))
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), '', done.stdout)
-        self.check_file(path, processCount, threadCount, perThread)
+        self.check_file(path, processCount, threadCount, perThread, ownFiles)
 
     def test_one_process_and_many_threads_into_one_file(self):
         self.run_method('fork' if 'fork' in multiprocessing.get_all_start_methods() else 'spawn', processCount=1, threadCount=8, perThread=300)
@@ -169,6 +182,10 @@ class TestProcessesAndThreads(MatrixCase):
 
     def test_many_processes_with_one_thread_each(self):
         self.run_method('spawn', processCount=6, threadCount=1, perThread=300)
+
+    def test_many_processes_each_with_a_file_of_their_own(self):
+        # This is the pattern that is safe on every system, Windows included
+        self.run_method('spawn', processCount=4, threadCount=4, perThread=150, ownFiles=True)
 
 
 ASYNC_WORKER = HEADER + '''
@@ -249,6 +266,8 @@ class TestAsyncio(MatrixCase):
     def run_case(self, method, processCount):
         if method not in multiprocessing.get_all_start_methods():
             self.skipTest(f"{method} is not available on this system")
+        if IS_WINDOWS and processCount > 1:
+            self.skipTest(WINDOWS_SHARED_FILE)
         path = self.path('async.jsonl')
         done = run_script(ASYNC_WORKER, method, path, processCount, self.TASKS, self.PER_TASK, self.THREADS, self.PER_THREAD)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -320,6 +339,8 @@ else:
 class TestTerminationWhileLogging(MatrixCase):
 
     def test_a_killed_process_leaves_a_clean_file_and_the_others_are_not_harmed(self):
+        if IS_WINDOWS:
+            self.skipTest(WINDOWS_SHARED_FILE)
         path = self.path('shared.jsonl')
         script = os.path.join(self.folder, 'kill_worker.py')
         with open(script, 'w', encoding='utf-8') as handle:
@@ -332,7 +353,7 @@ class TestTerminationWhileLogging(MatrixCase):
             survivor = subprocess.Popen([sys.executable, script, path, 'survivor'], stdout=subprocess.PIPE, text=True)
             wait_until(lambda: os.path.getsize(path) > 20000, 'the victims to write')
             for victim in victims:
-                victim.send_signal(signal.SIGKILL)
+                victim.kill()
             for victim in victims:
                 victim.wait(timeout=WAIT_SECONDS)
             self.assertEqual(survivor.stdout.readline().strip(), 'done')
