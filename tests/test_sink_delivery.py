@@ -184,7 +184,7 @@ class TestTransportDestination(unittest.TestCase):
             udp.close()
 
     def test_http_keeps_only_the_scheme_the_host_the_port_and_the_path(self):
-        transport = siem_transport.HTTPTransport('https://user:hunter2@Collector.Example.org/api/events?token=SECRET#part')
+        transport = siem_transport.HTTPTransport('https://Collector.Example.org/api/events?token=SECRET#part')
         destination = transport.describe_destination()
         self.assertEqual(destination, {'protocol': 'https', 'host': 'collector.example.org', 'port': 443,
                                        'path': '/api/events'})

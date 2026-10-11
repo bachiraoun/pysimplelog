@@ -254,10 +254,10 @@ def build_cases():
         Case('pysimplelog, file text, no flush', 'pysimplelog noflush', psl_unflushed('text')),
         Case('pysimplelog, file JSON, no flush', 'pysimplelog noflush', psl_unflushed(None)),
         Case('pysimplelog, level off', 'pysimplelog', psl_disabled),
-        Case('pysimplelog, threaded sink', 'thread', psl_threaded),
-        Case('pysimplelog, spool flush=none', 'spool', psl_spool('none')),
-        Case('pysimplelog, spool flush=flush', 'spool', psl_spool('flush')),
-        Case('pysimplelog, spool flush=fsync', 'spool', psl_spool('fsync')),
+        Case('pysimplelog, threaded, null sink', 'thread', psl_threaded),
+        Case('pysimplelog, spool flush=none, null sink', 'spool', psl_spool('none')),
+        Case('pysimplelog, spool flush=flush, null sink', 'spool', psl_spool('flush')),
+        Case('pysimplelog, spool flush=fsync, null sink', 'spool', psl_spool('fsync')),
     ]
     if loguru is not None:
         cases += [Case('loguru, file text', 'loguru', loguru_file(False)),
@@ -297,14 +297,21 @@ def main():
           f"loguru {'not installed' if loguru is None else loguru.__version__}, "
           f"structlog {'not installed' if structlog is None else structlog.__version__}")
     print(f"{arguments.count} calls in a run, {arguments.repeats} runs, microseconds in the calling thread\n")
-    print(f"{'case':36s} {'median':>9s} {'best':>9s} {'calls/s':>10s}   {'finish':>9s}")
+    print(f"{'case':42s} {'median':>9s} {'best':>9s} {'calls/s':>10s}   {'finish':>9s}")
+    # A synchronous flush to disk is so slow that this many calls already take long enough
+    fsyncCount = max(500, arguments.count // 20)
+    hasFsync = False
     for case in build_cases():
         if arguments.only is not None and arguments.only not in case.name and arguments.only not in case.group:
             continue
-        count = max(500, arguments.count // 20) if 'fsync' in case.name else arguments.count
+        isFsync = 'fsync' in case.name
+        hasFsync = hasFsync or isFsync
+        count = fsyncCount if isFsync else arguments.count
         median, best, finish = measure(case, count, arguments.repeats)
         tail = f"{finish * 1000:7.0f} ms" if finish > 0 else ''
-        print(f"{case.name:36s} {median:7.1f}us {best:7.1f}us {1e6 / median:10.0f}   {tail:>9s}")
+        print(f"{case.name:42s} {median:7.1f}us {best:7.1f}us {1e6 / median:10.0f}   {tail:>9s}")
+    if hasFsync:
+        print(f"\nfsync cases log {fsyncCount} calls per run, so compare them with care.")
 
 
 if __name__ == '__main__':

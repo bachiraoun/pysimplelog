@@ -13,7 +13,8 @@ except ImportError:
     from secret import Secret
     from formatters import safe_str, _safe_repr
 
-DEFAULT_SENSITIVE_NAMES = ('password', 'token', 'authorization', 'api_key', 'ssn', 'credit_card', 'secret', 'cookie', 'credential')
+DEFAULT_SENSITIVE_NAMES = ('password', 'token', 'authorization', 'api_key', 'ssn', 'credit_card', 'secret', 'cookie', 'credential',
+                           'passwd', 'pwd', 'private_key')
 DEFAULT_REPLACEMENT = '[REDACTED]'
 
 # Nesting deeper than this is replaced, which also stops a structure that contains itself
@@ -89,7 +90,8 @@ def redact_fields(names=DEFAULT_SENSITIVE_NAMES, replacement=DEFAULT_REPLACEMENT
 
     :Parameters:
         #. names (list, tuple, set): The sensitive names. The default is ``password``, ``token``,
-           ``authorization``, ``api_key``, ``ssn``, ``credit_card`` and ``secret``.
+           ``authorization``, ``api_key``, ``ssn``, ``credit_card``, ``secret``, ``cookie``, ``credential``, ``passwd``,
+           ``pwd`` and ``private_key``.
         #. replacement (str): The text written in place of a sensitive value.
 
     :Returns:
@@ -323,7 +325,8 @@ def redact_text(function):
 TEXT_PATTERNS = MappingProxyType({
     'url_password': r"://[^/\s:@]+:(?P<secret>[^@\s/]+)@",
     'bearer': r"(?i)\bbearer\s+(?P<secret>[A-Za-z0-9._~+/=-]+)",
-    'jwt': r"\b(?P<secret>eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)",
+    # The lookbehind, and not \b, because \b allows a new start after every hyphen and the search then takes quadratic time on text like "eyJ-eyJ-eyJ-"
+    'jwt': r"(?<![A-Za-z0-9_-])(?P<secret>eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)",
     'assignment': r"(?i)\b(?:password|passwd|pwd|token|secret|api[_-]?key|authorization)\s*[=:]\s*(?P<secret>[^\s,;&\"']+)",
 })
 

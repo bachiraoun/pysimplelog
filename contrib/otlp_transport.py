@@ -25,7 +25,6 @@ anything else: 401, 403, 404, 405, 415,   ``ERROR``    The specification says no
 
 import gzip
 import http.client
-import ipaddress
 import json
 import math
 import os
@@ -41,9 +40,11 @@ from typing import NamedTuple
 try:
     from ..__pkginfo__ import __version__
     from ..forking import register_for_fork_reset
+    from .network_checks import is_local_host
 except ImportError:
     from __pkginfo__ import __version__
     from forking import register_for_fork_reset
+    from contrib.network_checks import is_local_host
 
 OK = 'ok'
 RETRY = 'retry'
@@ -119,16 +120,6 @@ def parse_retry_after(value, now=None):
     return min(max(seconds, 0.0), MAX_RETRY_AFTER)
 
 
-def _is_local_host(host):
-    """True for ``localhost`` and for an address that stays on this machine."""
-    if host == 'localhost' or host.endswith('.localhost'):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
 class OtlpHttpTransport:
     """
     Posts the requests to the receiver and keeps one connection open between them.
@@ -195,7 +186,7 @@ class OtlpHttpTransport:
             if name.lower() in FIXED_HEADERS:
                 raise ValueError(f"the header {name!r} is set by the transport and cannot be given")
             self.__headers[name] = value
-        if not self.__isSecure and not _is_local_host(self.__host) and any(name.lower() == 'authorization' for name in self.__headers):
+        if not self.__isSecure and not is_local_host(self.__host) and any(name.lower() == 'authorization' for name in self.__headers):
             sys.stderr.write(f"pysimplelog WARNING: the endpoint {self.url} is not https and not on this machine, its Authorization "
                              "header is sent in clear text\n")
         self.__timeout = float(timeout)

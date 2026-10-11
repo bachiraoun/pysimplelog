@@ -5,9 +5,48 @@ import re
 from string import Formatter
 
 try:
-    from .formatters import safe_str
+    from .formatters import escape_control_characters, safe_str
 except ImportError:
-    from formatters import safe_str
+    from formatters import escape_control_characters, safe_str
+
+# These print on one line already, so they are passed as they are
+_UNCHANGED_TYPES = (int, float, bool, type(None))
+
+
+class _OneLineValue:
+    """A value whose text is always on one line: its line breaks and other control characters are written as visible escapes."""
+
+    __slots__ = ('__value',)
+
+    def __init__(self, value):
+        self.__value = value
+
+    def __str__(self):
+        return escape_control_characters(safe_str(self.__value))
+
+    def __repr__(self):
+        return escape_control_characters(repr(self.__value))
+
+    def __format__(self, formatSpec):
+        return escape_control_characters(format(self.__value, formatSpec))
+
+
+def _make_one_line(value):
+    """
+    Makes a value safe to put in a message, so that it cannot start a new line in the log.
+
+    :Parameters:
+        #. value (object): A value that fills a place of a message.
+
+    :Returns:
+        #. safeValue (object): The text with its control characters escaped when *value* is a string, *value* itself when it is a
+           number, a boolean or None, and a wrapper that escapes the text of any other object.
+    """
+    if isinstance(value, str):
+        return escape_control_characters(value)
+    if type(value) in _UNCHANGED_TYPES:
+        return value
+    return _OneLineValue(value)
 
 
 class _SafeFormatter(Formatter):
@@ -48,6 +87,9 @@ class _SafeFormatter(Formatter):
             #. value (object): The value to write.
             #. formatSpec (str): The text after ``:``, such as ``.2f``. It can be empty.
         """
+        # A width or precision of 10000 or more would build a huge text before any size limit can cut it
+        if _HUGE_NUMBER_RE.search(formatSpec) is not None:
+            return safe_str(value)
         try:
             return super().format_field(value, formatSpec)
         except Exception:
@@ -55,6 +97,9 @@ class _SafeFormatter(Formatter):
 
 
 _FORMATTER = _SafeFormatter()
+
+# Five digits or more in a format, such as the width in ``{x:>200000000}``
+_HUGE_NUMBER_RE = re.compile(r'\d{5,}')
 
 # Braces holding only a name, a number or nothing: no attribute, no index, no conversion and no format spec
 _PLAIN_TEMPLATE_RE = re.compile(r'(?:[^{}]|\{\{|\}\}|\{[A-Za-z0-9_]*\})*')
@@ -94,6 +139,9 @@ def render_message(template, args, fields):
         return template
     if '{' not in template and '}' not in template:
         return template
+    # Only the values are changed. The template is the developer's own text, so its line breaks are kept
+    args = tuple(_make_one_line(value) for value in args)
+    fields = {name: _make_one_line(value) for name, value in fields.items()}
     try:
         if _is_plain_template(template):
             return template.format(*args, **fields)

@@ -43,7 +43,7 @@ payload or a table:
     2026-10-08 18:54:58.449 | INFO     | pysimplelog | Response received status=200
     {"ok": true}
 
-``maxDataSize`` on a ``Logger`` cuts ``data`` when it is too long, and ``maxMessageSize`` does the same for the message.
+``maxDataSize`` on a ``Logger`` cuts ``data`` when it is too long, and ``maxMessageSize`` does the same for the message. ``maxMessageSize`` is 10000 characters by default. ``None`` removes the limit.
 
 Using fields later
 ------------------

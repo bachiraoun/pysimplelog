@@ -299,10 +299,10 @@ class TestRedactFields(unittest.TestCase):
         self.assertEqual(dict(record.context), {'token': DEFAULT_REPLACEMENT, 'tenant': 'x'})
 
     def test_a_name_matches_inside_a_longer_key_in_any_case_and_spelling(self):
-        record = self._redact(fields={'access_token': 1, 'API-Token': 2, 'Secret Value': 3, 'PASSWORD': 4, 'passwd': 5})
+        record = self._redact(fields={'access_token': 1, 'API-Token': 2, 'Secret Value': 3, 'PASSWORD': 4, 'pass': 5})
         self.assertEqual({key: value for key, value in record.fields.items()},
                          {'access_token': DEFAULT_REPLACEMENT, 'API-Token': DEFAULT_REPLACEMENT,
-                          'Secret Value': DEFAULT_REPLACEMENT, 'PASSWORD': DEFAULT_REPLACEMENT, 'passwd': 5})
+                          'Secret Value': DEFAULT_REPLACEMENT, 'PASSWORD': DEFAULT_REPLACEMENT, 'pass': 5})
 
     def test_any_type_of_value_is_replaced(self):
         record = self._redact(fields={'password': {'a': 1}, 'token': [1, 2], 'secret': None, 'ssn': 123})

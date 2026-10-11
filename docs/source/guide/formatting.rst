@@ -118,6 +118,6 @@ write a line break in a value, or in a name, as ``\n``, and an escape character 
 
     2026-10-08 18:54:58.449 | INFO     | pysimplelog | login agent=Mozilla\n2026-01-01 | CRITICAL | forged line
 
-JSON escapes them as it always did. Messages keep their line breaks. The ``data`` field is written on its own line as it is.
+JSON escapes them as it always did. The line breaks of a message are kept, but the values that fill its ``{}`` places are escaped the same way. The ``data`` field and a traceback are written on lines of their own, and every line of them is indented by four spaces, so text inside them cannot look like a log line.
 
 Next: :doc:`structured_fields`.

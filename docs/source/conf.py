@@ -152,8 +152,6 @@ html_title = u'pysimplelog v%s' % VER
 html_short_title = html_title
 project_name = html_title
 
-html_static_path = ['_static']
-
 html_sidebars = {
     '**': ['about.html', 'navigation.html', 'searchbox.html'],
 }

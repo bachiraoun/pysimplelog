@@ -40,8 +40,10 @@ import urllib.request
 
 try:
     from ..forking import register_for_fork_reset
+    from .network_checks import warn_if_cleartext
 except ImportError:
     from forking import register_for_fork_reset
+    from contrib.network_checks import warn_if_cleartext
 
 __all__ = [
     'Transport', 'TCPSyslogTransport', 'UDPSyslogTransport', 'HTTPTransport',
@@ -129,6 +131,8 @@ class TCPSyslogTransport(Transport):
         self.sendTimeout = sendTimeout
         self._sock = None
         self._lock = threading.Lock()
+        if not useTls:
+            warn_if_cleartext(f"tcp://{host}:{port}", host)
         register_for_fork_reset(self)
 
     def _reset_after_fork(self):
@@ -208,6 +212,7 @@ class UDPSyslogTransport(Transport):
     def __init__(self, host, port):
         self.addr = (host, port)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        warn_if_cleartext(f"udp://{host}:{port}", host)
 
     def describe_destination(self):
         """
@@ -238,6 +243,24 @@ class UDPSyslogTransport(Transport):
             pass
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuses every redirect, so the headers, which can hold a token, are only sent to the address that was configured."""
+
+    def redirect_request(self, request, fp, code, message, headers, newUrl):
+        """
+        Says that no redirect is followed, so ``urllib`` raises the redirect as an error.
+
+        :Parameters:
+            #. request (urllib.request.Request): The request that was answered with a redirect.
+            #. fp (file-like): The body of the answer.
+            #. code (int): The HTTP status, such as 302.
+            #. message (str): The text of the status.
+            #. headers (http.client.HTTPMessage): The headers of the answer.
+            #. newUrl (str): The address the receiver asked to go to.
+        """
+        return None
+
+
 class HTTPTransport(Transport):
     """
     Sends messages to a web address with HTTP POST, for collectors such as Splunk HEC. It uses only the standard library.
@@ -256,14 +279,31 @@ class HTTPTransport(Transport):
         #. timeout (float): Seconds allowed for the whole request.
         #. payloadBuilder (callable, None): ``f(raw_bytes) -> bytes``.
            Defaults to UTF-8 JSON ``{"event": ...}``.
+
+    :Raises:
+        #. TypeError: If *url* is not a string.
+        #. ValueError: If *url* is not an http or https address with a host.
     """
 
     def __init__(self, url, headers=None, timeout=5.0, payloadBuilder=None):
-        self.url = url
+        if not isinstance(url, str):
+            raise TypeError("url must be a string")
+        parts = urllib.parse.urlsplit(url.strip())
+        if parts.scheme.lower() not in ('http', 'https'):
+            raise ValueError("url must start with http:// or https://")
+        if not parts.hostname:
+            raise ValueError("url must have a host")
+        if parts.username is not None or parts.password is not None:
+            raise ValueError("url must not hold a user name or a password, give an Authorization header")
+        self.url = url.strip()
+        # Built once, because it is the opener that refuses redirects
+        self._opener = urllib.request.build_opener(_NoRedirectHandler)
         self.headers = dict(headers or {})
         self.headers.setdefault('Content-Type', 'application/json')
         self.timeout = timeout
         self.payloadBuilder = payloadBuilder or self._default_payload_builder
+        if parts.scheme.lower() == 'http':
+            warn_if_cleartext(self._safe_address(), parts.hostname)
 
     def describe_destination(self):
         """
@@ -279,6 +319,11 @@ class HTTPTransport(Transport):
         defaultPort = 443 if scheme == 'https' else 80
         return {'protocol': scheme, 'host': (parts.hostname or '').lower(), 'port': parts.port or defaultPort,
                 'path': parts.path or '/'}
+
+    def _safe_address(self):
+        """Returns ``protocol://host:port/path`` of the receiver, without a user, a password, a query or a fragment, so it can be written in an error."""
+        destination = self.describe_destination()
+        return f"{destination['protocol']}://{destination['host']}:{destination['port']}{destination['path']}"
 
     @staticmethod
     def _default_payload_builder(raw):
@@ -301,9 +346,9 @@ class HTTPTransport(Transport):
         """
         body = self.payloadBuilder(payload)
         request = urllib.request.Request(self.url, data=body, headers=self.headers, method='POST')
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self._opener.open(request, timeout=self.timeout) as response:
             if response.status >= 300:
-                raise RuntimeError(f'HTTP sink received status {response.status} from {self.url}')
+                raise RuntimeError(f'HTTP sink received status {response.status} from {self._safe_address()}')
 
     def close(self):
         """Does nothing: each request opens and closes its own connection."""

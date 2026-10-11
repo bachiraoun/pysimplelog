@@ -4,6 +4,7 @@ import collections
 import os
 import re
 import shutil
+import stat
 import sys
 import threading
 import time
@@ -28,6 +29,8 @@ COMPRESS_FORMATS = (None, 'gz')
 COMPRESS_LEVEL = 6
 # Seconds close() waits for a file that is being compressed
 COMPRESS_JOIN_SECONDS = 10.0
+# Windows changes line breaks in a file opened without this flag. Other systems have no such flag
+_BINARY = getattr(os, 'O_BINARY', 0)
 
 # What deliver() answers: the record went through, it can be tried again later, or it can never be delivered
 DELIVERED = 'delivered'
@@ -154,6 +157,16 @@ def _check_roll(roll):
         if roll < 1:
             raise ValueError("roll must be at least 1")
     return roll
+
+
+def _check_file_mode(fileMode):
+    """Returns the permissions of the files the sink creates, or None for the default of the system, after checking them."""
+    if fileMode is not None:
+        if not _is_int(fileMode):
+            raise TypeError("fileMode must be None or an integer")
+        if fileMode < 0 or fileMode > 0o777:
+            raise ValueError("fileMode must be between 0 and 0o777")
+    return fileMode
 
 
 def _check_compress(compress):
@@ -930,10 +943,14 @@ class FileSink(Sink):
         #. startLazily (bool): False (default) reads the folder, applies the retention settings and picks the file when the
            sink is made. True waits for the first record, the first read of ``path`` or ``enforce_retention``. It is for a
            sink that is switched off, so that making it costs nothing.
+        #. fileMode (None, int): Permissions of a log file the sink creates, such as ``0o600`` so that only its owner can read
+           it. None leaves them to the operating system, which usually lets every user of the machine read the file. The
+           ``umask`` of the system can still remove permissions. It has little effect on Windows. A compressed file always
+           gets the permissions of the file it replaces.
 
     :Raises:
         #. TypeError: If an argument has the wrong type. A boolean is not accepted where a number is expected.
-        #. ValueError: If basename or extension is empty, or maxSize, roll or firstNumber is out of range.
+        #. ValueError: If basename or extension is empty, or maxSize, roll, firstNumber or fileMode is out of range.
 
     .. code-block:: python
 
@@ -948,7 +965,7 @@ class FileSink(Sink):
     RETENTION_CHECK_SECONDS = 60.0
 
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
-                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False):
+                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False, fileMode=None):
         super().__init__(formatter, terminator)
         # Fixed now, so a program that changes its working folder later keeps writing in the same place
         self.__basename = os.path.abspath(_check_basename(basename))
@@ -959,6 +976,7 @@ class FileSink(Sink):
         self.__firstNumber = _check_first_number(firstNumber)
         self.__compress = _check_compress(compress)
         self.__maxAge = _check_max_age(maxAge)
+        self.__fileMode = _check_file_mode(fileMode)
         if self.__compress is not None and self.__maxBytes is None:
             raise ValueError("compress needs maxSize: without it no file is ever rotated out, so nothing would be compressed")
         self.__lock = threading.Lock()
@@ -1222,7 +1240,10 @@ class FileSink(Sink):
         """Opens the current file for appending and starts the size count from what it already holds."""
         path = self._current_path()
         self.__size = self._size_of(path)
-        return open(path, 'ab')
+        if self.__fileMode is None:
+            return open(path, 'ab')
+        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | _BINARY, self.__fileMode)
+        return os.fdopen(descriptor, 'ab')
 
     def _close_stream(self):
         """Closes the current file, the stream is dropped even when closing fails."""
@@ -1443,14 +1464,18 @@ class FileSink(Sink):
         compressed = f"{path}.gz"
         temporary = f"{compressed}.tmp"
         try:
-            modified = os.stat(path).st_mtime
+            info = os.stat(path)
+            modified = info.st_mtime
         except FileNotFoundError:
             # Deleted by someone else, there is nothing to compress
             return
         try:
             import gzip
-            with open(path, 'rb') as source, gzip.open(temporary, 'wb', compresslevel=COMPRESS_LEVEL) as target:
-                shutil.copyfileobj(source, target, 64 * 1024)
+            with open(path, 'rb') as source:
+                # Created with the permissions of the original, so the compressed copy is never more open than the file it replaces
+                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _BINARY, stat.S_IMODE(info.st_mode))
+                with os.fdopen(descriptor, 'wb') as raw, gzip.open(raw, 'wb', compresslevel=COMPRESS_LEVEL) as target:
+                    shutil.copyfileobj(source, target, 64 * 1024)
             os.utime(temporary, (modified, modified))
             os.replace(temporary, compressed)
         except BaseException:

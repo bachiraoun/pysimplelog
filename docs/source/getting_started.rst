@@ -542,8 +542,8 @@ says what the spool holds and what it lost.
 
 Things to know:
 
-* The record is written by the thread that logs, which costs it about 30 to 90 microseconds more than a threaded sink
-  without a spool (it is the system call of ``flush``, and the worker thread competing for the interpreter), and more with
+* The record is written by the thread that logs, which costs it roughly 60 to 170 microseconds more than a threaded sink
+  without a spool, depending on the flush mode (it is the system call of ``flush``, and the worker thread competing for the interpreter), and most with
   ``fsync`` or ``fullsync``. ``python3 pysimplelog/benchmarks/bench_logging.py`` measures it on your machine, next to the
   standard ``logging`` module, Loguru and structlog when they are installed. On macOS ``fsync`` does not survive a power cut and ``fullsync`` does,
   at about 19 milliseconds a record.

@@ -21,6 +21,8 @@ from sinks import StreamSink  # noqa: E402
 
 ZONE = timezone(timedelta(hours=-5))
 TRACE = 'Traceback (most recent call last):\n  File "db.py", line 9, in connect\nConnectionError: timed out'
+# A traceback is written with every line indented, so that text inside it cannot look like a new log record
+INDENTED_TRACE = '    ' + TRACE.replace('\n', '\n    ')
 
 
 def make_record(**changes):
@@ -47,7 +49,7 @@ class TestTextFormatter(unittest.TestCase):
     def test_the_layout_of_a_full_record(self):
         self.assertEqual(TextFormatter()(make_record(**FULL)),
                          '2026-10-06 13:31:52 - orders <ERROR> [db.py:9 in connect] [service=checkout request_id=r-77] '
-                         f'Database connection failed order_id=123 retries=3\n{TRACE}')
+                         f'Database connection failed order_id=123 retries=3\n{INDENTED_TRACE}')
 
     def test_the_layout_of_a_bare_record(self):
         self.assertEqual(TextFormatter()(make_record()), '2026-10-06 13:31:52 - orders <ERROR> Database connection failed')
@@ -66,7 +68,7 @@ class TestTextFormatter(unittest.TestCase):
 
     def test_the_traceback_comes_after_the_data(self):
         text = TextFormatter()(make_record(fields={'data': 'D'}, exception=ExceptionInfo('E', 'm', 'TRACE')))
-        self.assertTrue(text.endswith('\nD\nTRACE'))
+        self.assertTrue(text.endswith('\nD\n    TRACE'))
 
     def test_a_message_with_several_lines_is_kept(self):
         self.assertIn('first\nsecond', TextFormatter()(make_record(message='first\nsecond')))
@@ -102,7 +104,7 @@ class TestTemplateFormatter(unittest.TestCase):
 
     def test_exception_fields_and_context_names(self):
         record = make_record(**FULL)
-        self.assertEqual(TemplateFormatter('{exception}')(record), TRACE)
+        self.assertEqual(TemplateFormatter('{exception}')(record), INDENTED_TRACE)
         self.assertEqual(TemplateFormatter('{fields}')(record), "{'order_id': 123, 'retries': 3}")
         self.assertEqual(TemplateFormatter('{context}')(record), "{'service': 'checkout', 'request_id': 'r-77'}")
 

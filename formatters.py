@@ -95,8 +95,9 @@ def safe_str(value):
         return f"<unprintable {type(value).__name__}: {type(error).__name__}>"
 
 
-# Everything but the tab: the line breaks of any kind, the escape character that starts colour codes, and the other controls
-_CONTROL_RE = re.compile('[\\x00-\\x08\\x0a-\\x1f\\x7f\\x85\\u2028\\u2029]')
+# Everything but the tab: the line breaks of any kind, the escape character that starts colour codes, and the other controls,
+# including the ones from 0x80 to 0x9f, which some terminals read as commands
+_CONTROL_RE = re.compile('[\\x00-\\x08\\x0a-\\x1f\\x7f-\\x9f\\u2028\\u2029]')
 _CONTROL_NAMES = {'\n': '\\n', '\r': '\\r'}
 
 
@@ -132,6 +133,43 @@ def escape_control_characters(text):
     if text.isprintable():
         return text
     return _CONTROL_RE.sub(_escape_control, text)
+
+
+def indent_continuation_lines(text):
+    """
+    Makes a multi-line text safe to write under a log line: every line after the first is indented by four spaces.
+
+    A line that starts at the left edge looks like a new log record, so text that came from outside must not be able to
+    start one. Every kind of line break becomes a plain one, because the tools that read a log split on more than ``\\n``.
+
+    .. code-block:: python
+
+        indent_continuation_lines("a\\nb")             ## 'a\\n    b'
+        indent_continuation_lines("one line")        ## 'one line'
+
+    :Parameters:
+        #. text (str): Any text.
+
+    :Returns:
+        #. indentedText (str): The text, unchanged when it is on one line.
+    """
+    lines = text.splitlines()
+    if len(lines) < 2:
+        return text
+    return '\n    '.join(lines)
+
+
+def indent_block(text):
+    """
+    Indents every line of a text by four spaces, so that no line of it starts at the left edge of the log.
+
+    :Parameters:
+        #. text (str): Any text.
+
+    :Returns:
+        #. indentedText (str): The text with each line indented.
+    """
+    return '    ' + indent_continuation_lines(text)
 
 
 def describe_error(error):
@@ -460,9 +498,9 @@ class TextFormatter:
             if key != 'data':
                 parts.append(' ' + _pair_text(key, value, convert))
         if 'data' in record.fields:
-            parts.append(f"\n{convert(record.fields['data'])}")
+            parts.append(f"\n{indent_continuation_lines(convert(record.fields['data']))}")
         if record.exception is not None:
-            parts.append(f"\n{record.exception.stacktrace}")
+            parts.append(f"\n{indent_block(record.exception.stacktrace)}")
         return ''.join(parts)
 
 
@@ -592,9 +630,9 @@ class ConsoleFormatter:
         if len(pairs) > 0:
             parts.append(' ' + self._dim(' '.join(pairs)))
         if 'data' in record.fields:
-            parts.append(f"\n{convert(record.fields['data'])}")
+            parts.append(f"\n{indent_continuation_lines(convert(record.fields['data']))}")
         if record.exception is not None:
-            parts.append(f"\n{self._traceback_text(record.exception)}")
+            parts.append(f"\n{indent_block(self._traceback_text(record.exception))}")
         return ''.join(parts)
 
     def _traceback_text(self, exception):
@@ -743,10 +781,12 @@ class TemplateFormatter:
     def _build_view(record):
         """Returns the names a template can use, with the value of each for this record."""
         view = _TemplateView()
-        # Like the text layouts, a text value must not start a new line, and data is meant to be multi-line
+        # Like the text layouts, a text value must not start a new line. Data is meant to be multi-line, so its lines are indented instead
         for source in (record.context, record.fields):
-            view.update({key: escape_control_characters(value) if isinstance(value, str) and key != 'data' else value
-                         for key, value in source.items()})
+            for key, value in source.items():
+                if isinstance(value, str):
+                    value = indent_continuation_lines(value) if key == 'data' else escape_control_characters(value)
+                view[key] = value
         view.update({'timestamp': _TimestampView(record.timestamp),
                      'timestamp_utc': _TimestampView(record.timestamp.astimezone(timezone.utc)),
                      'severity': record.severity,
@@ -756,7 +796,7 @@ class TemplateFormatter:
                      'message': record.message,
                      'fields': dict(record.fields),
                      'context': dict(record.context),
-                     'exception': '' if record.exception is None else record.exception.stacktrace,
+                     'exception': '' if record.exception is None else indent_block(record.exception.stacktrace),
                      'caller': '' if record.caller is None else _format_caller(record.caller),
                      'process': record.processId,
                      'thread': record.threadId,

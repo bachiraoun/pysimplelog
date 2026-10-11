@@ -66,6 +66,8 @@ FACILITY_LOCAL0 = 16
 FACILITY_LOCAL1 = 17
 
 _WHITESPACE_RE = re.compile(r'\s+')
+# Printable ASCII without a space, which is what the host and application fields of an RFC 5424 header may hold
+_HEADER_NAME_RE = re.compile(r'[!-~]+')
 
 
 class SeverityMap:
@@ -155,14 +157,22 @@ class RFC5424Formatter:
            single-line for line-oriented collectors. Default True. Set False
            only when the transport guarantees unambiguous framing (e.g.
            TCPSyslogTransport's octet-counting).
+
+    :Raises:
+        #. ValueError: If appName or hostname holds a space, a control character or a character outside printable ASCII.
     """
 
     def __init__(self, appName='pysimplelog', facility=FACILITY_LOCAL0,
                  hostname=None, enterpriseId=0, includeStructuredData=True,
                  collapseNewlines=True):
+        if _HEADER_NAME_RE.fullmatch(str(appName)) is None:
+            raise ValueError("appName must be printable ASCII without spaces")
+        if hostname and _HEADER_NAME_RE.fullmatch(str(hostname)) is None:
+            raise ValueError("hostname must be printable ASCII without spaces")
         self.appName = appName
         self.facility = facility
-        self.hostname = self._nil_safe(hostname or socket.gethostname())
+        # A machine name with a space or a non-ASCII letter would break the header, so those characters become underscores
+        self.hostname = self._nil_safe(hostname or re.sub(r'[^!-~]', '_', socket.gethostname()))
         self.enterpriseId = enterpriseId
         self.includeStructuredData = includeStructuredData
         self.collapseNewlines = collapseNewlines

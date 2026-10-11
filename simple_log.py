@@ -756,6 +756,9 @@ def _exception_info(excInfo, diagnose=False, diagnoseRedact=()):
         return ExceptionInfo(None, None, str(excInfo))
 
 
+# The longest message a Logger keeps by default, counted in characters (the length of the Python string), not in bytes
+DEFAULT_MAX_MESSAGE_SIZE = 10000
+
 # Compiled once at import time — used by _sanitize_message on every log call
 _CONTROL_CHAR_RE = re.compile(
     r'\x1b(?:\[[0-9;]*[mGKHFABCDsuJrhl]|\(B|[A-Z])'  # ANSI + VT escape sequences
@@ -1824,8 +1827,9 @@ class Logger(object):
           pytz must be installed and it must be the timezone name. If not
           provided, the machine default timezone will be used.
        #. maxMessageSize (None, integer): Maximum number of characters allowed
-          in a single log message string. If None, no limit is applied. Messages
-          exceeding the limit are truncated and '[truncated]' is appended.
+          in a single log message string. The default is 10000. If None, no
+          limit is applied. Messages exceeding the limit are truncated and
+          '[truncated]' is appended.
        #. maxDataSize (None, integer): Maximum number of characters allowed in
           the string representation of the data argument. If None, no limit is
           applied. Data strings exceeding the limit are truncated and
@@ -1931,7 +1935,7 @@ class Logger(object):
                        stdoutMinLevel=None, stdoutMaxLevel=None,
                        fileMinLevel=None, fileMaxLevel=None,
                        logTypes=None, timezone=None,
-                       maxMessageSize=None, maxDataSize=None,
+                       maxMessageSize=DEFAULT_MAX_MESSAGE_SIZE, maxDataSize=None,
                        enqueue=False,
                        maxQueueSize=None,
                        queueFullPolicy='block',
@@ -4919,6 +4923,10 @@ class Logger(object):
         reach inside a value (``{0.name}`` is refused). The message is rendered before the processors run,
         so ``redact_fields``, which works by name, cannot see a positional value: use ``redact_text`` for
         the text of the message, or pass the secret as a field.
+
+        Line breaks and other control characters inside the values that fill the placeholders are written as visible escapes,
+        such as ``\\n``, so a value cannot start a new line in the log. The line breaks of the message itself are kept. Pass
+        text that really spans several lines as the ``data`` field.
 
         .. code-block:: python
 

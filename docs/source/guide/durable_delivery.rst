@@ -73,7 +73,8 @@ position is saved, the wait between tries, and when to give up. See ``SpoolConfi
 The cost
 --------
 
-Writing to disk costs the logging thread about 30 to 90 microseconds more than a threaded sink without a spool, and more with
-``fsync``. That is the price of surviving a crash.
+Writing to disk costs the logging thread roughly 60 to 170 microseconds more than a threaded sink without a spool, depending on
+the flush mode, and most with ``fsync`` (measured on one laptop, run ``benchmarks/bench_logging.py`` on yours). That is the price
+of surviving a crash.
 
 Next: :doc:`siem`.
