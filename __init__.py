@@ -19,7 +19,7 @@ try:
     from .simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from .default_logger import logger
     from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
-    from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter
+    from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter, render_markup, without_markup
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
     from .processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from .secret import Secret
@@ -33,7 +33,7 @@ except ImportError:
     from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
     from default_logger import logger
     from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
-    from formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter
+    from formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter, render_markup, without_markup
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
     from processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from secret import Secret
@@ -47,7 +47,7 @@ __all__ = [
     'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK', 'logger',
     'LogRecord', 'ExceptionInfo', 'CallerInfo', 'TraceInfo', 'validate_record',
     'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'ConsoleFormatter', 'stream_supports_color',
-    'register_formatter', 'resolve_formatter',
+    'register_formatter', 'resolve_formatter', 'render_markup', 'without_markup',
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
     'add_context', 'redact_fields', 'redact_text', 'redact_patterns', 'hash_secrets', 'Secret', 'DEFAULT_SENSITIVE_NAMES',
     'sample', 'match_logger', 'match_module', 'match_field',

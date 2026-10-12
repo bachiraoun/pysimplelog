@@ -66,6 +66,7 @@ Option                What it does
 ``utc``               ``True`` writes the time in UTC, with a trailing ``Z``.
 ``milliseconds``      ``True`` (default) writes ``.mmm`` after the seconds.
 ``colorOf``           A function ``f(record)`` that returns a colour code for a record.
+``markup``            ``True`` reads colour tags in the message, see below. ``False`` by default.
 ====================  ======================================================================================
 
 Colours
@@ -93,6 +94,39 @@ A log type you colour yourself is shown in that colour in the severity column:
     2026-10-08 18:54:58.450 | AUDIT    | pysimplelog | user exported the report user=ann
 
 The five built-in log types keep their default colours unless you give them one.
+
+Colour tags in a message
+------------------------
+
+Put colour tags in a message and the console shows them in colour. It is off by default, so a message is never read for tags
+unless you ask:
+
+.. code-block:: python
+
+    log = Logger("api.users", logToFile=False, consoleMarkup=True)
+    log.error("<red>payment failed</red> for order {}", 7)
+    log.info("<bold>ready</bold>, took <green>{}</green> ms", 42)
+
+The tags are ``<bold>``, ``<dim>``, ``<underline>`` and the colours ``<red>``, ``<green>``, ``<yellow>``, ``<blue>``,
+``<magenta>``, ``<cyan>`` and ``<white>``. ``</red>`` ends a style and ``</>`` ends the last one started. Styles can be nested.
+
+* A style you never close ends with the message, and at the end of each line, so a colour never reaches the next record.
+* When the console is not coloured (a pipe, a file, ``NO_COLOR``, ``consoleColor="never"``) the tags are removed and only
+  the text is written.
+* Anything that is not one of these tags stays as written: ``a < b``, ``<unknown>``, or a closing tag with nothing to close.
+  To print a tag itself, put a backslash in front: ``\<red>``.
+* The arguments are filled in before the tags are read, so a value that holds ``<red>`` also changes the colour. It cannot do more:
+  an escape character in a value is still shown as ``\x1b``. Do not turn it on if the values come from people you do not trust to
+  leave your colours alone.
+* It needs the ``"pretty"`` layout, and the logger refuses another layout when it is on.
+* Files, JSON and your own sinks keep the tags as text. To remove them for an output, wrap its layout with
+  ``without_markup``:
+
+.. code-block:: python
+
+    from pysimplelog import FILE_SINK, without_markup
+
+    log.set_sink_formatter(FILE_SINK, without_markup("text"))
 
 Show where the call came from
 -----------------------------

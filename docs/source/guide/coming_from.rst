@@ -41,6 +41,8 @@ Differences to know:
 
 * Rotation by time is ``rotation="daily"`` (also ``"hourly"``, ``"weekly"``, ``"monthly"``), see :doc:`files`. A time of day such as
   Loguru's ``"00:00"`` and the other compression formats are not supported.
+* Colour tags such as Loguru's ``<red>...</red>`` work with ``Logger(consoleMarkup=True)``, see :doc:`console`. They are off by default and
+  read on the console only.
 * The shared ``logger`` writes to the **standard output** in its own layout, not to the error stream.
 * ``format`` is a template with ``{timestamp}``, ``{severity}``, ``{message}`` and your fields, not Loguru's ``{time}``, ``{level}``.
 * Fields are passed as keyword arguments and kept as separate values, where Loguru uses ``bind`` for them.

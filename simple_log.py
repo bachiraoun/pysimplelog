@@ -1925,6 +1925,10 @@ class Logger(object):
        #. env (boolean): When True, the console takes ``PYSIMPLELOG_LEVEL``, ``PYSIMPLELOG_FORMAT`` and
           ``PYSIMPLELOG_COLOR`` from the environment for every setting the arguments leave out. An argument that is
           given always wins. The level applies when *stdoutMinLevel* is None. The variables are read once.
+       #. consoleMarkup (bool): True reads colour tags in the message on the console, such as ``<red>failed</red>``, see
+          :func:`pysimplelog.formatters.render_markup`. They become colours when the console is coloured and are removed when it is
+          not. It needs the ``'pretty'`` console layout. The other outputs keep the tags as text, give them
+          :func:`pysimplelog.formatters.without_markup` to remove them. The default False leaves every message as it is.
        #. shutdownTimeout (int, float): Seconds the program waits at its normal end for the queued records to be
           written, for the queue of ``enqueue`` and again for each threaded sink. Records still waiting after that are
           lost, and one line on the standard error stream says how many.
@@ -1963,7 +1967,7 @@ class Logger(object):
                        processors=None,
                        consoleFormatter=NOT_GIVEN, fileFormatter='text',
                        diagnose=False, diagnoseRedact=(),
-                       consoleColor=None, env=False, shutdownTimeout=5.0,
+                       consoleColor=None, env=False, shutdownTimeout=5.0, consoleMarkup=False,
                        *args, **kwargs):
         # The environment fills only what the caller left out, so an explicit argument always wins
         if not isinstance(env, bool):
@@ -1977,6 +1981,11 @@ class Logger(object):
             consoleFormatter = environment.get('consoleFormatter', 'pretty')
         if consoleColor is None:
             consoleColor = environment.get('consoleColor', 'auto')
+        if not isinstance(consoleMarkup, bool):
+            raise TypeError("consoleMarkup must be a boolean")
+        if consoleMarkup and consoleFormatter != 'pretty':
+            # Only the pretty layout reads the tags. Keeping quiet would print them as text
+            raise ValueError("consoleMarkup needs the 'pretty' console layout")
         envLevel = environment.get('stdoutMinLevel') if stdoutMinLevel is None else None
         # set last logged message
         self.__lastRecords   = {}
@@ -2088,6 +2097,7 @@ class Logger(object):
         # how the two built-in sinks turn a record into text
         self.__consoleFormatter = consoleFormatter
         self.__consoleColor = consoleColor
+        self.__consoleMarkup = consoleMarkup
         self.__shutdownTimeout = float(shutdownTimeout)
         self.__fileFormatter = fileFormatter
         # processors rewrite the LogRecord that the sinks receive, they run for every record
@@ -2339,6 +2349,11 @@ class Logger(object):
     def consoleColor(self):
         """``'auto'``, ``'always'`` or ``'never'``: whether the console is written in colour."""
         return self.__consoleColor
+
+    @property
+    def consoleMarkup(self):
+        """True when the console reads colour tags such as ``<red>`` in the message."""
+        return self.__consoleMarkup
 
     @property
     def callerInfo(self):
@@ -2747,6 +2762,7 @@ class Logger(object):
         :Raises:
             #. ValueError: If no sink is registered under *name*, or *formatter* is a string that is neither a
                keyword nor a template.
+               Also if *consoleMarkup* is on and the console is given a layout other than ``'pretty'``.
             #. TypeError: If *formatter* is none of the accepted types.
         """
         if name not in self.__sinks:
@@ -2755,6 +2771,8 @@ class Logger(object):
         if name == _SINK_STDOUT:
             # the console is rebuilt, because only the text layout is coloured
             resolve_formatter(formatter)
+            if self.__consoleMarkup and formatter != 'pretty':
+                raise ValueError("consoleMarkup needs the 'pretty' console layout")
             self.__consoleFormatter = formatter
             sink.set_handler(self.__make_console_sink())
         else:
@@ -4847,7 +4865,7 @@ class Logger(object):
                 isColored = stream_supports_color(sys.stdout if stream is None else stream)
             else:
                 isColored = self.__consoleColor == 'always'
-            formatter = ConsoleFormatter(colors=isColored, colorOf=self.__type_color)
+            formatter = ConsoleFormatter(colors=isColored, colorOf=self.__type_color, markup=self.__consoleMarkup)
         return ConsoleSink(stream, formatter=formatter, flush='flush' if isFlushed else 'none',
                            decorate=decorate)
 

@@ -541,6 +541,92 @@ def stream_supports_color(stream):
         return False
 
 
+# The styles a message can use between tags, such as ``<red>`` and ``<bold>``
+MARKUP_STYLES = {'bold': '\x1b[1m', 'dim': '\x1b[2m', 'underline': '\x1b[4m',
+                 'red': '\x1b[31m', 'green': '\x1b[32m', 'yellow': '\x1b[33m', 'blue': '\x1b[34m',
+                 'magenta': '\x1b[35m', 'cyan': '\x1b[36m', 'white': '\x1b[37m'}
+# A tag is a name in angle brackets, an opening ``<red>`` or a closing ``</red>``, or ``</>`` for the last one opened. A backslash
+# in front of it, ``\\<red>``, keeps it as text. Only lowercase names, so an ordinary ``<Name>`` is never taken for a tag
+_MARKUP_TAG_RE = re.compile(r'(\\)?<(/)?([a-z]*)>')
+
+
+def render_markup(text, colors):
+    """
+    Turns the colour tags of a message into colour codes, or removes them.
+
+    A tag such as ``<red>`` starts a style and ``</red>`` ends it, ``</>`` ends the last one started. Styles can be nested,
+    ``<bold><red>`` and ``</red>`` leaves the bold on. The styles are ``bold``, ``dim``, ``underline`` and the colours
+    ``red``, ``green``, ``yellow``, ``blue``, ``magenta``, ``cyan`` and ``white``. Anything that is not a tag
+    of these is kept as written, such as ``a < b``, ``<unknown>`` or a closing tag that closes nothing. A backslash before a tag, ``\\<red>``,
+    keeps the tag as text. A style that is never closed ends with the message, and at the end of each line when the message has
+    several, so a colour never reaches the text that follows.
+
+    .. code-block:: python
+
+        render_markup("<red>failed</red> to connect", True)       ## the word failed in red
+        render_markup("<red>failed</red> to connect", False)      ## failed to connect
+
+    :Parameters:
+        #. text (str): The message.
+        #. colors (bool): True writes the colour codes, False removes the tags and writes the plain text.
+
+    :Returns:
+        #. rendered (str): The message with the tags turned into codes, or removed.
+
+    :Raises:
+        #. TypeError: If *text* is not a string.
+    """
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+    # Most messages have no tag, and they must cost nothing
+    if '<' not in text:
+        return text
+    pieces = []
+    openStyles = []
+    position = 0
+    for match in _MARKUP_TAG_RE.finditer(text):
+        backslash, slash, name = match.groups()
+        isStyle = name in MARKUP_STYLES
+        isOpening = slash is None and isStyle
+        isClosing = slash is not None and (isStyle or name == '')
+        if not (isOpening or isClosing):
+            # Not a tag of ours, so it stays in the text exactly as written, with its backslash
+            continue
+        pieces.append(_markup_text(text[position:match.start()], openStyles, colors))
+        position = match.end()
+        if backslash is not None:
+            pieces.append(match.group()[1:])
+        elif isOpening:
+            openStyles.append(name)
+            if colors:
+                pieces.append(MARKUP_STYLES[name])
+        elif len(openStyles) > 0 and (name == '' or name in openStyles):
+            if name == '':
+                openStyles.pop()
+            else:
+                # The last one opened with this name, the styles opened after it stay on
+                for index in range(len(openStyles) - 1, -1, -1):
+                    if openStyles[index] == name:
+                        del openStyles[index]
+                        break
+            if colors:
+                pieces.append(SGR_RESET + ''.join(MARKUP_STYLES[style] for style in openStyles))
+        else:
+            # A closing tag with nothing to close is text
+            pieces.append(match.group())
+    pieces.append(_markup_text(text[position:], openStyles, colors))
+    if colors and len(openStyles) > 0:
+        pieces.append(SGR_RESET)
+    return ''.join(pieces)
+
+
+def _markup_text(text, openStyles, colors):
+    """Returns a piece of text between tags: when styles are on, each line break ends them and the next line starts them again."""
+    if not colors or len(openStyles) == 0 or '\n' not in text:
+        return text
+    return text.replace('\n', SGR_RESET + '\n' + ''.join(MARKUP_STYLES[style] for style in openStyles))
+
+
 class ConsoleFormatter:
     """
     Writes a record as a tidy line of columns for the console, in colour when you ask for it. It is what the ``"pretty"`` layout uses.
@@ -567,19 +653,25 @@ class ConsoleFormatter:
         #. milliseconds (bool): Writes .mmm after the seconds. True by default.
         #. colorOf (None, callable): ``f(record) -> escape code``, tried before *severityColors*. None, or an empty
            answer, falls back to the colour of the severity.
+        #. markup (bool): True reads the colour tags of the message, such as ``<red>failed</red>``, see :func:`render_markup`. The
+           tags become colour codes when *colors* is True, and are removed when it is False. The default False leaves the
+           message as it is.
 
     :Raises:
-        #. TypeError: If *colors* is not a boolean, *severityColors* is not a dictionary of strings, *utc* or
-           *milliseconds* is not a boolean, or *colorOf* is not callable.
+        #. TypeError: If *colors* is not a boolean, *severityColors* is not a dictionary of strings, *utc*, *milliseconds* or
+           *markup* is not a boolean, or *colorOf* is not callable.
         #. ValueError: If *traceback* is not 'full' or 'compact'.
     """
 
     def __init__(self, colors=False, severityColors=None, traceback='full', utc=False, milliseconds=True,
-                 colorOf=None):
+                 colorOf=None, markup=False):
         if not isinstance(colors, bool):
             raise TypeError("colors must be a boolean")
         if not isinstance(utc, bool) or not isinstance(milliseconds, bool):
             raise TypeError("utc and milliseconds must be booleans")
+        if not isinstance(markup, bool):
+            raise TypeError("markup must be a boolean")
+        self.__markup = markup
         if colorOf is not None and not callable(colorOf):
             raise TypeError("colorOf must be callable or None")
         self.__utc = utc
@@ -624,7 +716,8 @@ class ConsoleFormatter:
                    record.logger]
         if record.caller is not None:
             columns.append(_format_caller(record.caller))
-        parts = [' | '.join(columns), ' | ', record.message]
+        message = render_markup(record.message, self.__colors) if self.__markup else record.message
+        parts = [' | '.join(columns), ' | ', message]
         pairs = [_pair_text(key, value, convert) for key, value in record.context.items()]
         pairs.extend(_pair_text(key, value, convert) for key, value in record.fields.items() if key != 'data')
         if len(pairs) > 0:
@@ -876,3 +969,33 @@ def resolve_formatter(formatter):
     if callable(formatter):
         return formatter
     raise TypeError("formatter must be None, a string or a callable")
+
+
+def without_markup(formatter):
+    """
+    Makes a formatter that removes the colour tags of the message first, for an output that is not the console.
+
+    A message written with tags such as ``<red>failed</red>`` is meant for a console that reads them. A file or a
+    JSON output would keep the tags as text, and this gives them the plain message.
+
+    .. code-block:: python
+
+        logger.set_sink_formatter(FILE_SINK, without_markup("text"))
+
+    :Parameters:
+        #. formatter (None, str, callable): Anything :func:`resolve_formatter` accepts.
+
+    :Returns:
+        #. renderer (callable): ``f(record) -> str``, the formatter's text for the record with its message cleaned.
+
+    :Raises:
+        #. ValueError: If *formatter* is a string that is neither a keyword nor a template.
+        #. TypeError: If *formatter* is none of the accepted types.
+    """
+    render = resolve_formatter(formatter)
+
+    def render_plain(record):
+        """Returns the text of the record with the colour tags of its message removed."""
+        _require_record(record)
+        return render(record._replace(message=render_markup(record.message, False)))
+    return render_plain
