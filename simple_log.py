@@ -3898,8 +3898,9 @@ class Logger(object):
                ``'error'``, its name such as ``'ERROR'``, or a number. None means no floor.
             #. filter (None, callable): ``f(record) -> bool`` that picks the records, see
                :func:`pysimplelog.filters.match_logger`.
-            #. rotation (None, str, int, float): The size at which a file is rotated, ``"500 MB"`` or a number of
-               megabytes. Files only.
+            #. rotation (None, str, int, float, tuple): The size at which a file is rotated, ``"500 MB"`` or a number of
+               megabytes. A period (``"hourly"``, ``"daily"``, ``"weekly"`` or ``"monthly"``) rotates by time, and
+               ``("daily", "500 MB")`` rotates at whichever comes first. Files only.
             #. retention (None, str, int): ``"30 days"`` deletes rotated files that old. A whole number keeps that
                many files. Files only.
             #. compression (None, str): ``'gz'`` compresses a file when it is rotated. Files only.

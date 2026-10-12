@@ -4,9 +4,9 @@ import os
 import re
 
 try:
-    from .sinks import FileSink
+    from .sinks import FileSink, ROTATE_PERIODS
 except ImportError:
-    from sinks import FileSink
+    from sinks import FileSink, ROTATE_PERIODS
 
 SIZE_UNITS_IN_MEGABYTES = {'kb': 1 / 1024, 'mb': 1, 'gb': 1024}
 DURATION_UNITS_IN_SECONDS = {'second': 1, 'seconds': 1, 'minute': 60, 'minutes': 60, 'hour': 3600,
@@ -40,13 +40,52 @@ def parse_size(rotation):
 
     :Raises:
         #. TypeError: If *rotation* is not a text or a number.
-        #. ValueError: If the text has no known unit. A time of day such as ``"00:00"`` is not supported.
+        #. ValueError: If the text has no known unit.
     """
     if isinstance(rotation, bool) or not isinstance(rotation, (str, int, float)):
         raise TypeError("rotation must be a text such as '500 MB' or a number of megabytes")
     if isinstance(rotation, str):
         return _parse_amount(rotation, SIZE_UNITS_IN_MEGABYTES, "rotation")
     return float(rotation)
+
+
+def _is_period(rotation):
+    """Tells whether a value is the name of a rotation period, such as ``"daily"``."""
+    return isinstance(rotation, str) and rotation.strip().lower() in ROTATE_PERIODS
+
+
+def parse_rotation(rotation):
+    """
+    Splits a rotation into a period and a size.
+
+    .. code-block:: python
+
+        parse_rotation("daily")                ## ('daily', None)
+        parse_rotation("500 MB")               ## (None, 500.0)
+        parse_rotation(("daily", "500 MB"))    ## ('daily', 500.0)
+
+    :Parameters:
+        #. rotation (str, int, float, tuple): A size such as ``"500 MB"``, a period (``"hourly"``, ``"daily"``, ``"weekly"`` or
+           ``"monthly"``), or a tuple of a period and a size, which rotates at whichever comes first.
+
+    :Returns:
+        #. rotateEvery, megabytes (str | None, float | None): The period and the size, None for the one not given.
+
+    :Raises:
+        #. TypeError: If *rotation* is not a text, a number or a tuple.
+        #. ValueError: If the text is neither a size nor a period, or a tuple is not (period, size).
+    """
+    if isinstance(rotation, tuple):
+        if len(rotation) != 2 or not _is_period(rotation[0]):
+            raise ValueError("a tuple rotation must be (period, size), for example ('daily', '500 MB')")
+        return rotation[0].strip().lower(), parse_size(rotation[1])
+    if _is_period(rotation):
+        return rotation.strip().lower(), None
+    try:
+        return None, parse_size(rotation)
+    except ValueError:
+        raise ValueError(f"rotation must be a size such as '500 MB', one of {sorted(ROTATE_PERIODS)}, "
+                         f"or a tuple of both, got {rotation!r}") from None
 
 
 def parse_duration(retention):
@@ -82,7 +121,7 @@ def build_file_sink(path, formatter, rotation, retention, compression):
     :Parameters:
         #. path (str, os.PathLike): The file, with an extension, for example ``logs/app.log``.
         #. formatter (None, str, callable): How a record becomes text, see :func:`pysimplelog.formatters.resolve_formatter`.
-        #. rotation (None, str, int, float): The size at which the file is rotated, see :func:`parse_size`.
+        #. rotation (None, str, int, float, tuple): The size or period at which the file is rotated, see :func:`parse_rotation`.
         #. retention (None, str, int): A text such as ``"30 days"`` deletes rotated files that age. A whole
            number keeps that many files.
         #. compression (None, str): ``'gz'`` compresses a file when it is rotated.
@@ -97,8 +136,8 @@ def build_file_sink(path, formatter, rotation, retention, compression):
     basename, extension = os.path.splitext(os.fspath(path))
     if extension == '':
         raise ValueError(f"the file {str(path)!r} needs an extension, for example 'app.log'")
-    maxSize = None if rotation is None else parse_size(rotation)
-    if retention is not None and maxSize is None:
+    rotateEvery, maxSize = (None, None) if rotation is None else parse_rotation(rotation)
+    if retention is not None and maxSize is None and rotateEvery is None:
         raise ValueError("retention needs rotation: without it the file is never rotated, so there is nothing to delete")
     maxAge = None
     roll = None
@@ -111,4 +150,4 @@ def build_file_sink(path, formatter, rotation, retention, compression):
     # A file that never rotates keeps its plain name, numbers only tell the files of a rotation apart
     firstNumber = None if maxSize is None else 0
     return FileSink(basename, extension=extension, formatter=formatter, maxSize=maxSize, roll=roll,
-                    firstNumber=firstNumber, compress=compression, maxAge=maxAge)
+                    firstNumber=firstNumber, compress=compression, maxAge=maxAge, rotateEvery=rotateEvery)

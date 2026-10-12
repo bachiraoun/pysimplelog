@@ -108,6 +108,9 @@ See the values that caused it
   length, such as ``<dict len=3>``. ``"full"`` shows the ``repr`` of everything.
 * A variable whose name contains ``password``, ``token``, ``authorization``, ``api_key``, ``ssn``, ``credit_card``, ``secret``, ``cookie`` or ``credential``
   always shows ``<redacted>``. Add names with ``Logger(..., diagnoseRedact=("card",))``.
+  In ``"full"`` mode, the value of a key with such a name inside a dictionary is hidden too, three levels deep. An object that
+  writes itself as ``password='...'`` is cleaned by ``redact_patterns``, so add it.
+* Text in the quoted source line is shown unless a pattern matches it.
 * The values are in the record, so **every** output gets them, files and network sinks included. Use it in development, not in
   production.
 * The values come from the source lines of your files, so it shows nothing for code typed into an interactive prompt.

@@ -39,6 +39,8 @@ Loguru                                    pysimplelog
 
 Differences to know:
 
+* Rotation by time is ``rotation="daily"`` (also ``"hourly"``, ``"weekly"``, ``"monthly"``), see :doc:`files`. A time of day such as
+  Loguru's ``"00:00"`` and the other compression formats are not supported.
 * The shared ``logger`` writes to the **standard output** in its own layout, not to the error stream.
 * ``format`` is a template with ``{timestamp}``, ``{severity}``, ``{message}`` and your fields, not Loguru's ``{time}``, ``{level}``.
 * Fields are passed as keyword arguments and kept as separate values, where Loguru uses ``bind`` for them.

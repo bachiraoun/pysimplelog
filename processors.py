@@ -327,7 +327,9 @@ TEXT_PATTERNS = MappingProxyType({
     'bearer': r"(?i)\bbearer\s+(?P<secret>[A-Za-z0-9._~+/=-]+)",
     # The lookbehind, and not \b, because \b allows a new start after every hyphen and the search then takes quadratic time on text like "eyJ-eyJ-eyJ-"
     'jwt': r"(?<![A-Za-z0-9_-])(?P<secret>eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)",
-    'assignment': r"(?i)\b(?:password|passwd|pwd|token|secret|api[_-]?key|authorization)\s*[=:]\s*(?P<secret>[^\s,;&\"']+)",
+    # A quoted value is read up to the closing quote so it may hold spaces, but never past the end of the line, so that a quote that
+    # is never closed cannot hide the text that follows. An unquoted value stops at a closing bracket as well
+    'assignment': r"(?i)\b(?:password|passwd|pwd|token|secret|api[_-]?key|authorization)\s*[=:]\s*[\"']?(?P<secret>(?<=[\"'])[^\"'\r\n]+|[^\s,;&\"')]+)",
 })
 
 

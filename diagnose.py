@@ -15,6 +15,8 @@ except ImportError:
 
 DIAGNOSE_MODES = ('summary', 'full')
 MAX_VALUE_LENGTH = 200
+MAX_CONTAINER_ITEMS = 50
+MAX_CONTAINER_DEPTH = 3
 REDACTED_TEXT = '<redacted>'
 
 # A name after a dot is an attribute, not a variable of the frame
@@ -95,21 +97,52 @@ def _frame_variable_lines(frame, lineNumber, mode, sensitiveNames):
         value = frame.f_locals[name]
         if isinstance(value, _NOT_SHOWN_TYPES):
             continue
-        isSensitive = any(sensitive in _normalize_name(name) for sensitive in sensitiveNames)
-        shownValue = REDACTED_TEXT if isSensitive else _describe_value(value, mode)
+        isSensitive = _is_sensitive_name(name, sensitiveNames)
+        shownValue = REDACTED_TEXT if isSensitive else _describe_value(value, mode, sensitiveNames)
         lines.append(f"        {name} = {shownValue}")
     return lines
 
 
-def _describe_value(value, mode):
-    """Writes a value as short text, cut to a maximum length. It never fails: a value that cannot be printed gives a placeholder."""
+def _is_sensitive_name(name, sensitiveNames):
+    """Tells whether a name contains one of the sensitive names, such as ``password``."""
+    normalized = _normalize_name(name)
+    return any(sensitive in normalized for sensitive in sensitiveNames)
+
+
+def _hide_sensitive_values(value, sensitiveNames, depth=0):
+    """Returns a copy of a container where the value of every sensitive key is replaced, so that its ``repr`` leaks nothing."""
+    if depth >= MAX_CONTAINER_DEPTH:
+        return value
+    if isinstance(value, dict):
+        hidden = {}
+        for key, item in list(value.items())[:MAX_CONTAINER_ITEMS]:
+            isSensitive = isinstance(key, str) and _is_sensitive_name(key, sensitiveNames)
+            hidden[key] = REDACTED_TEXT if isSensitive else _hide_sensitive_values(item, sensitiveNames, depth + 1)
+        return hidden
+    if isinstance(value, (list, tuple)):
+        return [_hide_sensitive_values(item, sensitiveNames, depth + 1) for item in value[:MAX_CONTAINER_ITEMS]]
+    return value
+
+
+def _describe_value(value, mode, sensitiveNames):
+    """
+    Writes a value as short text, cut to a maximum length. It never fails: a value that cannot be printed gives a placeholder.
+
+    :Parameters:
+        #. value (object): The value to write.
+        #. mode (str): 'summary' or 'full', see :func:`format_exception_with_values`.
+        #. sensitiveNames (tuple): Normalised sensitive names. In 'full' mode, the value of a dictionary key with one of them is hidden.
+
+    :Returns:
+        #. text (str): The value as short text.
+    """
     try:
         if mode == 'summary' and type(value) not in _PLAIN_TYPES:
             try:
                 return f"<{type(value).__name__} len={len(value)}>"
             except Exception:
                 return f"<{type(value).__name__}>"
-        text = repr(value)
+        text = repr(_hide_sensitive_values(value, sensitiveNames))
     except Exception as error:
         return f"<repr failed: {type(error).__name__}>"
     if len(text) > MAX_VALUE_LENGTH:

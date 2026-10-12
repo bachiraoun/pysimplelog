@@ -8,6 +8,7 @@ import stat
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 
 try:
     import fcntl
@@ -31,6 +32,10 @@ COMPRESS_LEVEL = 6
 COMPRESS_JOIN_SECONDS = 10.0
 # Windows changes line breaks in a file opened without this flag. Other systems have no such flag
 _BINARY = getattr(os, 'O_BINARY', 0)
+# The name of a period is its start written so that the names sort in time order
+ROTATE_PERIODS = {'hourly': '%Y-%m-%dT%H', 'daily': '%Y-%m-%d', 'weekly': '%G-W%V', 'monthly': '%Y-%m'}
+ROTATE_KEY_PATTERNS = {'hourly': r'\d{4}-\d{2}-\d{2}T\d{2}', 'daily': r'\d{4}-\d{2}-\d{2}',
+                       'weekly': r'\d{4}-W\d{2}', 'monthly': r'\d{4}-\d{2}'}
 
 # What deliver() answers: the record went through, it can be tried again later, or it can never be delivered
 DELIVERED = 'delivered'
@@ -189,6 +194,17 @@ def _check_max_age(maxAge):
     if maxAge <= 0:
         raise ValueError("maxAge must be positive")
     return maxAge
+
+
+def _check_rotate_every(rotateEvery):
+    """Returns the period after which a new file is started, or None for no time rotation, after checking it."""
+    if rotateEvery is None:
+        return None
+    if not isinstance(rotateEvery, str):
+        raise TypeError("rotateEvery must be None or a string")
+    if rotateEvery not in ROTATE_PERIODS:
+        raise ValueError(f"rotateEvery must be one of {sorted(ROTATE_PERIODS)}, got {rotateEvery!r}")
+    return rotateEvery
 
 
 def _check_first_number(firstNumber):
@@ -899,10 +915,11 @@ class CallbackSink(Sink):
 
 class FileSink(Sink):
     """
-    An output that writes to a log file, and starts a new file when the current one is full.
+    An output that writes to a log file, and starts a new file when the current one is full or its period is over.
 
     In plain words: give it a path without extension and a limit, and it keeps ``app_0.log``, ``app_1.log`` and so on, deleting
-    or compressing the old ones as you say. ``logger.add("app.log", rotation=...)`` builds one for you.
+    or compressing the old ones as you say. With *rotateEvery* the files are named by date instead, ``app_2026-10-11.log``.
+    ``logger.add("app.log", rotation=...)`` builds one for you.
 
     Files are named ``<basename>_<N>.<extension>``, and ``<basename>.<extension>`` when
     *firstNumber* is None. The sink continues in the newest file that already exists, and starts the
@@ -933,7 +950,7 @@ class FileSink(Sink):
         #. firstNumber (None, int): Number of the first file, at least 0. None means the first file has no
            number and the second one is numbered 0.
         #. compress (None, str): ``gz`` compresses a file when it has been rotated out, ``app_3.log`` becomes
-           ``app_3.log.gz``. None leaves it as it is. It needs *maxSize*, because without it nothing is rotated out.
+           ``app_3.log.gz``. None leaves it as it is. It needs *maxSize* or *rotateEvery*, because without them nothing is rotated out.
            A thread of its own does it, so the thread that logs never waits, and the original is deleted only after the
            compressed file is complete. Compressed files count for *roll* and keep their numbers.
         #. maxAge (None, int, float): Seconds after which a rotated file is deleted, counted from its last change. None
@@ -947,10 +964,15 @@ class FileSink(Sink):
            it. None leaves them to the operating system, which usually lets every user of the machine read the file. The
            ``umask`` of the system can still remove permissions. It has little effect on Windows. A compressed file always
            gets the permissions of the file it replaces.
+        #. rotateEvery (None, str): ``'hourly'``, ``'daily'``, ``'weekly'`` or ``'monthly'`` starts a new file at the start of each
+           period, in local time. Files are named ``app_2026-10-11.log`` (``app_2026-10-11T05.log``, ``app_2026-W41.log`` and
+           ``app_2026-10.log`` for the other periods), and with *maxSize* a split inside a period adds ``_1``, ``_2``.
+           *firstNumber* is not used. Files of another period type, or numbered files, that already exist are left alone.
+           A record of an earlier period, late because of another thread, stays in the current file.
 
     :Raises:
         #. TypeError: If an argument has the wrong type. A boolean is not accepted where a number is expected.
-        #. ValueError: If basename or extension is empty, or maxSize, roll, firstNumber or fileMode is out of range.
+        #. ValueError: If basename or extension is empty, or maxSize, roll, firstNumber, fileMode or rotateEvery is out of range.
 
     .. code-block:: python
 
@@ -965,7 +987,8 @@ class FileSink(Sink):
     RETENTION_CHECK_SECONDS = 60.0
 
     def __init__(self, basename, extension='log', formatter='text', flush='flush', terminator='\n',
-                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False, fileMode=None):
+                 maxSize=None, roll=None, firstNumber=0, compress=None, maxAge=None, startLazily=False, fileMode=None,
+                 rotateEvery=None):
         super().__init__(formatter, terminator)
         # Fixed now, so a program that changes its working folder later keeps writing in the same place
         self.__basename = os.path.abspath(_check_basename(basename))
@@ -977,8 +1000,9 @@ class FileSink(Sink):
         self.__compress = _check_compress(compress)
         self.__maxAge = _check_max_age(maxAge)
         self.__fileMode = _check_file_mode(fileMode)
-        if self.__compress is not None and self.__maxBytes is None:
-            raise ValueError("compress needs maxSize: without it no file is ever rotated out, so nothing would be compressed")
+        self.__rotateEvery = _check_rotate_every(rotateEvery)
+        if self.__compress is not None and self.__maxBytes is None and self.__rotateEvery is None:
+            raise ValueError("compress needs maxSize or rotateEvery: without them no file is ever rotated out, so nothing would be compressed")
         self.__lock = threading.Lock()
         self.__stream = None
         self.__size = 0
@@ -993,6 +1017,8 @@ class FileSink(Sink):
         self.__counters = {'files_deleted': 0, 'files_compressed': 0, 'compress_failed': 0}
         # The file being written is not chosen yet, and the choice already looks at it
         self.__path = None
+        # The period of the file being written, in the form of ROTATE_PERIODS. None before the first choice and without time rotation
+        self.__periodKey = None
         if not startLazily:
             self.__path = self._choose_path()
 
@@ -1045,10 +1071,13 @@ class FileSink(Sink):
         data = text.encode('utf-8', 'backslashreplace')
         with self.__lock:
             if self.__stream is None:
+                # A closed or lazy sink may wake up in a later period than the file it remembers
+                if self._is_new_period(record):
+                    self.__path = self._choose_path(record.timestamp)
                 self.__stream = self._open_stream()
-            elif self.__maxBytes is not None and self.__size >= self.__maxBytes:
+            elif self._must_rotate(record):
                 self._close_stream()
-                self.__path = self._choose_path()
+                self.__path = self._choose_path(record.timestamp)
                 self.__stream = self._open_stream()
             self.__stream.write(data)
             self.__size += len(data)
@@ -1058,6 +1087,29 @@ class FileSink(Sink):
                 if now >= self.__nextCheck:
                     self.__nextCheck = now + self.RETENTION_CHECK_SECONDS
                     self._tidy(self.__path)
+
+    def _now(self):
+        """Returns the current time, timezone aware."""
+        return datetime.now(timezone.utc)
+
+    def _period_key(self, timestamp):
+        """Returns the name of the period a time falls in, in local time, such as ``2026-10-11`` for a day."""
+        return timestamp.astimezone().strftime(ROTATE_PERIODS[self.__rotateEvery])
+
+    def _is_new_period(self, record):
+        """
+        Tells whether a record belongs to a later period than the file being written.
+
+        A record of an earlier period, late because of another thread, stays in the current file: the files must never go back and forth.
+        """
+        if self.__rotateEvery is None:
+            return False
+        return self.__periodKey is None or self._period_key(record.timestamp) > self.__periodKey
+
+    def _must_rotate(self, record):
+        """Tells whether the file is full, or the record belongs to a later period."""
+        isFull = self.__maxBytes is not None and self.__size >= self.__maxBytes
+        return isFull or self._is_new_period(record)
 
     def flush(self):
         """
@@ -1119,8 +1171,8 @@ class FileSink(Sink):
         """
         maxBytes = _check_max_size(maxSize)
         with self.__lock:
-            if maxBytes is None and self.__compress is not None:
-                raise ValueError("maxSize cannot be removed while compress is on, turn compress off first")
+            if maxBytes is None and self.__compress is not None and self.__rotateEvery is None:
+                raise ValueError("maxSize cannot be removed while compress is on and there is no rotateEvery, turn compress off first")
             self.__maxBytes = maxBytes
 
     def set_roll(self, roll):
@@ -1155,12 +1207,12 @@ class FileSink(Sink):
 
         :Raises:
             #. TypeError: If compress is not a string or None.
-            #. ValueError: If compress is not a format, or is given when there is no *maxSize*.
+            #. ValueError: If compress is not a format, or is given when there is no *maxSize* and no *rotateEvery*.
         """
         compress = _check_compress(compress)
         with self.__lock:
-            if compress is not None and self.__maxBytes is None:
-                raise ValueError("compress needs maxSize: without it no file is ever rotated out")
+            if compress is not None and self.__maxBytes is None and self.__rotateEvery is None:
+                raise ValueError("compress needs maxSize or rotateEvery: without them no file is ever rotated out")
             self.__compress = compress
 
     def set_max_age(self, maxAge):
@@ -1262,7 +1314,10 @@ class FileSink(Sink):
         Returns ``(number, path)`` of the log files that exist, oldest first. The file without a number is the oldest.
 
         A compressed file is listed with its path ending in ``.gz``, and it counts like any other file.
+        With time rotation the dated files are listed, and the number is the split number inside the period.
         """
+        if self.__rotateEvery is not None:
+            return [(number, path) for _, number, path in self._list_dated()]
         directory, stem = os.path.split(self.__basename)
         pattern = re.compile(rf"^{re.escape(stem)}(?:_(\d+))?\.{re.escape(self.__extension)}(?:\.gz)?$")
         files = []
@@ -1272,6 +1327,25 @@ class FileSink(Sink):
             if match is not None and os.path.isfile(path):
                 files.append((None if match.group(1) is None else int(match.group(1)), path))
         files.sort(key=lambda entry: -1 if entry[0] is None else entry[0])
+        return files
+
+    def _dated_path(self, key, number):
+        """Returns the path of the file of a period, with the split number when it is not the first of the period."""
+        suffix = '' if number is None else f"_{number}"
+        return f"{self.__basename}_{key}{suffix}.{self.__extension}"
+
+    def _list_dated(self):
+        """Returns ``(key, number, path)`` of the dated log files that exist, oldest first. *number* is None for the first file of a period."""
+        directory, stem = os.path.split(self.__basename)
+        keyPattern = ROTATE_KEY_PATTERNS[self.__rotateEvery]
+        pattern = re.compile(rf"^{re.escape(stem)}_({keyPattern})(?:_(\d+))?\.{re.escape(self.__extension)}(?:\.gz)?$")
+        files = []
+        for fileName in os.listdir(directory if len(directory) > 0 else '.'):
+            match = pattern.match(fileName)
+            path = os.path.join(directory, fileName)
+            if match is not None and os.path.isfile(path):
+                files.append((match.group(1), None if match.group(2) is None else int(match.group(2)), path))
+        files.sort(key=lambda entry: (entry[0], 0 if entry[1] is None else entry[1]))
         return files
 
     def _enforce_retention(self, files, number):
@@ -1384,7 +1458,7 @@ class FileSink(Sink):
                 if plain in paths and plain not in busy and plain != self.__path:
                     self._remove(plain)
         directory, stem = os.path.split(self.__basename)
-        pattern = re.compile(rf"^{re.escape(stem)}(?:_\d+)?\.{re.escape(self.__extension)}\.gz\.tmp$")
+        pattern = re.compile(rf"^{re.escape(stem)}(?:_[0-9TW-]+(?:_\d+)?)?\.{re.escape(self.__extension)}\.gz\.tmp$")
         for fileName in os.listdir(directory if len(directory) > 0 else '.'):
             if pattern.match(fileName):
                 temporary = os.path.join(directory, fileName)
@@ -1510,8 +1584,49 @@ class FileSink(Sink):
         except OSError:
             return 0
 
-    def _choose_path(self):
-        """Creates the directory if needed, applies retention, and returns the path of the file to write to."""
+    def _is_closed(self, path):
+        """Tells whether a file cannot be written to again: it was compressed, or it has reached the size limit."""
+        # A plain file next to its compressed twin would be taken for a leftover and deleted, so the compressed one always counts
+        if os.path.isfile(f"{path}.gz"):
+            return True
+        return self.__maxBytes is not None and os.path.isfile(path) and self._size_of(path) >= self.__maxBytes
+
+    def _choose_dated_path(self, timestamp):
+        """Returns the file of the period *timestamp* falls in: the newest of the period when it has room, else the next split."""
+        directory = os.path.dirname(self.__basename)
+        if len(directory) > 0:
+            os.makedirs(directory, exist_ok=True)
+        self._remove_twins()
+        key = self._period_key(self._now() if timestamp is None else timestamp)
+        entries = self._list_dated()
+        numbers = [number for entryKey, number, _ in entries if entryKey == key]
+        number = numbers[-1] if len(numbers) > 0 else None
+        path = self._dated_path(key, number)
+        while self._is_closed(path):
+            number = 1 if number is None else number + 1
+            path = self._dated_path(key, number)
+        if self.__roll is not None and not os.path.isfile(path):
+            # Room for the file about to be started
+            files = [entryPath for _, _, entryPath in entries]
+            while len(files) >= self.__roll:
+                self._remove(files.pop(0))
+        self._tidy(path)
+        self.__periodKey = key
+        return path
+
+    def _choose_path(self, timestamp=None):
+        """
+        Creates the directory if needed, applies retention, and returns the path of the file to write to.
+
+        :Parameters:
+            #. timestamp (datetime.datetime, None): The time of the record that needs the file, used to find its period when the sink
+               rotates by time. None uses the current time.
+
+        :Returns:
+            #. path (str): The file to write to.
+        """
+        if self.__rotateEvery is not None:
+            return self._choose_dated_path(timestamp)
         directory = os.path.dirname(self.__basename)
         if len(directory) > 0:
             os.makedirs(directory, exist_ok=True)
