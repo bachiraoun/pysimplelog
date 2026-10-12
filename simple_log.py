@@ -1182,12 +1182,7 @@ class _BoundLogger(object):
         :Returns:
             #. result (string): The logged message returned by parent.log().
         """
-        previous = CURRENT_CONTEXT.get()
-        token = CURRENT_CONTEXT.set({**previous, **self.__context} if len(previous) > 0 else self.__context)
-        try:
-            return self.__parent.log(logType, message, *args, exc_info=exc_info, countConstraint=countConstraint, **fields)
-        finally:
-            CURRENT_CONTEXT.reset(token)
+        return self._log_call(logType, message, args, fields, exc_info, countConstraint, False, 0)
 
     def force_log(self, logType, message, *args, exc_info=None, countConstraint=None, sinks=None, **fields):
         """

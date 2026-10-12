@@ -322,6 +322,42 @@ class TestBind(unittest.TestCase):
         logger.info('m')
         self.assertEqual(contexts(stream), [{}])
 
+    def test_log_with_a_log_type_keeps_the_arguments_the_fields_and_the_bound_values(self):
+        logger, stream = make_logger()
+        logger.bind(user='ann').log('warn', 'order {} for {name}', 7, name='bob', amount=3)
+        parsed = json.loads(stream.getvalue())
+        self.assertEqual(parsed['message'], 'order 7 for bob')
+        self.assertEqual(parsed['context'], {'user': 'ann'})
+        self.assertEqual(parsed['fields']['amount'], 3)
+        self.assertEqual(parsed['severity'], 'WARNING')
+
+    def test_log_passes_the_exception_and_the_count_limit_on(self):
+        logger, stream = make_logger()
+        bound = logger.bind(user='ann')
+        try:
+            raise ValueError('boom')
+        except ValueError as error:
+            bound.log('error', 'failed', exc_info=error)
+        for _ in range(5):
+            bound.log('info', 'limited', countConstraint=2)
+        lines = [json.loads(line) for line in stream.getvalue().splitlines()]
+        self.assertEqual(lines[0]['exception']['type'], 'ValueError')
+        self.assertEqual([line['message'] for line in lines[1:]], ['limited', 'limited'])
+
+    def test_the_block_is_left_as_it_was_after_a_call_that_fails(self):
+        logger, _ = make_logger()
+        with context(a=1):
+            with self.assertRaises(Exception):
+                logger.bind(b=2).log('no such type', 'm')
+            self.assertEqual(dict(current_context()), {'a': 1})
+        self.assertEqual(dict(current_context()), {})
+
+    def test_a_lazy_value_sees_the_bound_values_while_the_call_runs(self):
+        logger, stream = make_logger()
+        seen = []
+        logger.bind(user='ann').opt(lazy=True).info('m {}', lambda: seen.append(dict(current_context())) or 'x')
+        self.assertEqual(seen, [{'user': 'ann'}])
+
     def test_a_bound_logger_called_from_two_threads_does_not_mix(self):
         logger, stream = make_logger()
         bound = [logger.bind(who=number) for number in range(4)]
