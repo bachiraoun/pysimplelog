@@ -1019,6 +1019,8 @@ class FileSink(Sink):
         self.__path = None
         # The period of the file being written, in the form of ROTATE_PERIODS. None before the first choice and without time rotation
         self.__periodKey = None
+        # The last minute asked about and its period name, see _period_key
+        self.__keyCache = (None, None)
         if not startLazily:
             self.__path = self._choose_path()
 
@@ -1094,7 +1096,14 @@ class FileSink(Sink):
 
     def _period_key(self, timestamp):
         """Returns the name of the period a time falls in, in local time, such as ``2026-10-11`` for a day."""
-        return timestamp.astimezone().strftime(ROTATE_PERIODS[self.__rotateEvery])
+        # Every period starts on a whole minute, so records of the same minute share the answer and the date is written once
+        minute = int(timestamp.timestamp()) // 60
+        cachedMinute, cachedKey = self.__keyCache
+        if minute == cachedMinute:
+            return cachedKey
+        key = timestamp.astimezone().strftime(ROTATE_PERIODS[self.__rotateEvery])
+        self.__keyCache = (minute, key)
+        return key
 
     def _is_new_period(self, record):
         """
@@ -1608,8 +1617,16 @@ class FileSink(Sink):
         if self.__roll is not None and not os.path.isfile(path):
             # Room for the file about to be started
             files = [entryPath for _, _, entryPath in entries]
-            while len(files) >= self.__roll:
-                self._remove(files.pop(0))
+            with self.__workLock:
+                busy = set(self.__busy)
+            for entryPath in list(files):
+                if len(files) < self.__roll:
+                    break
+                # A file being compressed stays, or its compressed copy would appear after it is deleted. The next test removes it
+                if entryPath in busy:
+                    continue
+                files.remove(entryPath)
+                self._remove(entryPath)
         self._tidy(path)
         self.__periodKey = key
         return path
