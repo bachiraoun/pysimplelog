@@ -81,6 +81,22 @@ the machine, and the files are named by date:
   to an earlier period.
 * Files of another kind, such as numbered files or files of another period, are left alone, and are not counted for ``retention``.
 
+.. _files-from-outside:
+
+Files moved or deleted from outside
+-----------------------------------
+
+A sink holds its file open. If another program renames it, as ``logrotate`` does, the sink keeps writing to the renamed file. If
+the folder is deleted, the records go to a file that no longer has a name, and they are lost until the next rotation makes the
+folder again. Neither is reported. Prefer the rotation of ``add``. If you must rotate from outside, tell the sink after the rename:
+
+.. code-block:: python
+
+    sink = logger.sinks["app"]            ## the name you gave to add(..., name="app")
+    sink.set_path("logs/app", "log")      ## closes the old file and opens a new one
+
+On Windows a program cannot rename or delete a file that is open, so the other program gets the error.
+
 Choose what goes in the file
 ----------------------------
 

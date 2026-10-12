@@ -34,6 +34,7 @@ EXPECTED = {
     '18_namespaces_and_environment.py': (['visible again', 'written as JSON', 'the argument wins'], ['silenced', 'not written']),
     '19_force_log.py': (['Shutting down', 'Audit trail broken'], ['nobody sees this', 'not written']),
     '20_many_processes.py': (['300 records, every line complete JSON'], ['in order: False']),
+    '21_recipes.py': (['order 42 shipped', "sent: ['ERROR: payment failed for order 42']"], ["sent: ['INFO"]),
 }
 
 

@@ -8,6 +8,7 @@ jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       # One failing system must not hide the result of the others
       fail-fast: false
@@ -19,5 +20,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # With these packages the tests that check the OpenTelemetry encoding and tracing run instead of being skipped
+      - name: Install the optional packages
+        run: python -m pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-common protobuf
       - name: Run the tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
+      # A race shows up in some runs only, so the tests that depend on timing run again
+      - name: Repeat the tests that depend on timing
+        run: python tests/run_tests.py --quiet --repeat 5 rotation time_rotation file_faults concurrency catch hardening

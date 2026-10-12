@@ -64,6 +64,11 @@ Let a function or a block catch the errors
 
 ``catch(logType="critical", reraise=True)`` logs and then raises the error again.
 
+* Only errors are caught. ``sys.exit()``, Ctrl-C and task cancellation pass through.
+* It does not catch an error inside an ``async def`` function or a generator: the error happens later, when the function is awaited
+  or iterated. Put ``with logger.catch():`` inside the function instead.
+* The text of the error is escaped, like any value in a message, so a line break in it cannot forge a log line.
+
 A shorter traceback
 -------------------
 

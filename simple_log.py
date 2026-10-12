@@ -1042,11 +1042,19 @@ class _Sink(object):
         )
 
 
+def _printable(value):
+    """Returns the text of a value, or a placeholder when its own ``str`` raises, so that logging an error cannot fail on the error."""
+    try:
+        return str(value)
+    except Exception:
+        return f"<{type(value).__name__} could not be printed>"
+
+
 class _CatchContext(object):
     """
     What ``logger.catch()`` returns: it works as a ``with`` block and as a decorator. Use ``logger.catch()`` and not this class.
 
-    Catches any exception escaping the wrapped callable or the ``with``
+    Catches any error (a subclass of ``Exception``) escaping the wrapped callable or the ``with``
     block, logs it through the parent Logger, and optionally re-raises.
 
     Do not instantiate directly -- use ``Logger.catch()``.
@@ -1062,11 +1070,22 @@ class _CatchContext(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            msg = f"{self._message}: {exc_val}"
-            self._logger.log(self._logType, msg, exc_info=(exc_type, exc_val, exc_tb))
-            return not self._reraise   # True suppresses; False re-raises
-        return False
+        # Exits and interruptions (SystemExit, KeyboardInterrupt, GeneratorExit, task cancellation) are not errors to log and carry on from
+        if exc_type is None or not issubclass(exc_type, Exception):
+            return False
+        try:
+            # The text goes in as a value, not into the message, so a line break in it cannot forge a log line
+            self._logger.log(self._logType, "{}: {}", self._message, _printable(exc_val), exc_info=(exc_type, exc_val, exc_tb))
+        except Exception as error:
+            # Not logged, so the error must not be hidden as well
+            try:
+                sys.stderr.write(f"pysimplelog WARNING: catch() could not log {exc_type.__name__}, it is raised again. "
+                                 f"Error: {type(error).__name__}: {error}\n")
+            except (OSError, ValueError):
+                # The error stream is closed or broken, the original error still passes
+                pass
+            return False
+        return not self._reraise   # True suppresses; False re-raises
 
     def __call__(self, func):
         """Allow the context manager instance to be used as a decorator."""
@@ -1399,6 +1418,10 @@ class _BoundLogger(object):
         """
         Logs an error instead of letting it stop the program, with the bound values attached. It works as a decorator and as a
         ``with`` block, like :meth:`Logger.catch`.
+
+        Only errors (subclasses of ``Exception``) are caught. ``sys.exit()``, Ctrl-C and the cancellation of a task pass through,
+        so the program can still be stopped. If the error cannot be logged, for example because of an unknown *logType*, a warning
+        goes to the error stream and the original error is raised, even when *reraise* is False.
 
         .. code-block:: python
 
@@ -5199,6 +5222,10 @@ class Logger(object):
         Logs an error instead of letting it stop the program. It works as a decorator and as a ``with`` block.
 
         The message and the traceback pass through your processors like any other record, see :meth:`add_processor`.
+
+        Only errors (subclasses of ``Exception``) are caught. ``sys.exit()``, Ctrl-C and the cancellation of a task pass through,
+        so the program can still be stopped. If the error cannot be logged, for example because of an unknown *logType*, a warning
+        goes to the error stream and the original error is raised, even when *reraise* is False.
 
         .. code-block:: python
 

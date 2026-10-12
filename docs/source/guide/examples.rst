@@ -46,8 +46,10 @@ it shows. Run one from the folder that holds the ``pysimplelog`` folder, or with
      - A message that must appear, and where it goes.
    * - ``20_many_processes.py``
      - Several processes, each with its own logger and a file of its own.
+   * - ``21_recipes.py``
+     - Your own log types, and a function that sends errors to Slack, a webhook or email.
 
-The scripts ``01``, ``02``, ``08``, ``09`` and ``13`` to ``20`` are run by ``tests/test_examples.py``, so they stay correct when the
+The scripts ``01``, ``02``, ``08``, ``09`` and ``13`` to ``21`` are run by ``tests/test_examples.py``, so they stay correct when the
 library changes.
 
 Next: :doc:`hello_world` if you have not read the guide yet.

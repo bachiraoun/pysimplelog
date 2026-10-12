@@ -75,6 +75,23 @@ The checklist
   it starts empty.
 * Context and the list of silenced libraries do not cross into other processes by themselves.
 
+Things to know
+--------------
+
+* **Never use text you do not control as the message.** The message is a template. A line break in it is written as it is, so
+  text from a user can start a line that looks like another record. Pass it as a value, where a line break is written as ``\n``
+  and nothing in it is read as a template: ``logger.info("login failed for {}", userName)``.
+* **A full queue loses records unless you choose otherwise.** The default policy of a sink queue is ``drop_oldest``. A burst of
+  records, or someone who floods your program with requests that log, pushes older records out, and audit lines can be among
+  them. For an audit log use ``"block"`` or a spool, and read ``sink_stats()`` to count what was lost, see :doc:`queue_policies`.
+* **Your own regular expressions can be slow.** ``redact_patterns(custom=...)`` runs every pattern on every text. A pattern with
+  nested repeats, such as ``(a+)+``, can take minutes on a long text. The built-in patterns take time in proportion to the text.
+  Keep yours simple and try them on 10,000 characters.
+* **Diagnostics are never switched on from the environment.** ``diagnose`` writes the values of variables into every output, so
+  it is set in code only. The ``PYSIMPLELOG_`` variables set the level, the format, the colour and the silenced namespaces.
+* **A file moved from outside is not noticed.** See :ref:`files-from-outside`.
+* **The source line of a traceback is shown as it is.** See :doc:`exceptions`.
+
 Concurrency guarantees
 ----------------------
 
