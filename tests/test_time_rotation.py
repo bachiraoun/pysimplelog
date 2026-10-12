@@ -243,6 +243,53 @@ class TestRetention(TimeRotationTestCase):
         wait_until(only_two_remain, 'the old files to go')
         self.assertTrue(self.names()[-1].startswith('app_2026-10-14'))
 
+    def hold_compression_after_the_copy_exists(self):
+        """Returns ``(release, reached, held)``: compression makes the compressed file, then waits for *release* before deleting the original, and *held* gets the path of that original."""
+        release, reached, held = threading.Event(), threading.Event(), []
+        original = FileSink._compress_file
+        real_remove = os.remove
+
+        def slow_remove(target):
+            # os.remove is patched for every thread, and only the compression thread is held
+            if threading.current_thread().name == 'pysimplelog-file-compress' and len(held) == 0:
+                held.append(target)
+                reached.set()
+                release.wait(10)
+            real_remove(target)
+
+        def slow_compress(sink, path):
+            # The real work, with the delete of the original held back: the window where the file and its compressed copy both exist
+            with mock.patch('sinks.os.remove', side_effect=slow_remove):
+                original(sink, path)
+        patcher = mock.patch.object(FileSink, '_compress_file', slow_compress)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(release.set)
+        return release, reached, held
+
+    def test_the_compressed_copy_of_a_file_being_compressed_is_not_deleted_by_the_count(self):
+        release, reached, held = self.hold_compression_after_the_copy_exists()
+        sink = self.make_sink(compress='gz', roll=2)
+        for day in range(11, 15):
+            self.write(sink, f'day {day}', stamp(2026, 10, day, 8))
+        self.assertTrue(reached.wait(10), 'the compression did not get to the delete')
+        sink.enforce_retention()
+        self.assertTrue(os.path.isfile(f"{held[0]}.gz"), 'the compressed copy was deleted while its original was still being compressed')
+        release.set()
+
+    def test_the_age_does_not_delete_the_compressed_copy_of_a_file_being_compressed(self):
+        release, reached, held = self.hold_compression_after_the_copy_exists()
+        sink = self.make_sink(compress='gz', maxAge=3600)
+        self.write(sink, 'old', stamp(2026, 10, 11, 8))
+        self.write(sink, 'new', stamp(2026, 10, 12, 8))
+        self.assertTrue(reached.wait(10), 'the compression did not get to the delete')
+        gzPath = f"{held[0]}.gz"
+        longAgo = time.time() - 7200
+        os.utime(gzPath, (longAgo, longAgo))
+        sink.enforce_retention()
+        self.assertTrue(os.path.isfile(gzPath), 'the compressed copy was deleted while its original was still being compressed')
+        release.set()
+
     def test_a_compressed_period_file_is_never_written_to_again_beside_its_twin(self):
         sink = self.make_sink(compress='gz')
         self.write(sink, 'monday', stamp(2026, 10, 11, 8))

@@ -1415,17 +1415,23 @@ class FileSink(Sink):
         """
         return {'files_deleted': self.enforce_retention()}
 
+    @staticmethod
+    def _is_busy(path, busy):
+        """Tells whether a file is being compressed, or is the compressed copy being finished, which appears before the original is deleted."""
+        return path in busy or (path.endswith('.gz') and path[:-3] in busy)
+
     def _prune_by_count(self, active):
         """Deletes the oldest files until no more than *roll* remain, the file being written and files being compressed stay."""
         if self.__roll is None:
             return
-        files = self._list_existing()
+        # The busy files are read before the listing: a compression that ends in between has then still been counted as busy
         with self.__workLock:
             busy = set(self.__busy)
+        files = self._list_existing()
         for number, path in list(files):
             if len(files) <= self.__roll:
                 break
-            if path == active or path in busy:
+            if path == active or self._is_busy(path, busy):
                 continue
             files.remove((number, path))
             self._remove(path)
@@ -1443,7 +1449,7 @@ class FileSink(Sink):
             busy = set(self.__busy)
         now = time.time()
         for _, path in self._list_existing():
-            if path == active or path in busy:
+            if path == active or self._is_busy(path, busy):
                 continue
             if self.__maxAge is not None and now - self._modified_at(path, now) > self.__maxAge:
                 self._remove(path)
@@ -1607,6 +1613,9 @@ class FileSink(Sink):
             os.makedirs(directory, exist_ok=True)
         self._remove_twins()
         key = self._period_key(self._now() if timestamp is None else timestamp)
+        # The busy files are read before the listing: a compression that ends in between has then still been counted as busy
+        with self.__workLock:
+            busy = set(self.__busy)
         entries = self._list_dated()
         numbers = [number for entryKey, number, _ in entries if entryKey == key]
         number = numbers[-1] if len(numbers) > 0 else None
@@ -1617,13 +1626,11 @@ class FileSink(Sink):
         if self.__roll is not None and not os.path.isfile(path):
             # Room for the file about to be started
             files = [entryPath for _, _, entryPath in entries]
-            with self.__workLock:
-                busy = set(self.__busy)
             for entryPath in list(files):
                 if len(files) < self.__roll:
                     break
                 # A file being compressed stays, or its compressed copy would appear after it is deleted. The next test removes it
-                if entryPath in busy:
+                if self._is_busy(entryPath, busy):
                     continue
                 files.remove(entryPath)
                 self._remove(entryPath)
