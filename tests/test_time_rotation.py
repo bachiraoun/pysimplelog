@@ -56,6 +56,41 @@ def wait_until(condition, what, timeout=WAIT_SECONDS):
     raise AssertionError(f"timed out waiting for {what}")
 
 
+def hold_compression_after_the_copy_exists(testCase):
+    """
+    Makes compression stop after the compressed file exists and before the original is deleted, until released.
+
+    :Parameters:
+        #. testCase (unittest.TestCase): The test, which gets the clean-up.
+
+    :Returns:
+        #. release (threading.Event): Set it to let the compression go on.
+        #. reached (threading.Event): Set when the compression is held.
+        #. held (list): Gets the path of the original that is held.
+    """
+    release, reached, held = threading.Event(), threading.Event(), []
+    original = FileSink._compress_file
+    real_remove = os.remove
+
+    def slow_remove(target):
+        # os.remove is patched for every thread, and only the compression thread is held
+        if threading.current_thread().name == 'pysimplelog-file-compress' and len(held) == 0:
+            held.append(target)
+            reached.set()
+            release.wait(10)
+        real_remove(target)
+
+    def slow_compress(sink, path):
+        # The real work, with the delete of the original held back: the window where the file and its compressed copy both exist
+        with mock.patch('sinks.os.remove', side_effect=slow_remove):
+            original(sink, path)
+    patcher = mock.patch.object(FileSink, '_compress_file', slow_compress)
+    patcher.start()
+    testCase.addCleanup(patcher.stop)
+    testCase.addCleanup(release.set)
+    return release, reached, held
+
+
 class TimeRotationTestCase(unittest.TestCase):
 
     def setUp(self):
@@ -243,32 +278,8 @@ class TestRetention(TimeRotationTestCase):
         wait_until(only_two_remain, 'the old files to go')
         self.assertTrue(self.names()[-1].startswith('app_2026-10-14'))
 
-    def hold_compression_after_the_copy_exists(self):
-        """Returns ``(release, reached, held)``: compression makes the compressed file, then waits for *release* before deleting the original, and *held* gets the path of that original."""
-        release, reached, held = threading.Event(), threading.Event(), []
-        original = FileSink._compress_file
-        real_remove = os.remove
-
-        def slow_remove(target):
-            # os.remove is patched for every thread, and only the compression thread is held
-            if threading.current_thread().name == 'pysimplelog-file-compress' and len(held) == 0:
-                held.append(target)
-                reached.set()
-                release.wait(10)
-            real_remove(target)
-
-        def slow_compress(sink, path):
-            # The real work, with the delete of the original held back: the window where the file and its compressed copy both exist
-            with mock.patch('sinks.os.remove', side_effect=slow_remove):
-                original(sink, path)
-        patcher = mock.patch.object(FileSink, '_compress_file', slow_compress)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.addCleanup(release.set)
-        return release, reached, held
-
     def test_the_compressed_copy_of_a_file_being_compressed_is_not_deleted_by_the_count(self):
-        release, reached, held = self.hold_compression_after_the_copy_exists()
+        release, reached, held = hold_compression_after_the_copy_exists(self)
         sink = self.make_sink(compress='gz', roll=2)
         for day in range(11, 15):
             self.write(sink, f'day {day}', stamp(2026, 10, day, 8))
@@ -278,7 +289,7 @@ class TestRetention(TimeRotationTestCase):
         release.set()
 
     def test_the_age_does_not_delete_the_compressed_copy_of_a_file_being_compressed(self):
-        release, reached, held = self.hold_compression_after_the_copy_exists()
+        release, reached, held = hold_compression_after_the_copy_exists(self)
         sink = self.make_sink(compress='gz', maxAge=3600)
         self.write(sink, 'old', stamp(2026, 10, 11, 8))
         self.write(sink, 'new', stamp(2026, 10, 12, 8))

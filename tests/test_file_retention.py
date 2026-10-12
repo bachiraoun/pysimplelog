@@ -28,6 +28,7 @@ import sinks as sinks_module  # noqa: E402
 from simple_log import Logger, FILE_SINK  # noqa: E402
 from sinks import FileSink, Sink  # noqa: E402
 from record import LogRecord  # noqa: E402
+from test_time_rotation import hold_compression_after_the_copy_exists  # noqa: E402
 
 # Seconds a test waits for something that must happen
 WAIT_SECONDS = 15.0
@@ -461,6 +462,35 @@ class TestCompression(FileTestCase):
         self.assertEqual(os.read(readEnd, 200), b'none')
         os.close(readEnd)
         os.close(writeEnd)
+
+
+class TestRollWhileCompressing(FileTestCase):
+    """A file that is being compressed is never deleted by *roll*, and neither is its compressed copy."""
+
+    def fill_until_a_compression_is_held(self, sink, held, reached):
+        # About twenty records fill a file, so this rotates several times while the first compression is held
+        self.write(sink, 0, 120)
+        self.assertTrue(reached.wait(10), 'the compression did not get to the delete')
+        self.assertTrue(os.path.isfile(f"{held[0]}.gz"))
+
+    def test_the_compressed_copy_of_a_file_being_compressed_is_not_deleted_by_roll(self):
+        release, reached, held = hold_compression_after_the_copy_exists(self)
+        sink = self.make_sink(roll=2, compress='gz')
+        self.fill_until_a_compression_is_held(sink, held, reached)
+        sink.enforce_retention()
+        self.assertTrue(os.path.isfile(f"{held[0]}.gz"), 'the compressed copy was deleted while its original was being compressed')
+        self.assertTrue(os.path.isfile(held[0]), 'the original was deleted while it was being compressed')
+        release.set()
+
+    def test_when_the_compression_ends_the_files_are_back_to_the_number_to_keep(self):
+        release, reached, held = hold_compression_after_the_copy_exists(self)
+        sink = self.make_sink(roll=2, compress='gz')
+        self.fill_until_a_compression_is_held(sink, held, reached)
+        release.set()
+        self.wait_for_compression(sink)
+        sink.enforce_retention()
+        self.assertLessEqual(len(self.names()), 2)
+        self.assertFalse(any(name.endswith('.tmp') for name in self.names()))
 
 
 class TestThreads(FileTestCase):

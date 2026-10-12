@@ -1357,22 +1357,46 @@ class FileSink(Sink):
         files.sort(key=lambda entry: (entry[0], 0 if entry[1] is None else entry[1]))
         return files
 
-    def _enforce_retention(self, files, number):
+    def _delete_oldest(self, files, busy, keep):
+        """
+        Deletes the oldest files until *keep* remain, except the files being compressed, which stay until the next test.
+
+        :Parameters:
+            #. files (list): ``(number, path)`` of the files, oldest first. The deleted ones are taken out of the list.
+            #. busy (set): The files being compressed, read before *files* was listed.
+            #. keep (int): The number of files to leave.
+        """
+        for entry in list(files):
+            if len(files) <= keep:
+                break
+            if self._is_busy(entry[1], busy):
+                continue
+            files.remove(entry)
+            self._remove(entry[1])
+
+    def _enforce_retention(self, files, number, busy):
         """
         Deletes old files as the retention settings say and returns the number to continue from.
 
         This is the only place where old files are deleted. Today it keeps at most *roll* files.
         Other policies, such as the age of a file or the total size, belong here too.
+
+        :Parameters:
+            #. files (list): ``(number, path)`` of the files that exist, oldest first.
+            #. number (int, None): The number of the newest file.
+            #. busy (set): The files being compressed, read before *files* was listed. They are not deleted.
+
+        :Returns:
+            #. number (int, None): The number to continue from.
         """
         if self.__roll is None:
             return number
-        while len(files) > self.__roll:
-            self._remove(files.pop(0)[1])
+        self._delete_oldest(files, busy, self.__roll)
         if len(files) == self.__roll and self.__maxBytes is not None:
             isFull = files[-1][1].endswith('.gz') or self._size_of(files[-1][1]) >= self.__maxBytes
             if isFull:
                 # Deleting the oldest makes room for the file about to be started
-                self._remove(files.pop(0)[1])
+                self._delete_oldest(files, busy, self.__roll - 1)
                 if number is not None:
                     number += 1
         return number
@@ -1625,15 +1649,9 @@ class FileSink(Sink):
             path = self._dated_path(key, number)
         if self.__roll is not None and not os.path.isfile(path):
             # Room for the file about to be started
-            files = [entryPath for _, _, entryPath in entries]
-            for entryPath in list(files):
-                if len(files) < self.__roll:
-                    break
-                # A file being compressed stays, or its compressed copy would appear after it is deleted. The next test removes it
-                if self._is_busy(entryPath, busy):
-                    continue
-                files.remove(entryPath)
-                self._remove(entryPath)
+            files = [(number, entryPath) for _, number, entryPath in entries]
+            # A file being compressed stays, or its compressed copy would appear after it is deleted. The next test removes it
+            self._delete_oldest(files, busy, self.__roll - 1)
         self._tidy(path)
         self.__periodKey = key
         return path
@@ -1655,9 +1673,12 @@ class FileSink(Sink):
         if len(directory) > 0:
             os.makedirs(directory, exist_ok=True)
         self._remove_twins()
+        # The busy files are read before the listing: a compression that ends in between has then still been counted as busy
+        with self.__workLock:
+            busy = set(self.__busy)
         files = self._list_existing()
         number = files[-1][0] if len(files) > 0 else self.__firstNumber
-        number = self._enforce_retention(files, number)
+        number = self._enforce_retention(files, number, busy)
         if number is None:
             path = self._numbered_path(None)
             # The unnumbered file counts as number -1, so a full one is followed by number 0
