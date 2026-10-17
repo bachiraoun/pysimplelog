@@ -21,7 +21,7 @@ try:
     from .record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from .formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter, render_markup, without_markup
     from .sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
-    from .processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
+    from .processors import add_context, redact_fields, redact_text, redact_patterns, redact_network, hide_network, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from .secret import Secret
     from .filters import sample, match_logger, match_module, match_field
     from .log_context import context, current_context, keep_context
@@ -35,7 +35,7 @@ except ImportError:
     from record import LogRecord, ExceptionInfo, CallerInfo, TraceInfo, validate_record
     from formatters import JsonFormatter, TextFormatter, TemplateFormatter, ConsoleFormatter, stream_supports_color, register_formatter, resolve_formatter, render_markup, without_markup
     from sinks import Sink, StreamSink, ConsoleSink, FileSink, CallbackSink, validate_flush_mode
-    from processors import add_context, redact_fields, redact_text, redact_patterns, hash_secrets, DEFAULT_SENSITIVE_NAMES
+    from processors import add_context, redact_fields, redact_text, redact_patterns, redact_network, hide_network, hash_secrets, DEFAULT_SENSITIVE_NAMES
     from secret import Secret
     from filters import sample, match_logger, match_module, match_field
     from log_context import context, current_context, keep_context
@@ -49,7 +49,7 @@ __all__ = [
     'JsonFormatter', 'TextFormatter', 'TemplateFormatter', 'ConsoleFormatter', 'stream_supports_color',
     'register_formatter', 'resolve_formatter', 'render_markup', 'without_markup',
     'Sink', 'StreamSink', 'ConsoleSink', 'FileSink', 'CallbackSink', 'validate_flush_mode',
-    'add_context', 'redact_fields', 'redact_text', 'redact_patterns', 'hash_secrets', 'Secret', 'DEFAULT_SENSITIVE_NAMES',
+    'add_context', 'redact_fields', 'redact_text', 'redact_patterns', 'redact_network', 'hide_network', 'hash_secrets', 'Secret', 'DEFAULT_SENSITIVE_NAMES',
     'sample', 'match_logger', 'match_module', 'match_field',
     'context', 'current_context', 'keep_context',
     'QueueFull', 'validate_queue_policy',

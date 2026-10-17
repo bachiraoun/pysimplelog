@@ -405,6 +405,51 @@ def redact_patterns(names=None, custom=None, replacement=DEFAULT_REPLACEMENT):
     return redact_text(hide)
 
 
+# Opt-in on purpose, kept apart from TEXT_PATTERNS so redact_patterns() with no names keeps its current behaviour.
+# A host with a port needs a letters-only ending such as .lan or .com, otherwise text like "v1.2:30" would match
+NETWORK_PATTERNS = (
+    ('url', r"(?i)\b(?:https?|wss?|ftps?|tcp)://[^\s/?#'\"<>]+", '<url>'),
+    ('www', r"(?i)\bwww\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?", '<host>'),
+    ('hostPort', r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}:\d{1,5}\b", '<host>'),
+    ('ipv4', r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b", '<ip>'),
+    # Only the bracketed, the full and the "::" spellings, a plain "23:18:41" time must never match
+    ('ipv6Bracket', r"\[[0-9a-fA-F:]*:[0-9a-fA-F:]*\](?::\d{1,5})?", '<ip>'),
+    ('ipv6', r"(?<![\w:])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|[0-9a-fA-F:]*::[0-9a-fA-F:]*)(?![\w:])", '<ip>'),
+)
+COMPILED_NETWORK_PATTERNS = tuple((re.compile(source), replacement) for _, source, replacement in NETWORK_PATTERNS)
+
+
+def hide_network(text):
+    """
+    Hides URLs, web addresses, host names with a port, and Internet Protocol (IP) addresses with their port in a text.
+
+    :Parameters:
+        #. text (str): The text to clean.
+
+    :Returns:
+        #. text (str): The text with every address replaced by `<url>`, `<host>` or `<ip>`.
+    """
+    for pattern, replacement in COMPILED_NETWORK_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def redact_network():
+    """
+    Makes a processor that hides network addresses in the message, the exception and every text in the fields and the context.
+
+    It is :func:`redact_text` with :func:`hide_network`. It is not part of :func:`redact_patterns`, you ask for it.
+
+    :Returns:
+        #. processor (callable): ``f(record) -> record``, to give to ``Logger.add_processor``.
+
+    .. code-block:: python
+
+        logger.add_processor(redact_network())
+    """
+    return redact_text(hide_network)
+
+
 def add_context(**values):
     """
     Adds the same values to every record, such as the service name, the environment and the host.
