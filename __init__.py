@@ -28,6 +28,7 @@ try:
     from .queues import QueueFull, validate_queue_policy
     from .spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from .namespaces import disable, enable
+    from .remote import Receiver, RemoteSink
 except ImportError:
     from __pkginfo__ import __version__, __author__, __email__, __onlinedoc__, __repository__
     from simple_log import Logger, SingleLogger, CONSOLE_SINK, FILE_SINK
@@ -42,6 +43,7 @@ except ImportError:
     from queues import QueueFull, validate_queue_policy
     from spool import SpoolConfig, SpoolError, SpoolBusyError, SpoolMismatchError
     from namespaces import disable, enable
+    from remote import Receiver, RemoteSink
 
 __all__ = [
     'Logger', 'SingleLogger', 'CONSOLE_SINK', 'FILE_SINK', 'logger',
@@ -53,7 +55,7 @@ __all__ = [
     'sample', 'match_logger', 'match_module', 'match_field',
     'context', 'current_context', 'keep_context',
     'QueueFull', 'validate_queue_policy',
-    'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError',
+    'SpoolConfig', 'SpoolError', 'SpoolBusyError', 'SpoolMismatchError', 'Receiver', 'RemoteSink',
     'StandardLoggingHandler', 'redirect_standard_logging', 'restore_standard_logging',
     'disable', 'enable',
     'get_version', 'get_author', 'get_email', 'get_doc', 'get_repository',

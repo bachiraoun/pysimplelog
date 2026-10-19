@@ -135,7 +135,7 @@ A `FileSink` rotates by size, keeps a number of files (`roll`) and deletes rotat
 
 ## Durable delivery
 
-`spool=` on a sink keeps its records on disk until the sink has delivered them: a collector that is down, or a crash, loses nothing that was written. Delivery is in order, retried, and at-least-once, with a stable `event_id` on every record so a receiver can recognise a repeat. A process that died leaves its files for another to send. See *Durable delivery* in the documentation and `examples/10_durable_delivery.py`.
+`spool=` on a sink keeps its records on disk until the sink has delivered them: a collector that is down, or a crash, loses nothing that was written. Delivery is in order, retried, and at-least-once, with a stable `event_id` on every record so a receiver can recognise a repeat. A process that died leaves its files for another to send. A sink that is removed waits for its records to be delivered for as long as the delivery progresses; the records it could not deliver are moved to the `dead` file (or deleted with `onRemove='purge'`), and the warning that follows says how many and where. See *Durable delivery* in the documentation and `examples/10_durable_delivery.py`.
 
 ## OpenTelemetry logs (optional)
 

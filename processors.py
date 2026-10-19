@@ -405,18 +405,29 @@ def redact_patterns(names=None, custom=None, replacement=DEFAULT_REPLACEMENT):
     return redact_text(hide)
 
 
+# A name that ends like a file, such as ui_run.py:407, is a place in a file and not a host. The few extensions that are also country
+# codes (py, md, sh, so, rs, ts) are on the list too: a host in one of them is rare, a file reference is everywhere in a log
+FILE_EXTENSIONS = ('py', 'pyx', 'pxd', 'pyc', 'js', 'ts', 'jsx', 'tsx', 'mjs', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'java', 'kt', 'go', 'rs', 'rb', 'php',
+                   'sh', 'bat', 'cmd', 'sql', 'txt', 'log', 'md', 'rst', 'json', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'csv', 'xml', 'html',
+                   'htm', 'css', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'zip', 'gz', 'tar', 'tgz', 'so', 'dll', 'exe', 'lock', 'tmp', 'bak')
 # Opt-in on purpose, kept apart from TEXT_PATTERNS so redact_patterns() with no names keeps its current behaviour.
-# A host with a port needs a letters-only ending such as .lan or .com, otherwise text like "v1.2:30" would match
+# A host with a port needs a letters-only ending such as .lan or .com, otherwise text like "v1.2:30" would match.
+# (?i:...) limits the case flag to its own pattern, because a global flag cannot sit inside an alternation
 NETWORK_PATTERNS = (
-    ('url', r"(?i)\b(?:https?|wss?|ftps?|tcp)://[^\s/?#'\"<>]+", '<url>'),
-    ('www', r"(?i)\bwww\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?", '<host>'),
-    ('hostPort', r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}:\d{1,5}\b", '<host>'),
+    ('url', r"(?i:\b(?:https?|wss?|ftps?|tcp)://[^\s/?#'\"<>]+)", '<url>'),
+    ('www', r"(?i:\bwww\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?)", '<host>'),
+    ('hostPort', r"(?i:\b(?:[a-z0-9-]+\.)+(?!(?:%s):)[a-z]{2,}:\d{1,5}\b)" % '|'.join(FILE_EXTENSIONS), '<host>'),
     ('ipv4', r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b", '<ip>'),
     # Only the bracketed, the full and the "::" spellings, a plain "23:18:41" time must never match
     ('ipv6Bracket', r"\[[0-9a-fA-F:]*:[0-9a-fA-F:]*\](?::\d{1,5})?", '<ip>'),
     ('ipv6', r"(?<![\w:])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|[0-9a-fA-F:]*::[0-9a-fA-F:]*)(?![\w:])", '<ip>'),
 )
-COMPILED_NETWORK_PATTERNS = tuple((re.compile(source), replacement) for _, source, replacement in NETWORK_PATTERNS)
+# A cheap test that every text holding an address passes: a text without any of these shapes is returned untouched, which is
+# almost every log line. Together with the colon count in hide_network() it must stay a superset of what NETWORK_PATTERNS can match
+NETWORK_CANDIDATE_REGEX = re.compile(r"://|www\.|\d\.\d{1,3}\.\d|::|\[[0-9a-fA-F:]*:|[A-Za-z0-9-]\.[A-Za-z]{2,}:\d")
+# One pass over the text, the first pattern that matches at a position wins
+NETWORK_REGEX = re.compile('|'.join(f'(?P<{name}>{source})' for name, source, _ in NETWORK_PATTERNS))
+NETWORK_REPLACEMENTS = {name: replacement for name, _, replacement in NETWORK_PATTERNS}
 
 
 def hide_network(text):
@@ -429,9 +440,10 @@ def hide_network(text):
     :Returns:
         #. text (str): The text with every address replaced by `<url>`, `<host>` or `<ip>`.
     """
-    for pattern, replacement in COMPILED_NETWORK_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
+    # The full IPv6 spelling has seven colons and none of the shapes above, counting them costs far less than a pattern for it
+    if NETWORK_CANDIDATE_REGEX.search(text) is None and text.count(':') < 7:
+        return text
+    return NETWORK_REGEX.sub(lambda match: NETWORK_REPLACEMENTS[match.lastgroup], text)
 
 
 def redact_network():

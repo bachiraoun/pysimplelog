@@ -4,6 +4,7 @@ import os
 import queue
 import sys
 import threading
+import time
 from types import MappingProxyType
 
 try:
@@ -193,23 +194,64 @@ class DurableDelivery:
         except SpoolError:
             return False
 
-    def stop(self, timeout):
+    def _wait_for_delivery(self, stallTimeout):
         """
-        Delivers what it can in *timeout* seconds, then stops the thread and closes the spool. What is left stays on disk for the next run.
+        Waits for the spool to empty, as long as records keep being delivered.
 
-        What is not delivered stays on disk for the next run, or for another process that adopts it.
+        It gives up when nothing was delivered for *stallTimeout* seconds, or when the longest wait of the settings is reached.
 
         :Parameters:
-            #. timeout (int, float): Seconds to wait for the delivery, and again for the worker to end.
+            #. stallTimeout (int, float): Seconds without any delivery after which it gives up.
+
+        :Returns:
+            #. isEmpty (bool): True when every record was delivered.
+        """
+        cap = time.monotonic() + self.__config.maxDrainSeconds
+        # The records the sink delivered are counted one by one, the acknowledged position of the spool is only saved now and then
+        lastCount, lastProgress = self.__handler.stats['processed'], time.monotonic()
+        while True:
+            if self.flush(min(1.0, stallTimeout)):
+                return True
+            now = time.monotonic()
+            count = self.__handler.stats['processed']
+            if count != lastCount:
+                lastCount, lastProgress = count, now
+            if now - lastProgress >= stallTimeout or now >= cap:
+                return False
+
+    def stop(self, timeout):
+        """
+        Delivers what it can, stops the thread, and deals with the records that were not delivered as the *onRemove* setting says.
+
+        The delivery goes on as long as records keep being delivered. The records left are moved to the ``dead`` file, where they are
+        never sent again unless replayed on purpose, or deleted when the setting is ``'purge'``.
+
+        :Parameters:
+            #. timeout (int, float): Seconds without any delivery after which the wait ends, and the time to wait for the worker to end.
+
+        :Returns:
+            #. outcome (dict): ``left`` (records not delivered, and with ``'purge'`` also the ones given up earlier), ``action``
+               (``'dead_letter'`` or ``'purge'``, None when nothing was left) and ``path`` (the folder of the spool, None when nothing was left).
         """
         if self._is_child():
             # The worker and the files belong to the parent, which stops and closes them
-            return
-        self.flush(timeout)
+            return {'left': 0, 'action': None, 'path': None}
+        self._wait_for_delivery(timeout)
         self.__stop.set()
         self.__hints.put_last(_Stop())
         self.__thread.join(timeout=timeout)
+        path = self.__spool.path
+        if self.__config.onRemove == 'purge':
+            # The whole slot goes, the records given up earlier included, so the number says everything that was deleted
+            purged = self.__spool.close(purge=True)
+            return {'left': purged, 'action': 'purge' if purged > 0 else None, 'path': path if purged > 0 else None}
+        left = self.__spool.depth
+        if left == 0:
+            self.__spool.close()
+            return {'left': 0, 'action': None, 'path': None}
+        self.__spool.dead_letter_pending('the sink was removed before delivery')
         self.__spool.close()
+        return {'left': left, 'action': 'dead_letter', 'path': path}
 
     def adopt_orphans(self, timeout):
         """

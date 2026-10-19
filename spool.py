@@ -399,6 +399,10 @@ class SpoolConfig:
         #. adoptBatch (int): Number of records of another slot sent each time the sink is idle.
         #. eventIdField (str, None): Name of the field that carries the unique, stable id of each record, so a receiver can
            recognize a record that arrives twice. None adds no id. A field of the record with the same name is kept.
+        #. onRemove (str): What a sink does with the records it could not deliver when it is removed. ``'dead_letter'`` moves them
+           to the ``dead`` file, where they are never sent again unless replayed on purpose. ``'purge'`` deletes them, for a
+           spool that nothing will ever read again. Either way the number of records is logged.
+        #. maxDrainSeconds (int, float): The longest a removed sink waits for its records to be delivered, however well the delivery progresses.
 
     :Raises:
         #. TypeError: If a setting has the wrong type.
@@ -432,6 +436,8 @@ class SpoolConfig:
     adoptInterval: float = 30.0
     adoptBatch: int = 100
     eventIdField: str | None = 'event_id'
+    onRemove: str = 'dead_letter'
+    maxDrainSeconds: float = 300.0
 
     def __post_init__(self):
         path = os.fspath(self.path) if isinstance(self.path, os.PathLike) else self.path
@@ -455,6 +461,9 @@ class SpoolConfig:
             raise ValueError("retryBackoffBase cannot be larger than retryBackoffMax")
         if not isinstance(self.adoptOrphans, bool):
             raise TypeError("adoptOrphans must be a boolean")
+        if self.onRemove not in ('dead_letter', 'purge'):
+            raise ValueError("onRemove must be 'dead_letter' or 'purge'")
+        _check_seconds('maxDrainSeconds', self.maxDrainSeconds)
         validate_queue_policy(self.policy)
         object.__setattr__(self, 'flush', validate_flush_mode(self.flush))
 
@@ -1285,27 +1294,57 @@ class Spool:
         """The folder of this spool."""
         return self.__path
 
-    def close(self):
+    def dead_letter_pending(self, reason):
+        """
+        Moves every record that was not delivered to the ``dead`` file, where it is never sent again unless it is replayed on purpose.
+
+        .. code-block:: python
+
+            moved = spool.dead_letter_pending("the sink was removed before delivery")
+
+        :Parameters:
+            #. reason (str): Why they were given up. It is written to disk, so it must not hold secrets.
+
+        :Returns:
+            #. moved (int): Number of records moved.
+        """
+        moved = 0
+        while True:
+            batch = self.pending(limit=500)
+            if len(batch) == 0:
+                return moved
+            for seq, record in batch:
+                self.give_up(seq, record, reason)
+                moved += 1
+
+    def close(self, purge=False):
         """
         Closes the spool and gives its folder back. When every record was delivered the files are deleted, so a clean shutdown leaves nothing behind.
 
         When every record was delivered, the files and the folder are deleted, so a clean shutdown leaves nothing behind.
-        When records are left, or the ``dead`` file holds some, everything stays for the next run. Calling it again
-        does nothing.
+        When records are left, or the ``dead`` file holds some, everything stays for the next run. With *purge* the records
+        not delivered and the ``dead`` files are deleted too. Calling it again does nothing.
 
         .. code-block:: python
 
             spool.close()        ## files are deleted when everything was delivered
+
+        :Parameters:
+            #. purge (bool): True deletes the records not delivered, and the ``dead`` files, instead of keeping them.
+
+        :Returns:
+            #. purged (int): With *purge*, the number of records deleted: the ones not delivered and the ones in the ``dead`` files. 0 otherwise.
         """
         with self.__condition:
             if self.__isClosed:
-                return
+                return 0
             self.__isClosed = True
             if self.__pid != os.getpid():
                 # A forked child shares the files with its parent, it must not write to them or delete them
                 self.__lock.release()
-                return
-            isEmpty = self.__ackedSeq >= self.__nextSeq - 1
+                return 0
+            purged = max(self.__nextSeq - 1 - self.__ackedSeq, 0) if purge else 0
+            isEmpty = purge or self.__ackedSeq >= self.__nextSeq - 1
             if self.__active is not None:
                 self.__active.close()
                 self.__active = None
@@ -1318,6 +1357,15 @@ class Spool:
                 self.__segments = []
                 self.__bytes = 0
             self.__condition.notify_all()
+            if purge:
+                for name in (DEAD_FILE, f"{DEAD_FILE}.old"):
+                    deadPath = os.path.join(self.__path, name)
+                    try:
+                        with open(deadPath, 'rb') as stream:
+                            purged += sum(1 for _ in stream)
+                        os.remove(deadPath)
+                    except FileNotFoundError:
+                        pass
             hasDead = any(os.path.exists(os.path.join(self.__path, name)) for name in (DEAD_FILE, f"{DEAD_FILE}.old"))
             self.__lock.release()
             # A file that could not be deleted keeps the folder, its ack file and its meta file: they are what tells the next run
@@ -1333,6 +1381,7 @@ class Spool:
                 except OSError:
                     # Something else is in the folder, it is not ours to delete
                     pass
+        return purged
 
     def _check_usable(self):
         """Raises when the spool is closed, or when it is used from a process that does not own it."""

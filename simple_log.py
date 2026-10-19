@@ -966,16 +966,19 @@ class _Sink(object):
 
         :Parameters:
             #. timeout (float): Seconds to wait at most for the queue to empty before the thread is
-               stopped.
+               stopped. For an output with a spool, seconds without any delivery after which the wait ends.
+
+        :Returns:
+            #. outcome (dict): What the output's spool could not deliver: ``left`` (number of records), ``action`` (``'dead_letter'``
+               or ``'purge'``) and ``path`` (the spool folder). ``left`` is 0 for an output without a spool.
         """
         if not self.threaded:
-            return
+            return {'left': 0, 'action': None, 'path': None}
         if self.durable is not None:
-            self.durable.stop(timeout)
-            return
+            return self.durable.stop(timeout)
         if os.getpid() != self._pid:
             # The worker belongs to the parent, which stops it
-            return
+            return {'left': 0, 'action': None, 'path': None}
         self.flush_threaded(timeout=timeout)
         self._queue.put_last(_QUEUE_STOP)
         self._thread.join(timeout=timeout)
@@ -985,6 +988,7 @@ class _Sink(object):
                 sys.stderr.write(f"pysimplelog WARNING: {waiting} records were not written by the sink "
                                  f"{type(self.handler).__name__} before the program ended. Raise shutdownTimeout "
                                  "or call flush() before the end\n")
+        return {'left': 0, 'action': None, 'path': None}
 
     def queue_stats(self):
         """Returns the counters of the output's private queue, or None when the output is not threaded."""
@@ -1028,12 +1032,16 @@ class _Sink(object):
 
         :Parameters:
             #. timeout (float): Seconds to wait for the private queue to drain.
+
+        :Returns:
+            #. outcome (dict): What the output's spool could not deliver, see :meth:`stop_threaded`.
         """
-        self.stop_threaded(timeout=timeout)
+        outcome = self.stop_threaded(timeout=timeout)
         try:
             self.handler.close()
         except Exception as closeError:
             sys.stderr.write('pysimplelog WARNING: sink close failed. Error: %s\n' % describe_error(closeError))
+        return outcome
 
     def __repr__(self):
         return (
@@ -2297,8 +2305,11 @@ class Logger(object):
                                  "(the log queue). Raise shutdownTimeout or call flush() before the end\n")
         # every sink is flushed and closed, a threaded sink's private thread is stopped first.
         # A file-like object given to add_sink() is only flushed, its owner closes it
-        for sink in self.__sinks.values():
-            sink.release(self.__shutdownTimeout)
+        for name, sink in self.__sinks.items():
+            outcome = sink.release(self.__shutdownTimeout)
+            if outcome['left'] > 0:
+                sys.stderr.write(f"pysimplelog WARNING: the sink {name!r} ended with {outcome['left']} undelivered records. "
+                                 f"Action: {outcome['action']}. Location: {outcome['path']}\n")
 
     @property
     def processors(self):
@@ -4196,7 +4207,24 @@ class Logger(object):
         self.__update_sink_filter_flag()
         self.__update_trace_flag()
         self.__rebuild_active_sinks()
-        sink.release(timeout=timeout)
+        self.__report_undelivered(name, sink.release(timeout=timeout))
+
+    def __report_undelivered(self, name, outcome, toErrorStream=False):
+        """
+        Logs the records a removed output could not deliver, through the outputs that remain.
+
+        :Parameters:
+            #. name (str): The name of the removed output.
+            #. outcome (dict): What the output's spool left, see :meth:`_Sink.stop_threaded`.
+            #. toErrorStream (bool): True also writes the message to the error stream. Used when every output is removed at once, so
+               that there may be no output left to receive the log.
+        """
+        if outcome['left'] > 0:
+            self.log('warn', "The sink '{}' was removed with {} undelivered records. Action: {}. Location: {}",
+                     name, outcome['left'], outcome['action'], outcome['path'])
+            if toErrorStream:
+                sys.stderr.write(f"pysimplelog WARNING: the sink {name!r} was removed with {outcome['left']} undelivered records. "
+                                 f"Action: {outcome['action']}. Location: {outcome['path']}\n")
 
     def remove(self, name, timeout=5.0):
         """
@@ -4233,8 +4261,8 @@ class Logger(object):
             self.__update_sink_filter_flag()
             self.__update_trace_flag()
             self.__rebuild_active_sinks()
-        for sink in removedSinks:
-            sink.release(timeout=timeout)
+        for name, sink in zip(userKeys, removedSinks):
+            self.__report_undelivered(name, sink.release(timeout=timeout), toErrorStream=True)
 
     def force_log_type_stdout_flag(self, logType, flag):
         """

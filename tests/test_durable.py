@@ -149,6 +149,50 @@ print(logger.sink_stats('c')['spool']['slot'], flush=True)
 os._exit(0)
 '''
 
+# A sink with no host of its own, only a target text, and a transport that always fails: both leave a slot for another sink to adopt
+TARGET_SCRIPT = COLLECTOR_SOURCE + '''
+class Anonymous(Sink):
+    def __init__(self):
+        super().__init__(formatter=lambda record: record.message)
+
+    def write(self, text, record):
+        return False
+
+
+base, target, message = sys.argv[2], sys.argv[3], sys.argv[4]
+logger = Logger('child', logToFile=False, logToStdout=False)
+logger.add_sink('c', Anonymous(), threaded=True,
+                spool={'path': base, 'id': 'test', 'target': target, 'maxBytes': 10**7, 'totalMaxBytes': 10**8,
+                       'retryBackoffBase': 0.01, 'retryBackoffMax': 0.05})
+logger.info(message)
+print(os.path.basename(logger.sink_stats('c')['spool']['slot']), flush=True)
+os._exit(0)
+'''
+
+SIEM_SCRIPT = COLLECTOR_SOURCE + '''
+from contrib import siem_sink, siem_transport
+
+
+class FailingTcp(siem_transport.TCPSyslogTransport):
+    def __init__(self):
+        super().__init__('Collector.Example.org', 6514)
+
+    def send(self, payload):
+        raise ConnectionError('simulated')
+
+    def close(self):
+        pass
+
+
+base = sys.argv[2]
+logger = Logger('child', logToFile=False, logToStdout=False)
+siem_sink.attach(logger, FailingTcp(), spool={'path': base, 'id': 'test', 'maxBytes': 10**7, 'totalMaxBytes': 10**8,
+                                              'retryBackoffBase': 0.01, 'retryBackoffMax': 0.05}, maxRetries=0)
+logger.error('left behind')
+print(os.path.basename(logger.sink_stats('siem')['spool']['slot']), flush=True)
+os._exit(0)
+'''
+
 HOLD_SCRIPT = COLLECTOR_SOURCE + '''
 base, count = sys.argv[2], int(sys.argv[3])
 logger = make(base, 'c1', False, 'test', os.devnull)
@@ -525,20 +569,32 @@ class TestRunsOfAcknowledgements(DurableTestCase):
         logger.flush(timeout=WAIT_SECONDS)
         self.assertEqual(sink.messages(), [f'm{index}' for index in range(20)])
 
-    def test_stopping_in_the_middle_of_a_backlog_keeps_only_what_was_not_delivered(self):
+    def test_a_backlog_that_keeps_being_delivered_is_waited_for_beyond_the_timeout(self):
         sink = Collector(delay=0.004)
         logger, _ = self.make(sink=sink, hintSize=1000)
         for index in range(300):
             logger.info(f'm{index}')
-        logger.remove_sink('c', timeout=0.2)
+        logger.remove_sink('c', timeout=0.2)            # the backlog needs about 1.2 seconds, but it never stands still for 0.2
+        self.assertEqual(sink.messages(), [f'm{index}' for index in range(300)])
+        self.assertEqual(self.slots(), [])
+
+    def test_stopping_at_the_longest_wait_dead_letters_only_what_was_not_delivered(self):
+        sink = Collector(delay=0.004)
+        logger, _ = self.make(sink=sink, hintSize=1000, maxDrainSeconds=0.3)
+        for index in range(300):
+            logger.info(f'm{index}')
+        logger.remove_sink('c', timeout=5.0)
         delivered = len(sink.got)
         self.assertTrue(0 < delivered < 300)
         spool = Spool.open(os.path.join(self.base, self.slots()[0]), 'test', 'Collector',
                            __import__('spool').target_id('Collector', host='c1'), 10 ** 7, 10 ** 8)
         try:
-            self.assertEqual([seq for seq, _ in spool.pending()], list(range(delivered + 1, 301)))
+            self.assertEqual(spool.pending(), [])
         finally:
             spool.close()
+        with open(os.path.join(self.base, self.slots()[0], 'dead'), encoding='ascii') as stream:
+            dead = [json.loads(line)['record']['message'] for line in stream]
+        self.assertEqual(sink.messages() + dead, [f'm{index}' for index in range(300)])    # nothing lost, nothing sent twice
 
     def test_the_last_record_of_a_burst_is_acknowledged_without_waiting_for_more(self):
         logger, sink = self.make()
@@ -578,7 +634,7 @@ class TestFlushAndStop(DurableTestCase):
         self.assertLess(time.monotonic() - started, 5.0)
         self.assertEqual(self.spool_stats(logger)['depth'], 3)
 
-    def test_removing_a_sink_keeps_what_was_not_delivered(self):
+    def test_removing_a_sink_moves_what_was_not_delivered_to_the_dead_file(self):
         logger, sink = self.make(sink=Collector(up=False))
         for index in range(5):
             logger.info(f'm{index}')
@@ -587,9 +643,13 @@ class TestFlushAndStop(DurableTestCase):
         spool = Spool.open(os.path.join(self.base, self.slots()[0]), 'test', 'Collector',
                            __import__('spool').target_id('Collector', host='c1'), 10 ** 7, 10 ** 8)
         try:
-            self.assertEqual(len(spool.pending()), 5)
+            self.assertEqual(len(spool.pending()), 0)         # nothing stays live for a sink added later
         finally:
             spool.close()
+        with open(os.path.join(self.base, self.slots()[0], 'dead'), encoding='ascii') as stream:
+            dead = [json.loads(line) for line in stream]
+        self.assertEqual([item['record']['message'] for item in dead], [f'm{index}' for index in range(5)])
+        self.assertEqual({item['reason'] for item in dead}, {'the sink was removed before delivery'})
 
     def test_removing_a_sink_ends_its_worker_thread(self):
         def workers():
@@ -752,6 +812,17 @@ class TestFork(DurableTestCase):
         self.assertEqual(self.spool_stats(logger)['spooled'], 2)           # nor in the parent's spool
 
 
+class Anonymous(Sink):
+    """A sink that says no host, so a spool tells who may adopt its slot only by the target text. At module level because a slot keeps the class name."""
+
+    def __init__(self):
+        super().__init__(formatter=lambda record: record.message)
+        self.got = []
+
+    def write(self, text, record):
+        self.got.append(text.strip())
+
+
 class TestSetup(DurableTestCase):
 
     def _refused(self, logger, error, sink=None, **options):
@@ -806,20 +877,10 @@ class TestSetup(DurableTestCase):
         self.logger.add_sink('c', Collector(), threaded=True, spool=self.settings())
 
     def test_the_target_text_decides_who_adopts(self):
-        class Anonymous(Sink):
-            def __init__(self):
-                super().__init__(formatter=lambda record: record.message)
-                self.got = []
-
-            def write(self, text, record):
-                self.got.append(text.strip())
-
         logger = self.logger
-        down = Anonymous()
-        down.write = lambda text, record: False
-        logger.add_sink('first', down, threaded=True, spool=self.settings(target='north'))
-        logger.info('for the north')
-        logger.remove_sink('first', timeout=0.2)
+        process = self.run_script(TARGET_SCRIPT, self.base, 'north', 'for the north')      # a process that ended without any cleanup
+        process.stdout.readline()
+        process.wait(timeout=WAIT_SECONDS)
         south = Anonymous()
         logger.add_sink('second', south, threaded=True, spool=self.settings(target='south'))
         buffer, previous = io.StringIO(), sys.stderr
@@ -908,12 +969,11 @@ class TestSiem(DurableTestCase):
         self.assertNotIn('siem', logger.sinks)
 
     def test_the_same_collector_under_another_token_adopts_the_slot(self):
-        first = FakeTcp(failures=10 ** 6)
+        process = self.run_script(SIEM_SCRIPT, self.base)           # a process that ended without any cleanup
+        process.stdout.readline()
+        process.wait(timeout=WAIT_SECONDS)
         logger = Logger('siem', logToFile=False, logToStdout=False)
         self.loggers.append(logger)
-        siem_sink.attach(logger, first, spool=self.settings(), maxRetries=0)
-        logger.error('left behind')
-        logger.remove_sink('siem', timeout=0.2)
         second = FakeTcp()
         siem_sink.attach(logger, second, spool=self.settings(), maxRetries=0)
         self.assertEqual(logger.adopt_orphans('siem', timeout=WAIT_SECONDS)['replayed'], 1)

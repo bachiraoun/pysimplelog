@@ -4,14 +4,16 @@ Durable delivery: a sink keeps its records on disk until the receiver has them.
 A collector that is down, or a program that crashes, loses nothing that was written. This script plays three parts:
 
 1. the collector is down, so the records wait on disk;
-2. the program ends before they are delivered, which leaves its files behind;
-3. a new run sends them, with the same ``event_id`` each record had, and the files are deleted.
+2. the sink is removed while the collector is still down: the records are moved to the ``dead`` file, a warning says how many and
+   where, and nothing stays in the spool that a later sink could send by accident;
+3. a new sink on the same spool does not send them: dead letters are only sent on purpose.
 
 Run directly::
 
     python3 examples/10_durable_delivery.py
 """
 import os
+import sys
 import tempfile
 import time
 
@@ -37,6 +39,7 @@ class Collector(Sink):
 
 def make_logger(spoolFolder, isUp, **options):
     logger = Logger('durable-example', logToFile=False, logToStdout=False)
+    logger.add_sink('screen', sys.stdout, minLevel=15)      # shows the warning of a sink removed with records left
     settings = {'path': spoolFolder, 'id': 'example', 'maxBytes': 10 * 1024 ** 2, 'totalMaxBytes': 50 * 1024 ** 2,
                 'retryBackoffBase': 0.05, 'retryBackoffMax': 0.2}
     settings.update(options)
@@ -55,19 +58,17 @@ def main():
     stats = logger.sink_stats('collector')['spool']
     print(f"  on disk: {stats['depth']} records, {stats['retries']} tries so far")
 
-    print('2. The program ends before the collector is back: the files stay')
+    print('2. The sink is removed while the collector is still down: the warning says what happened to the records')
     logger.remove_sink('collector', timeout=0.2)
-    print(f"  slots left on disk: {len(os.listdir(spoolFolder))}")
+    deadFiles = [os.path.join(root, 'dead') for root, _, names in os.walk(spoolFolder) if 'dead' in names]
+    with open(deadFiles[0], encoding='ascii') as stream:
+        print(f"  dead letters on disk: {len(stream.readlines())}")
 
-    print('3. A new run, with the collector up, sends them')
+    print('3. A new sink on the same spool, with the collector up, does not send them')
     logger = make_logger(spoolFolder, isUp=True, adoptOrphans=True, adoptInterval=0.05)
-    deadline = time.time() + 10
-    while time.time() < deadline and len(os.listdir(spoolFolder)) > 1:
-        time.sleep(0.05)
     logger.info('a record of the new run')
     logger.flush()
     logger.remove_sink('collector')
-    print(f"  slots left on disk: {len(os.listdir(spoolFolder))}")
 
 
 if __name__ == '__main__':
