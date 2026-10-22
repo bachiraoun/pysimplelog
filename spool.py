@@ -794,7 +794,8 @@ class Spool:
                 continue
             try:
                 # os.stat and not entry.stat(): on Windows the directory listing keeps a stale size for files still open for writing
-                total += sum(os.stat(entry.path).st_size for entry in os.scandir(slot) if entry.is_file())
+                with os.scandir(slot) as entries:
+                    total += sum(os.stat(entry.path).st_size for entry in entries if entry.is_file())
             except OSError:
                 # A slot deleted while it is being measured is simply not counted
                 pass
